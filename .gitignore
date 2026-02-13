@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+out/
+cache/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Markdown (only README.md is committed)
+*.md
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Foundry
+contracts/cache/
+contracts/out/
+
+# CRE
+*.wasm
