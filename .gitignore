@@ -22,6 +22,21 @@ Thumbs.db
 # Foundry
 contracts/cache/
 contracts/out/
+contracts/broadcast/
 
 # CRE
 *.wasm
+
+# Demo data (all)
+demo-data/
+
+# Demo projects (cloned repos)
+demo-projects/
+
+# Temporary files
+*.png
+test-poc.json
+tmp.js
+
+# Debug screenshots
+debug-screenshots/
