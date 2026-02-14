@@ -1,0 +1,9 @@
+{
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "bountyHubAddress": "0x0000000000000000000000000000000000000000",
+  "gasLimit": "800000",
+  "tenderlyAccountSlug": "your-account",
+  "tenderlyProjectSlug": "antisoon",
+  "llmApiUrl": "https://api.openai.com/v1/chat/completions",
+  "ipfsGateway": "https://ipfs.io/ipfs/"
+}

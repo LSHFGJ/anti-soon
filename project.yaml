@@ -1,0 +1,6 @@
+staging-settings:
+  rpcs:
+    ethereum-testnet-sepolia:
+      url: "https://ethereum-sepolia-rpc.publicnode.com"
+  account:
+    workflow-owner-address: ""
