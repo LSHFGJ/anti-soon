@@ -87,10 +87,15 @@ const verifyPoC = (
   const httpClient = new HTTPClient()
   const config = nodeRuntime.config
 
-  // ═══ HTTP 1: Fetch PoC from IPFS ═══
-  const ipfsCid = pocURI.replace("ipfs://", "")
+  // ═══ HTTP 1: Fetch PoC from IPFS or HTTP ═══
+  let pocUrl: string
+  if (pocURI.startsWith("ipfs://")) {
+    pocUrl = `${config.ipfsGateway}${pocURI.replace("ipfs://", "")}`
+  } else {
+    pocUrl = pocURI // Direct HTTP(S) URL
+  }
   const pocResp = httpClient.sendRequest(nodeRuntime, {
-    url: `${config.ipfsGateway}${ipfsCid}`,
+    url: pocUrl,
     method: "GET" as const,
   }).result()
 
