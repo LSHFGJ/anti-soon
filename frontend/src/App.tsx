@@ -1,15 +1,24 @@
-import React from 'react'
+import { useState } from 'react'
 import { Hero } from './components/Hero'
 import { PoCBuilder } from './components/PoCBuilder'
 import { HowItWorks } from './components/HowItWorks'
 import { useWallet } from './hooks/useWallet'
+import { DEMO_PROJECTS } from './config'
 
 function App() {
   const { isConnected, address, connect } = useWallet()
+  const [selectedProject, setSelectedProject] = useState<typeof DEMO_PROJECTS[0] | null>(null)
 
   const scrollToBuilder = () => {
     const builder = document.getElementById('builder')
     builder?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleStart = (project?: typeof DEMO_PROJECTS[0]) => {
+    if (project) {
+      setSelectedProject(project)
+    }
+    scrollToBuilder()
   }
 
   return (
@@ -34,8 +43,8 @@ function App() {
       </nav>
       
       <main>
-        <Hero onStart={scrollToBuilder} />
-        <PoCBuilder />
+        <Hero onStart={handleStart} selectedProject={selectedProject} />
+        <PoCBuilder selectedProject={selectedProject} />
         <HowItWorks />
       </main>
 
