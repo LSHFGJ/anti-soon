@@ -82,7 +82,9 @@ const verifyPoC = (
   nodeRuntime: NodeRuntime<Config>,
   submissionId: bigint,
   pocHash: string,
-  pocURI: string
+  pocURI: string,
+  tenderlyApiKey: string,
+  llmApiKey: string
 ): VerificationResult => {
   const httpClient = new HTTPClient()
   const config = nodeRuntime.config
@@ -108,7 +110,7 @@ const verifyPoC = (
   nodeRuntime.log(`PoC fetched: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
 
   // ═══ HTTP 2: Create Tenderly Virtual TestNet ═══
-  const tenderlyApiKey = nodeRuntime.getSecret({ id: "TENDERLY_API_KEY" }).result()
+
 
   const createVnetResp = httpClient.sendRequest(nodeRuntime, {
     url: `https://api.tenderly.co/api/v1/account/${config.tenderlyAccountSlug}/project/${config.tenderlyProjectSlug}/vnets`,
@@ -241,7 +243,7 @@ const verifyPoC = (
   nodeRuntime.log(`TX results: ${txSuccesses.map((s, i) => `tx${i}=${s ? "OK" : "FAIL"}`).join(", ")}`)
 
   // ═══ HTTP 4: LLM Analysis ═══
-  const llmApiKey = nodeRuntime.getSecret({ id: "LLM_API_KEY" }).result()
+
 
   const prompt = [
     "Analyze this smart contract exploit simulation result.",
@@ -316,24 +318,32 @@ const verifyPoC = (
 // ═══════════════════ Main Handler ═══════════════════
 
 const onPoCSubmitted = (runtime: Runtime<Config>, log: EVMLog): string => {
-  const submissionId = BigInt("0x" + bytesToHex(log.topics[1]).slice(2))
-  const projectId = BigInt("0x" + bytesToHex(log.topics[2]).slice(2))
-  const auditorHex = "0x" + bytesToHex(log.topics[3]).slice(26)
+  const topic1 = bytesToHex(log.topics[1])
+  const topic2 = bytesToHex(log.topics[2])
+  const topic3 = bytesToHex(log.topics[3])
+  const submissionId = BigInt(topic1.startsWith("0x") ? topic1 : "0x" + topic1)
+  const projectId = BigInt(topic2.startsWith("0x") ? topic2 : "0x" + topic2)
+  const auditorTopic = topic3.startsWith("0x") ? topic3 : "0x" + topic3
+  const auditorHex = "0x" + auditorTopic.slice(-40)
 
   runtime.log(`PoC Submission #${submissionId} received`)
   runtime.log(`Project: ${projectId}, Auditor: ${auditorHex}`)
 
-  const dataHex = ("0x" + bytesToHex(log.data)) as `0x${string}`
+  const rawHex = bytesToHex(log.data)
+  const dataHex = (rawHex.startsWith("0x") ? rawHex : "0x" + rawHex) as `0x${string}`
   const [pocHash, pocURI] = decodeAbiParameters(PoCSubmittedDataParams, dataHex)
 
   runtime.log(`pocHash: ${pocHash}`)
   runtime.log(`pocURI: ${pocURI}`)
 
+  const tenderlyApiKey = runtime.getSecret({ id: "TENDERLY_API_KEY" }).result().value
+  const llmApiKey = runtime.getSecret({ id: "LLM_API_KEY" }).result().value
+
   const verifyResult = runtime
     .runInNodeMode(
       verifyPoC,
       consensusIdenticalAggregation<VerificationResult>()
-    )(submissionId, pocHash as string, pocURI)
+    )(submissionId, pocHash as string, pocURI, tenderlyApiKey, llmApiKey)
     .result()
 
   runtime.log(`Verification result: valid=${verifyResult.isValid}, severity=${verifyResult.severity}`)
