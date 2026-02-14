@@ -198,16 +198,63 @@ cd frontend && npm run dev
 # Open http://localhost:5173
 ```
 
-## Demo Scenario
+## Demo Scenario: Sequence Wallet
 
-AntiSoon is demonstrated using a real audit competition case from [Cantina's Silo V2 audit](https://cantina.xyz/competitions/18f1e37b-9ac2-4ba9-b32e-50344500c1a7) ($250K prize pool, 247 findings submitted). The demo replays a known vulnerability through AntiSoon's automated pipeline:
+**Demo Project**: [Sequence](https://github.com/code-423n4/2025-10-sequence) - Modular crypto infrastructure stack for account abstraction (ERC-4337)
 
-1. **Project registers** on BountyHub with a bounty pool
-2. **Auditor submits** a structured PoC targeting the vulnerability
-3. **CRE Workflow** triggers: forks mainnet via Tenderly → executes PoC → LLM analyzes
-4. **Bounty auto-paid** to auditor upon successful verification
+**Audit Details**: Code4rena Oct 2025 | $73,000 USDC | 297 H/M findings | 561 submissions
 
-Full cycle completes in **< 10 seconds** — compared to weeks on traditional platforms.
+### Vulnerabilities Demonstrated
+
+| ID | Severity | Title | PoC |
+|----|----------|-------|-----|
+| H-01 | High | Chained signature bypasses checkpointer validation | `pocs/H-01-checkpointer-bypass.t.sol` |
+| H-02 | High | Partial signature replay attack on session calls | `pocs/H-02-partial-replay-attack.t.sol` |
+
+### Demo Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. Register: Sequence project → BountyHub.sol                 │
+│     └─ Bounty: 73,000 USDC escrow                               │
+│                                                                 │
+│  2. Submit: Auditor submits PoC for H-01                        │
+│     └─ pocURI: ipfs://QmXxx... (JSON payload)                  │
+│     └─ pocHash: 0xabc123... (integrity check)                  │
+│                                                                 │
+│  3. Verify: CRE Workflow triggers automatically                │
+│     ├─ HTTP 1: Fetch PoC from IPFS                              │
+│     ├─ HTTP 2: Tenderly fork mainnet @ block 21M               │
+│     ├─ HTTP 3: Execute attack (setBalance + eth_sendTx)        │
+│     ├─ HTTP 4: LLM analyzes: "Valid High severity exploit"     │
+│     └─ Consensus: All DON nodes agree                          │
+│                                                                 │
+│  4. Payout: $27,086.77 USDC → auditor wallet                   │
+│     └─ Time: < 10 seconds total                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Run the Demo
+
+```bash
+# 1. Build the Sequence project
+cd demo-projects/sequence && forge build && cd ../..
+
+# 2. Verify PoC locally
+./demo-projects/sequence/verify-poc.sh H-01
+
+# 3. Submit to AntiSoon (requires Sepolia ETH)
+# See frontend/ for PoC Builder UI
+```
+
+### Compare: AntiSoon vs Traditional
+
+| Step | Traditional Platform | AntiSoon |
+|------|---------------------|----------|
+| Submit PoC | Submit → Wait for review | Submit → Instant trigger |
+| Verification | Manual by judges (weeks) | Automated via CRE (seconds) |
+| Payout | Manual processing (months) | Smart contract instant |
+| Transparency | Opaque decision process | On-chain verifiable results |
 
 ## Track Alignment
 
