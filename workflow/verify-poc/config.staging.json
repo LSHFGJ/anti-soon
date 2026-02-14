@@ -4,6 +4,7 @@
   "gasLimit": "800000",
   "tenderlyAccountSlug": "your-account",
   "tenderlyProjectSlug": "antisoon",
-  "llmApiUrl": "https://api.openai.com/v1/chat/completions",
+  "llmApiUrl": "https://openrouter.ai/api/v1/chat/completions",
+  "llmModel": "google/gemini-2.5-flash",
   "ipfsGateway": "https://ipfs.io/ipfs/"
 }

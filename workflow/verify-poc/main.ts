@@ -30,6 +30,7 @@ const configSchema = z.object({
   tenderlyAccountSlug: z.string(),
   tenderlyProjectSlug: z.string(),
   llmApiUrl: z.string(),
+  llmModel: z.string(),
   ipfsGateway: z.string(),
 })
 
@@ -264,7 +265,7 @@ const verifyPoC = (
       "Authorization": `Bearer ${llmApiKey}`,
     },
     body: new TextEncoder().encode(JSON.stringify({
-      model: "gpt-4o-mini",
+      model: config.llmModel,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0,
