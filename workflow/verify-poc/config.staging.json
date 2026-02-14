@@ -5,6 +5,6 @@
   "tenderlyAccountSlug": "your-account",
   "tenderlyProjectSlug": "antisoon",
   "llmApiUrl": "https://openrouter.ai/api/v1/chat/completions",
-  "llmModel": "google/gemini-2.5-flash",
+  "llmModel": "x-ai/grok-code-fast-1",
   "ipfsGateway": "https://ipfs.io/ipfs/"
 }
