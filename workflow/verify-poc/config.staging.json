@@ -1,6 +1,6 @@
 {
   "chainSelectorName": "ethereum-testnet-sepolia",
-  "bountyHubAddress": "0x0000000000000000000000000000000000000000",
+  "bountyHubAddress": "0x82c85B0A96633A887D9fD7Fb575fA2339fDb7582",
   "gasLimit": "800000",
   "tenderlyAccountSlug": "your-account",
   "tenderlyProjectSlug": "antisoon",

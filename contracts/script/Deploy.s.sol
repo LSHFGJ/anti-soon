@@ -9,8 +9,7 @@ contract DeployBountyHub is Script {
     address constant MOCK_FORWARDER = 0x15fC6ae953E024d975e77382eEeC56A9101f9F88;
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast();
 
         BountyHub hub = new BountyHub(MOCK_FORWARDER);
 
