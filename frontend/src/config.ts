@@ -31,40 +31,160 @@ export const CHAIN = sepolia
 
 export const DEMO_PROJECTS = [
   {
-    id: 'sequence-demo-001',
-    name: 'Sequence Wallet',
-    description: 'Modular crypto infrastructure stack for account abstraction',
-    prizePool: '73,000 USDC',
-    targetContract: '0x539u3nceW4113tC0n7r4c7D3m0', // Mock address for demo
-    chain: 'Sepolia',
-    forkBlock: '5824125', // Arbitrary block for demo
-    logo: 'S'
+    id: 'dummy-vault-001',
+    name: 'DummyVault',
+    description: 'Vulnerable vault contract for AntiSoon demo - contains reentrancy, access control, and price manipulation vulnerabilities',
+    prizePool: '10,000 USDC',
+    targetContract: '0xDummyVault',
+    chain: 'Anvil Local',
+    forkBlock: '0',
+    logo: 'DV',
+    auditUrl: '',
+    repoUrl: 'demo-projects/dummy-vault',
+    nSLOC: 150,
+    highFindings: 4,
+    status: 'active'
+  },
+  {
+    id: 'panoptic-next-core-001',
+    name: 'Panoptic Next Core',
+    description: 'DeFi options protocol - transforms Uniswap LP positions into onchain options',
+    prizePool: '56,000 USDC',
+    targetContract: '0xPanopticPool',
+    chain: 'Mainnet',
+    forkBlock: '18963715',
+    logo: 'P',
+    auditUrl: 'https://code4rena.com/audits/2025-12-panoptic-next-core',
+    repoUrl: 'https://github.com/code-423n4/2025-12-panoptic',
+    nSLOC: 6356,
+    highFindings: 5,
+    status: 'report_in_progress'
   }
 ]
 
 export const H01_POC_TEMPLATE = {
-  target: '0x539u3nceW4113tC0n7r4c7D3m0',
-  chain: 'Sepolia',
-  forkBlock: 5824125,
+  target: '0xPanopticPool',
+  chain: 'Mainnet',
+  forkBlock: 18963715,
   conditions: [
     {
       id: 'cond-1',
-      type: 'setBalance',
-      target: '0xAttackerAddress',
-      value: '1000000000000000000' // 1 ETH
+      type: 'fork',
+      network: 'mainnet',
+      blockNumber: 18963715
+    },
+    {
+      id: 'cond-2',
+      type: 'deploy',
+      contract: 'PanopticPool',
+      constructorArgs: []
     }
   ],
   transactions: [
     {
       id: 'tx-1',
-      to: '0x539u3nceW4113tC0n7r4c7D3m0',
+      to: '0xPanopticPool',
       value: '0',
-      data: '0xbad519...' // Mock calldata for checkpointer bypass
+      data: '0x...'
     }
   ],
   impact: {
-    type: 'accessEscalation',
+    type: 'protocol_loss',
     estimatedLoss: '0',
-    description: 'H-01: Chained signature bypasses checkpointer validation allowing unauthorized transaction execution.'
+    description: 'H-01: POC pending audit report publication. Check demo-data/pocs/H-01.t.sol for template.'
+  }
+}
+
+export const DUMMYVAULT_POC_TEMPLATES = {
+  reentrancy: {
+    name: 'Reentrancy Attack',
+    severity: 'HIGH' as const,
+    description: 'Withdraw function updates state after transfer, allowing reentrancy',
+    template: {
+      target: 'DummyVault',
+      chain: 31337,
+      forkBlock: 0,
+      setup: [
+        { type: 'deploy', contract: 'MockERC20', value: '0' },
+        { type: 'deploy', contract: 'DummyVault', value: '0' },
+        { type: 'setBalance', address: '0xAttacker', value: '1000000000000000000000' }
+      ],
+      transactions: [
+        { to: 'DummyVault', data: 'deposit(1000000000000000000000)', value: '0' },
+        { to: 'DummyVault', data: 'withdraw(1000000000000000000000)', value: '0' }
+      ],
+      expectedImpact: {
+        type: 'fundsDrained',
+        estimatedLoss: '1000000000000000000000',
+        description: 'Reentrancy allows draining funds before state update'
+      }
+    }
+  },
+  accessControl: {
+    name: 'Access Control Bypass',
+    severity: 'HIGH' as const,
+    description: 'updatePrice() has no access control, anyone can manipulate oracle',
+    template: {
+      target: 'DummyVault',
+      chain: 31337,
+      forkBlock: 0,
+      setup: [
+        { type: 'deploy', contract: 'DummyVault', value: '0' }
+      ],
+      transactions: [
+        { to: 'DummyVault', data: 'updatePrice(1)', value: '0' }
+      ],
+      expectedImpact: {
+        type: 'stateCorruption',
+        estimatedLoss: '1000000000000000000000000',
+        description: 'Price can be manipulated to steal funds via inflated share value'
+      }
+    }
+  },
+  emergencyWithdraw: {
+    name: 'Emergency Withdraw Theft',
+    severity: 'HIGH' as const,
+    description: 'emergencyWithdraw() has no access control, anyone can drain all funds',
+    template: {
+      target: 'DummyVault',
+      chain: 31337,
+      forkBlock: 0,
+      setup: [
+        { type: 'deploy', contract: 'MockERC20', value: '0' },
+        { type: 'deploy', contract: 'DummyVault', value: '0' },
+        { type: 'deposit', address: '0xVictim', value: '1000000000000000000000' }
+      ],
+      transactions: [
+        { to: 'DummyVault', data: 'emergencyWithdraw()', value: '0' }
+      ],
+      expectedImpact: {
+        type: 'fundsDrained',
+        estimatedLoss: '1000000000000000000000',
+        description: 'All vault funds stolen by unauthorized caller'
+      }
+    }
+  },
+  priceManipulation: {
+    name: 'Oracle Price Manipulation',
+    severity: 'HIGH' as const,
+    description: 'Attacker can inflate price to drain more funds than deposited',
+    template: {
+      target: 'DummyVault',
+      chain: 31337,
+      forkBlock: 0,
+      setup: [
+        { type: 'deploy', contract: 'DummyVault', value: '0' },
+        { type: 'deposit', address: '0xVictim', value: '1000000000000000000000' }
+      ],
+      transactions: [
+        { to: 'DummyVault', data: 'updatePrice(1000000000000000000000)', value: '0' },
+        { to: 'DummyVault', data: 'getShareValue(0xVictim)', value: '0' }
+      ],
+      expectedImpact: {
+        type: 'stateCorruption',
+        estimatedLoss: '999000000000000000000000',
+        description: 'Share value inflated 1000x, enabling massive theft'
+      }
+    }
   }
 }

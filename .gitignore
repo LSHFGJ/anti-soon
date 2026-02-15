@@ -1,12 +1,13 @@
 # Dependencies
 node_modules/
 
-# Build
+# Build outputs
 dist/
 out/
 cache/
+*.wasm
 
-# Environment
+# Environment files
 .env
 .env.*
 !.env.example
@@ -15,28 +16,33 @@ cache/
 *.md
 !README.md
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+
+# Editor
+.vscode/
+.idea/
 
 # Foundry
 contracts/cache/
 contracts/out/
 contracts/broadcast/
 
-# CRE
-*.wasm
-
-# Demo data (all)
+# Demo data (crawled audit data, POC extractions)
 demo-data/
 
-# Demo projects (cloned repos)
+# Demo projects (cloned repos - 260MB+)
 demo-projects/
 
-# Temporary files
+# Debug and temporary files
+debug-screenshots/
+demo-data-bak/
 *.png
 test-poc.json
 tmp.js
+tmp.wasm
 
-# Debug screenshots
-debug-screenshots/
+# Logs
+*.log
+logs/
