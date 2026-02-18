@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAccount, useDisconnect, useSwitchChain, useWalletClient, usePublicClient } from 'wagmi'
-import { sepolia } from 'wagmi/chains'
-import { useWeb3Modal } from '@web3modal/wagmi/react'
+import { useAppKit } from '@reown/appkit/react'
+import { sepolia } from '@reown/appkit/networks'
 import type { Address, WalletClient, PublicClient } from 'viem'
 
 interface WalletState {
@@ -18,7 +18,7 @@ interface WalletState {
 
 export function useWallet(): WalletState {
   const { address, isConnected, chain } = useAccount()
-  const { open } = useWeb3Modal()
+  const { open } = useAppKit()
   const { disconnect } = useDisconnect()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
   const { data: walletClient } = useWalletClient()

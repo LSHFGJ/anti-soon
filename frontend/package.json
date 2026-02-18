@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@reown/appkit": "^1.8.18",
+    "@reown/appkit-adapter-wagmi": "^1.8.18",
     "@tanstack/react-query": "^5.90.21",
-    "@web3modal/wagmi": "^5.1.11",
     "monaco-editor": "^0.55.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
