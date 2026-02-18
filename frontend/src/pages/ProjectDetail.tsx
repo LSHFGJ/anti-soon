@@ -122,11 +122,14 @@ export function ProjectDetail() {
 
   const fetchSubmissions = useCallback(async () => {
     try {
+      const latestBlock = await publicClient.getBlockNumber()
+      const fromBlock = latestBlock > 10000n ? latestBlock - 10000n : 0n
+
       const logs = await publicClient.getLogs({
         address: BOUNTY_HUB_ADDRESS,
         event: parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)'),
         args: { projectId },
-        fromBlock: 'earliest',
+        fromBlock,
         toBlock: 'latest'
       })
 

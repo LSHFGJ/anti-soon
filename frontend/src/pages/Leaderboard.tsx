@@ -56,10 +56,13 @@ export function Leaderboard() {
       setIsLoading(true)
       setError(null)
 
+      const latestBlock = await publicClient.getBlockNumber()
+      const fromBlock = latestBlock > 10000n ? latestBlock - 10000n : 0n
+
       const payoutLogs = await publicClient.getLogs({
         address: BOUNTY_HUB_ADDRESS,
         event: parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)'),
-        fromBlock: 'earliest',
+        fromBlock,
         toBlock: 'latest'
       })
 
