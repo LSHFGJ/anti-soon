@@ -108,6 +108,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
         </span>
         <button 
           onClick={(e) => { e.stopPropagation(); onRemove(transaction.id) }}
+          aria-label="Remove transaction"
           style={{ color: 'var(--color-error)', fontWeight: 'bold', background: 'transparent', border: 'none', cursor: 'pointer' }}
         >
           [x]

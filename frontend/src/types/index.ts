@@ -1,0 +1,86 @@
+import type { Address } from 'viem'
+
+export type SubmissionStatus = 'Committed' | 'Revealed' | 'Verified' | 'Disputed' | 'Finalized' | 'Invalid'
+export const STATUS_LABELS: SubmissionStatus[] = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
+
+export type Severity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+export const SEVERITY_LABELS: Severity[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+export const SEVERITY_COLORS: Record<Severity, string> = {
+  NONE: '#888888',
+  LOW: '#88ff88',
+  MEDIUM: '#ffff00',
+  HIGH: '#ff8800',
+  CRITICAL: '#ff003c'
+}
+
+export type CompetitionMode = 'UNIQUE' | 'MULTI'
+
+export interface Project {
+  id: bigint
+  owner: Address
+  bountyPool: bigint
+  maxPayoutPerBug: bigint
+  targetContract: Address
+  forkBlock: bigint
+  active: boolean
+  mode: number // 0 = UNIQUE, 1 = MULTI
+  commitDeadline: bigint
+  revealDeadline: bigint
+  disputeWindow: bigint
+  rulesHash: `0x${string}`
+}
+
+export interface ProjectRules {
+  maxAttackerSeedWei: bigint
+  maxWarpSeconds: bigint
+  allowImpersonation: boolean
+  thresholds: {
+    criticalDrainWei: bigint
+    highDrainWei: bigint
+    mediumDrainWei: bigint
+    lowDrainWei: bigint
+  }
+}
+
+export interface Submission {
+  id: bigint
+  auditor: Address
+  projectId: bigint
+  commitHash: `0x${string}`
+  cipherURI: string
+  decryptionKey: `0x${string}`
+  salt: `0x${string}`
+  commitTimestamp: bigint
+  revealTimestamp: bigint
+  status: number
+  drainAmountWei: bigint
+  severity: number
+  payoutAmount: bigint
+  disputeDeadline: bigint
+  challenged: boolean
+  challenger: Address
+  challengeBond: bigint
+}
+
+export interface TimelineStep {
+  label: string
+  completed: boolean
+  active: boolean
+  timestamp?: bigint
+}
+
+export interface AuditorStats {
+  totalEarned: bigint
+  totalSubmitted: number
+  validCount: number
+  pendingCount: number
+}
+
+export interface LeaderboardEntry {
+  rank: number
+  address: Address
+  validCount: number
+  totalEarned: bigint
+  highCount: number
+  criticalCount: number
+}

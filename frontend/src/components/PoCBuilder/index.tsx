@@ -87,15 +87,15 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
   const handleSubmit = () => submitPoC(pocJson)
 
   return (
-    <section id="builder" className="container" style={{ padding: '4rem 2rem', minHeight: '100vh', borderLeft: '1px solid var(--color-text-dim)', marginLeft: '2rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h2 className="text-primary">// PoC_BUILDER_V1.0</h2>
+    <section id="builder" className="container" style={{ padding: '1rem 2rem', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: '1px solid var(--color-text-dim)', marginLeft: '2rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexShrink: 0 }}>
+        <h2 className="text-primary" style={{ fontSize: '1rem' }}>// PoC_BUILDER_V1.0</h2>
         {selectedProject && (
           <div style={{ 
             border: '1px solid var(--color-secondary)', 
             padding: '0.5rem 1rem', 
             color: 'var(--color-secondary)', 
-            fontSize: '0.8rem',
+            fontSize: '0.75rem',
             background: 'rgba(0, 255, 136, 0.05)'
           }}>
             PROJECT: {selectedProject.name.toUpperCase()}
@@ -103,7 +103,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
         )}
       </div>
       
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--color-text-dim)', paddingBottom: '1rem', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-text-dim)', paddingBottom: '0.75rem', overflowX: 'auto', flexShrink: 0 }}>
         {[1, 2, 3, 4, 5].map(step => (
           <button 
             key={step} 
@@ -115,7 +115,9 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
               border: '1px solid var(--color-text-dim)',
               fontWeight: 'bold',
               cursor: 'pointer',
-              transition: 'all 0.3s ease'
+              transition: 'all 0.3s ease',
+              fontSize: '0.8rem',
+              whiteSpace: 'nowrap'
             }}
           >
             STEP_0{step}
@@ -123,7 +125,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
         ))}
       </div>
 
-      <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '2rem', border: '1px solid var(--color-text-dim)' }}>
+      <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', border: '1px solid var(--color-text-dim)', flex: 1, overflow: 'auto' }}>
         
         {activeStep === 1 && (
           <TargetStep 
@@ -175,6 +177,8 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
             onConnect={connect}
             onSubmit={handleSubmit}
             onBack={handleBack}
+            projectId={1n}
+            useV2={true}
           />
         )}
 

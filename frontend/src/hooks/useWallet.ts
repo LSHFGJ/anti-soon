@@ -10,6 +10,7 @@ interface WalletState {
   walletClient: WalletClient | null
   publicClient: PublicClient | null
   connect: () => Promise<void>
+  disconnect: () => void
 }
 
 export function useWallet(): WalletState {
@@ -75,13 +76,19 @@ export function useWallet(): WalletState {
     checkConnection()
   }, [])
 
+  const disconnect = useCallback(() => {
+    setWalletClient(null)
+    setAddress(null)
+  }, [])
+
   return {
     address,
     isConnected: !!address,
     isConnecting,
     walletClient,
     publicClient,
-    connect
+    connect,
+    disconnect
   }
 }
 

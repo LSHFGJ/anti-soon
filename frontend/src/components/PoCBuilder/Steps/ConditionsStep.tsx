@@ -142,6 +142,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
       
       <button 
         onClick={() => onRemove(condition.id)}
+        aria-label="Remove condition"
         style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', color: 'var(--color-error)', fontWeight: 'bold', background: 'transparent', border: 'none', cursor: 'pointer' }}
       >
         [x]
