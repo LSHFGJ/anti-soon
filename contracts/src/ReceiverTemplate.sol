@@ -153,7 +153,7 @@ abstract contract ReceiverTemplate is IReceiver, Ownable {
     function _decodeMetadata(
         bytes memory metadata
     ) internal pure returns (bytes32 workflowId, bytes10 workflowName, address workflowOwner) {
-        assembly {
+        assembly ("memory-safe") {
             workflowId := mload(add(metadata, 32))
             workflowName := mload(add(metadata, 64))
             workflowOwner := shr(mul(12, 8), mload(add(metadata, 74)))

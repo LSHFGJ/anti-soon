@@ -5,6 +5,9 @@ libs = ["lib"]
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
 ]
+via_ir = true
+optimizer = true
+optimizer_runs = 1000
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
