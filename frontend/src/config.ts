@@ -1,6 +1,6 @@
 import { sepolia } from 'viem/chains'
 
-export const BOUNTY_HUB_ADDRESS = "0x82c85B0A96633A887D9fD7Fb575fA2339fDb7582" as const
+export const BOUNTY_HUB_ADDRESS = "0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9" as const
 
 // V1 ABI - kept for backward compatibility
 export const BOUNTY_HUB_ABI = [
