@@ -47,3 +47,18 @@ tmp.wasm
 *.log
 logs/
 .sisyphus
+
+# Python
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# Design docs (local-only reference)
+docs/
+
+# Test screenshots
+test-screenshots/
+
+# Reference docs
+cre-full-ts.md
+POC_ANALYSIS_REPORT.md
