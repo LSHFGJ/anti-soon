@@ -1,100 +1,69 @@
-import { useState, useEffect, useCallback } from 'react'
-import { createWalletClient, custom, createPublicClient, http } from 'viem'
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount, useDisconnect, useSwitchChain, useWalletClient, usePublicClient } from 'wagmi'
+import { sepolia } from 'wagmi/chains'
+import { useWeb3Modal } from '@web3modal/wagmi/react'
 import type { Address, WalletClient, PublicClient } from 'viem'
-import { CHAIN } from '../config'
 
 interface WalletState {
   address: Address | null
   isConnected: boolean
   isConnecting: boolean
-  walletClient: WalletClient | null
-  publicClient: PublicClient | null
+  isWrongNetwork: boolean
+  walletClient: WalletClient | undefined
+  publicClient: PublicClient | undefined
   connect: () => Promise<void>
   disconnect: () => void
+  switchToCorrectNetwork: () => Promise<void>
 }
 
 export function useWallet(): WalletState {
-  const [address, setAddress] = useState<Address | null>(null)
+  const { address, isConnected, chain } = useAccount()
+  const { open } = useWeb3Modal()
+  const { disconnect } = useDisconnect()
+  const { switchChain, isPending: isSwitching } = useSwitchChain()
+  const { data: walletClient } = useWalletClient()
+  const publicClient = usePublicClient()
   const [isConnecting, setIsConnecting] = useState(false)
-  const [walletClient, setWalletClient] = useState<WalletClient | null>(null)
-  const [publicClient, setPublicClient] = useState<PublicClient | null>(null)
 
-  // Initialize public client immediately
-  useEffect(() => {
-    const pc = createPublicClient({ 
-      chain: CHAIN, 
-      transport: http() 
-    })
-    setPublicClient(pc)
-  }, [])
+  const isWrongNetwork = isConnected && chain?.id !== sepolia.id
+
+  const switchToCorrectNetwork = useCallback(async () => {
+    if (switchChain) {
+      try {
+        await switchChain({ chainId: sepolia.id })
+      } catch (error) {
+        console.error('Failed to switch network:', error)
+      }
+    }
+  }, [switchChain])
 
   const connect = useCallback(async () => {
-    if (!window.ethereum) {
-      alert("No crypto wallet found. Please install MetaMask or similar.")
-      return
-    }
-
     try {
       setIsConnecting(true)
-      const wc = createWalletClient({
-        chain: CHAIN,
-        transport: custom(window.ethereum)
-      })
-
-      const [addr] = await wc.requestAddresses()
-      
-      setWalletClient(wc)
-      setAddress(addr)
+      await open()
     } catch (error) {
-      console.error("Failed to connect wallet:", error)
+      console.error('Failed to connect wallet:', error)
     } finally {
       setIsConnecting(false)
     }
-  }, [])
+  }, [open])
 
-  // Auto-connect if already authorized
+  // Auto-switch to correct network when connected to wrong network
   useEffect(() => {
-    async function checkConnection() {
-      if (!window.ethereum) return
-      
-      const wc = createWalletClient({
-        chain: CHAIN,
-        transport: custom(window.ethereum)
-      })
-      
-      try {
-        const addresses = await wc.getAddresses()
-        if (addresses.length > 0) {
-          setWalletClient(wc)
-          setAddress(addresses[0])
-        }
-      } catch (e) {
-        // Ignore error on check
-      }
+    if (isWrongNetwork && !isSwitching) {
+      switchToCorrectNetwork()
     }
-    
-    checkConnection()
-  }, [])
-
-  const disconnect = useCallback(() => {
-    setWalletClient(null)
-    setAddress(null)
-  }, [])
+  }, [isWrongNetwork, isSwitching, switchToCorrectNetwork])
 
   return {
-    address,
-    isConnected: !!address,
+    address: address ?? null,
+    isConnected,
     isConnecting,
+    isWrongNetwork,
     walletClient,
     publicClient,
     connect,
-    disconnect
-  }
-}
-
-// Add window.ethereum type
-declare global {
-  interface Window {
-    ethereum?: any
+    disconnect,
+    switchToCorrectNetwork
   }
 }
