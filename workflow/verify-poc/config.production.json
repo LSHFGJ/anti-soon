@@ -1,0 +1,13 @@
+{
+  "chainSelectorName": "ethereum-mainnet",
+  "bountyHubAddress": "0x...",
+  "gasLimit": "800000",
+  "tenderlyAccountSlug": "LSHFGJ",
+  "tenderlyProjectSlug": "anti-soon",
+  "llmApiUrl": "https://openrouter.ai/api/v1/chat/completions",
+  "llmModel": "x-ai/grok-code-fast-1",
+  "ipfsGateway": "https://ipfs.io/ipfs/",
+  "skipLlm": true,
+  "skipStateVerification": false,
+  "mainnetRpcUrl": "https://eth.drpc.org"
+}
