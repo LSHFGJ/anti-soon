@@ -30,7 +30,7 @@ type SubmissionTuple = readonly [
 
 const publicClient = createPublicClient({
   chain: CHAIN,
-  transport: http()
+  transport: http('https://1rpc.io/sepolia')
 })
 
 export function Dashboard() {
