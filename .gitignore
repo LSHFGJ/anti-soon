@@ -48,6 +48,9 @@ tmp.wasm
 logs/
 .sisyphus
 
+# Scripts (local tools)
+scripts/
+
 # Python
 .ruff_cache/
 __pycache__/
