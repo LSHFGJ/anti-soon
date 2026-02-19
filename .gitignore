@@ -7,6 +7,10 @@ out/
 cache/
 *.wasm
 
+# TypeScript build cache
+*.tsbuildinfo
+node_modules/.tmp/
+
 # Environment files
 .env
 .env.*

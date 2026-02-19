@@ -1,5 +1,14 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useWallet } from '../../hooks/useWallet'
+import { Button } from '@/components/ui/button'
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  navigationMenuTriggerStyle,
+} from '@/components/ui/navigation-menu'
+import { cn } from '@/lib/utils'
 
 export function Navbar() {
   const { isConnected, address, connect, disconnect } = useWallet()
@@ -19,85 +28,102 @@ export function Navbar() {
   }
 
   return (
-    <nav style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: '70px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 2rem',
-      background: 'rgba(10, 10, 10, 0.95)',
-      backdropFilter: 'blur(10px)',
-      borderBottom: '1px solid var(--color-bg-light)',
-      zIndex: 1000,
-    }}>
-      <Link to="/" className="navbar-logo">
-        <span style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: '1.25rem',
-          fontWeight: 'bold',
-          color: 'var(--color-primary)',
-        }}>
+    <nav className="fixed top-0 left-0 right-0 z-50 h-[70px] flex items-center justify-between px-8 bg-[rgba(10,10,10,0.95)] backdrop-blur-sm border-b border-[var(--color-bg-light)]">
+      <Link to="/" className="flex items-baseline gap-2 no-underline group">
+        <span className="font-['Syncopate',sans-serif] text-xl font-bold text-[var(--color-primary)] transition-all duration-200 group-hover:drop-shadow-[0_0_10px_rgba(0,255,157,0.5)]">
           ANTI-SOON
         </span>
-        <span style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.7rem',
-          color: 'var(--color-text-dim)',
-        }}>
+        <span className="font-['JetBrains_Mono',monospace] text-[0.7rem] text-[var(--color-text-dim)]">
           v2.0
         </span>
       </Link>
 
-      <div className="navbar-links">
+      <NavigationMenu className="hidden md:flex">
+        <NavigationMenuList className="flex gap-1">
+          {navItems.map((item) => (
+            <NavigationMenuItem key={item.path}>
+              <Link to={item.path}>
+                <NavigationMenuLink
+                  className={cn(
+                    navigationMenuTriggerStyle(),
+                    "font-['JetBrains_Mono',monospace] text-[0.8rem] px-4 py-2",
+                    "text-[var(--color-text-dim)] border border-transparent",
+                    "hover:text-[var(--color-primary)] hover:bg-transparent",
+                    "transition-all duration-200",
+                    isActive(item.path) && [
+                      "text-[var(--color-primary)]",
+                      "border-[var(--color-primary)]",
+                      "bg-[rgba(0,255,157,0.1)]",
+                    ]
+                  )}
+                >
+                  [{item.label}]
+                </NavigationMenuLink>
+              </Link>
+            </NavigationMenuItem>
+          ))}
+        </NavigationMenuList>
+      </NavigationMenu>
+
+      <div className="flex md:hidden gap-1 overflow-x-auto">
         {navItems.map((item) => (
           <Link
             key={item.path}
             to={item.path}
-            className={`nav-link ${isActive(item.path) ? 'active' : ''}`}
+            className={cn(
+              "font-['JetBrains_Mono',monospace] text-[0.7rem] px-2 py-1",
+              "text-[var(--color-text-dim)] border border-transparent",
+              "hover:text-[var(--color-primary)]",
+              "transition-all duration-200 whitespace-nowrap",
+              isActive(item.path) && [
+                "text-[var(--color-primary)]",
+                "border-[var(--color-primary)]",
+                "bg-[rgba(0,255,157,0.1)]",
+              ]
+            )}
           >
-            [{item.label}]
+            [{item.label.slice(0, 3)}]
           </Link>
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+      <div className="flex gap-4 items-center">
         {isConnected && (
-          <Link
-            to="/create-project"
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.75rem',
-              color: 'var(--color-secondary)',
-              textDecoration: 'none',
-              padding: '0.5rem 1rem',
-              border: '1px solid var(--color-secondary)',
-            }}
-          >
-            + CREATE
+          <Link to="/create-project">
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "font-['JetBrains_Mono',monospace] text-[0.75rem]",
+                "text-[var(--color-secondary)] border-[var(--color-secondary)]",
+                "bg-transparent hover:bg-[var(--color-secondary)] hover:text-[var(--color-bg)]",
+                "hover:border-[var(--color-secondary)]",
+                "transition-all duration-200"
+              )}
+            >
+              + CREATE
+            </Button>
           </Link>
         )}
         
-        <button
+        <Button
           onClick={isConnected ? disconnect : connect}
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.8rem',
-            color: isConnected ? 'var(--color-primary)' : 'var(--color-text)',
-            background: 'transparent',
-            border: isConnected ? '1px solid var(--color-primary)' : '1px solid var(--color-text-dim)',
-            padding: '0.5rem 1rem',
-            cursor: 'pointer',
-          }}
+          variant="outline"
+          size="sm"
+          className={cn(
+            "font-['JetBrains_Mono',monospace] text-[0.8rem]",
+            isConnected
+              ? "text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)]"
+              : "text-[var(--color-text)] border-[var(--color-text-dim)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
+            "bg-transparent",
+            "transition-all duration-200"
+          )}
         >
           {isConnected 
             ? `[${address?.slice(0, 6)}...${address?.slice(-4)}]` 
             : '[ CONNECT ]'
           }
-        </button>
+        </Button>
       </div>
     </nav>
   )

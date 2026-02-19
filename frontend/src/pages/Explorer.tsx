@@ -3,6 +3,16 @@ import { Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { createPublicClient, http } from 'viem'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface Project {
   id: bigint
@@ -38,10 +48,36 @@ const publicClient = createPublicClient({
   transport: http()
 })
 
+type StatusFilter = 'all' | 'active' | 'inactive'
+type ModeFilter = 'all' | 'unique' | 'multi'
+
+function ProjectCardSkeleton() {
+  return (
+    <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] overflow-hidden">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="flex justify-between items-center">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function Explorer() {
   const [projects, setProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
+  const [modeFilter, setModeFilter] = useState<ModeFilter>('all')
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -95,202 +131,166 @@ export function Explorer() {
     fetchProjects()
   }, [fetchProjects])
 
-  const getDeadlineStatus = (project: Project) => {
+  const getDeadlineStatus = (project: Project): 'open' | 'reveal' | 'closed' => {
     const now = BigInt(Math.floor(Date.now() / 1000))
     if (project.commitDeadline === 0n || now < project.commitDeadline) {
-      return { text: 'OPEN', color: 'var(--color-primary)' }
+      return 'open'
     }
     if (project.revealDeadline === 0n || now < project.revealDeadline) {
-      return { text: 'REVEAL', color: 'var(--color-secondary)' }
+      return 'reveal'
     }
-    return { text: 'CLOSED', color: 'var(--color-error)' }
+    return 'closed'
   }
 
+  const filteredProjects = projects.filter((project) => {
+    if (statusFilter === 'active' && !project.active) return false
+    if (statusFilter === 'inactive' && project.active) return false
+    if (modeFilter === 'unique' && project.mode !== 0) return false
+    if (modeFilter === 'multi' && project.mode !== 1) return false
+    
+    return true
+  })
+
   return (
-    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header style={{ marginBottom: '1.5rem', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', marginBottom: '0.25rem' }}>
-            <h1 style={{ 
-              fontSize: '2rem', 
-              fontFamily: 'var(--font-display)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              color: 'var(--color-primary)'
-            }}>
+    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
+      <div className="container flex-1 flex flex-col overflow-hidden">
+        <header className="mb-6 flex-shrink-0">
+          <div className="flex items-baseline gap-4 mb-1">
+            <h1 className="text-2xl font-[var(--font-display)] uppercase tracking-widest text-[var(--color-primary)]">
               EXPLORER
             </h1>
-            <span style={{ 
-              color: 'var(--color-text-dim)', 
-              fontSize: '0.8rem',
-              fontFamily: 'var(--font-mono)'
-            }}>
-              [{projects.filter(p => p.active).length} ACTIVE]
+            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)]">
+              [{filteredProjects.length} {statusFilter.toUpperCase()}]
             </span>
           </div>
-          <div style={{ 
-            height: '2px', 
-            background: 'linear-gradient(90deg, var(--color-primary), transparent)',
-            width: '150px'
-          }} />
-          <p style={{ 
-            color: 'var(--color-text-dim)', 
-            marginTop: '0.5rem',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.8rem'
-          }}>
-            &gt; Browse active bounty projects
+          <div className="h-0.5 w-36 bg-gradient-to-r from-[var(--color-primary)] to-transparent" />
+          <p className="text-[var(--color-text-dim)] mt-2 font-[var(--font-mono)] text-xs">
+            &gt; Browse bounty projects
           </p>
         </header>
 
-        {isLoading && (
-          <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-dim)', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
-            <p>Scanning blockchain...</p>
+        <div className="flex gap-4 mb-6 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)] uppercase">
+              Status:
+            </span>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+              <SelectTrigger className="w-32 h-9 bg-[var(--color-bg-light)] border-[var(--color-bg-light)] text-[var(--color-text)] font-[var(--font-mono)] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[var(--color-bg-light)] border-[var(--color-bg-light)]">
+                <SelectItem value="active" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Active</SelectItem>
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">All</SelectItem>
+                <SelectItem value="inactive" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)] uppercase">
+              Mode:
+            </span>
+            <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as ModeFilter)}>
+              <SelectTrigger className="w-32 h-9 bg-[var(--color-bg-light)] border-[var(--color-bg-light)] text-[var(--color-text)] font-[var(--font-mono)] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[var(--color-bg-light)] border-[var(--color-bg-light)]">
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">All</SelectItem>
+                <SelectItem value="unique" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Unique</SelectItem>
+                <SelectItem value="multi" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Multi</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         {error && (
-          <div style={{ 
-            padding: '1rem', 
-            border: '1px solid var(--color-error)', 
-            color: 'var(--color-error)',
-            background: 'rgba(255, 0, 60, 0.1)',
-            marginBottom: '1rem',
-            flexShrink: 0
-          }}>
+          <div className="p-4 border border-[var(--color-error)] text-[var(--color-error)] bg-[rgba(255,0,60,0.1)] mb-4 flex-shrink-0">
             {error}
           </div>
         )}
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', 
-          gap: '1rem',
-          flex: 1,
-          overflowY: 'auto',
-          alignContent: 'start'
-        }}>
-          {projects.filter(p => p.active).map((project) => {
-            const deadlineStatus = getDeadlineStatus(project)
-            return (
-              <Link
-                key={project.id.toString()}
-                to={`/project/${project.id.toString()}`}
-                style={{
-                  display: 'block',
-                  background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-                  border: '1px solid var(--color-bg-light)',
-                  borderRadius: '4px',
-                  padding: '1.5rem',
-                  textDecoration: 'none',
-                  transition: 'all 0.2s',
-                  position: 'relative',
-                  overflow: 'hidden'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-primary)'
-                  e.currentTarget.style.boxShadow = '0 0 20px rgba(0, 255, 157, 0.1)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-bg-light)'
-                  e.currentTarget.style.boxShadow = 'none'
-                }}
-              >
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  right: 0,
-                  padding: '0.25rem 0.75rem',
-                  background: project.mode === 0 ? 'var(--color-primary)' : 'var(--color-secondary)',
-                  color: 'var(--color-bg)',
-                  fontSize: '0.7rem',
-                  fontWeight: 'bold',
-                  fontFamily: 'var(--font-display)',
-                  letterSpacing: '0.1em'
-                }}>
-                  {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
-                </div>
+        {isLoading && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 content-start">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <ProjectCardSkeleton key={i} />
+              ))}
+            </div>
+          </div>
+        )}
 
-                <h3 style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: '1.2rem',
-                  marginBottom: '1rem',
-                  color: 'var(--color-text)',
-                  letterSpacing: '0.05em'
-                }}>
-                  PROJECT_#{project.id.toString()}
-                </h3>
+        {!isLoading && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 content-start">
+              {filteredProjects.map((project) => {
+                const deadlineStatus = getDeadlineStatus(project)
+                return (
+                  <Link
+                    key={project.id.toString()}
+                    to={`/project/${project.id.toString()}`}
+                    className="block group"
+                  >
+                    <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] hover:shadow-[0_0_20px_rgba(0,255,157,0.1)] transition-all duration-200 overflow-hidden h-full">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-base font-[var(--font-display)] tracking-wide text-[var(--color-text)]">
+                            PROJECT_#{project.id.toString()}
+                          </CardTitle>
+                          <Badge variant={project.mode === 0 ? 'unique' : 'multi'} className="text-[0.65rem] px-2 py-0.5">
+                            {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2 font-[var(--font-mono)] text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-dim)]">BOUNTY</span>
+                          <span className="text-[var(--color-primary)] font-bold">
+                            {formatEther(project.bountyPool)} ETH
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-dim)]">MAX_PAYOUT</span>
+                          <span className="text-[var(--color-text)]">{formatEther(project.maxPayoutPerBug)} ETH</span>
+                        </div>
 
-                <div style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: '0.75rem',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.85rem'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>BOUNTY</span>
-                    <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>
-                      {formatEther(project.bountyPool)} ETH
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>MAX_PAYOUT</span>
-                    <span>{formatEther(project.maxPayoutPerBug)} ETH</span>
-                  </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-dim)]">TARGET</span>
+                          <span className="text-[var(--color-secondary)]">
+                            {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)}
+                          </span>
+                        </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>TARGET</span>
-                    <span style={{ 
-                      color: 'var(--color-secondary)',
-                      fontSize: '0.8rem'
-                    }}>
-                      {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)}
-                    </span>
-                  </div>
+                        <div className="flex justify-between">
+                          <span className="text-[var(--color-text-dim)]">FORK_BLOCK</span>
+                          <span className="text-[var(--color-text)]">{project.forkBlock.toString()}</span>
+                        </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>FORK_BLOCK</span>
-                    <span>{project.forkBlock.toString()}</span>
-                  </div>
+                        <div className="flex justify-between pt-2 border-t border-[var(--color-bg-light)]">
+                          <span className="text-[var(--color-text-dim)]">STATUS</span>
+                          <Badge variant={deadlineStatus} className="text-[0.65rem] px-2 py-0.5">
+                            {deadlineStatus.toUpperCase()}
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )
+              })}
+            </div>
 
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between',
-                    paddingTop: '0.5rem',
-                    borderTop: '1px solid var(--color-bg-light)'
-                  }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>STATUS</span>
-                    <span style={{ color: deadlineStatus.color, fontWeight: 'bold' }}>
-                      [{deadlineStatus.text}]
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            )
-          })}
-        </div>
-
-        {projects.filter(p => p.active).length === 0 && !isLoading && (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '2rem',
-            color: 'var(--color-text-dim)',
-            border: '1px dashed var(--color-text-dim)',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <p style={{ fontFamily: 'var(--font-mono)' }}>
-              &gt; No active projects found
-            </p>
-            <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
-              Projects will appear here once registered on-chain
-            </p>
+            {filteredProjects.length === 0 && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-[var(--color-text-dim)] border border-dashed border-[var(--color-text-dim)]">
+                <p className="font-[var(--font-mono)]">
+                  &gt; No projects found
+                </p>
+                <p className="text-xs mt-2">
+                  {statusFilter === 'active' 
+                    ? 'Active projects will appear here once registered on-chain'
+                    : 'Try changing the filter criteria'}
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

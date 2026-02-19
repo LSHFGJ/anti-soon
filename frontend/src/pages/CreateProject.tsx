@@ -1,33 +1,131 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { parseEther, isAddress } from 'viem'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { useWallet } from '../hooks/useWallet'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
 
-type FormData = {
-  targetContract: string
-  forkBlock: string
-  bountyPool: string
-  maxPayout: string
-  mode: 0 | 1
-  commitDeadlineHours: string
-  revealDeadlineHours: string
-  maxAttackerSeed: string
-  maxWarpSeconds: string
-  allowImpersonation: boolean
-  disputeWindowHours: string
-  criticalThreshold: string
-  highThreshold: string
-  mediumThreshold: string
-  lowThreshold: string
-}
+const isValidAddress = (val: string): boolean => isAddress(val)
 
-const initialFormData: FormData = {
+const createProjectSchema = z.object({
+  targetContract: z
+    .string()
+    .min(1, 'Target contract address is required')
+    .refine(isValidAddress, { message: 'Invalid Ethereum address' }),
+  forkBlock: z.string().optional(),
+  bountyPool: z
+    .string()
+    .min(1, 'Bounty pool is required')
+    .refine((val) => Number(val) > 0, { message: 'Bounty pool must be greater than 0 ETH' }),
+  maxPayout: z
+    .string()
+    .min(1, 'Max payout is required')
+    .refine((val) => Number(val) > 0, { message: 'Max payout must be greater than 0 ETH' }),
+  mode: z.enum(['0', '1']),
+  commitDeadlineHours: z
+    .string()
+    .min(1, 'Commit deadline is required')
+    .refine((val) => Number(val) > 0, { message: 'Commit deadline must be greater than 0 hours' }),
+  revealDeadlineHours: z
+    .string()
+    .min(1, 'Reveal deadline is required')
+    .refine((val) => Number(val) > 0, { message: 'Reveal deadline must be greater than 0 hours' }),
+  maxAttackerSeed: z
+    .string()
+    .min(1, 'Max attacker seed is required')
+    .refine((val) => Number(val) >= 0, { message: 'Max attacker seed must be 0 or greater' }),
+  maxWarpSeconds: z
+    .string()
+    .min(1, 'Max warp seconds is required')
+    .refine((val) => Number(val) >= 0, { message: 'Max warp seconds must be 0 or greater' }),
+  allowImpersonation: z.boolean(),
+  disputeWindowHours: z
+    .string()
+    .min(1, 'Dispute window is required')
+    .refine((val) => Number(val) > 0, { message: 'Dispute window must be greater than 0 hours' }),
+  criticalThreshold: z
+    .string()
+    .min(1, 'Critical threshold is required')
+    .refine((val) => Number(val) > 0, { message: 'Critical threshold must be greater than 0' }),
+  highThreshold: z
+    .string()
+    .min(1, 'High threshold is required')
+    .refine((val) => Number(val) > 0, { message: 'High threshold must be greater than 0' }),
+  mediumThreshold: z
+    .string()
+    .min(1, 'Medium threshold is required')
+    .refine((val) => Number(val) > 0, { message: 'Medium threshold must be greater than 0' }),
+  lowThreshold: z
+    .string()
+    .min(1, 'Low threshold is required')
+    .refine((val) => Number(val) > 0, { message: 'Low threshold must be greater than 0' }),
+}).superRefine((data, ctx) => {
+  if (Number(data.maxPayout) > Number(data.bountyPool)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Max payout cannot exceed bounty pool',
+      path: ['maxPayout'],
+    })
+  }
+  if (Number(data.revealDeadlineHours) <= Number(data.commitDeadlineHours)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Reveal deadline must be after commit deadline',
+      path: ['revealDeadlineHours'],
+    })
+  }
+  if (Number(data.lowThreshold) >= Number(data.mediumThreshold)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Low must be less than medium',
+      path: ['lowThreshold'],
+    })
+  }
+  if (Number(data.mediumThreshold) >= Number(data.highThreshold)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Medium must be less than high',
+      path: ['mediumThreshold'],
+    })
+  }
+  if (Number(data.highThreshold) >= Number(data.criticalThreshold)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'High must be less than critical',
+      path: ['highThreshold'],
+    })
+  }
+})
+
+type FormData = z.infer<typeof createProjectSchema>
+
+const defaultValues: FormData = {
   targetContract: '',
   forkBlock: '0',
   bountyPool: '',
   maxPayout: '',
-  mode: 0,
+  mode: '0',
   commitDeadlineHours: '168',
   revealDeadlineHours: '336',
   maxAttackerSeed: '10',
@@ -37,112 +135,47 @@ const initialFormData: FormData = {
   criticalThreshold: '10',
   highThreshold: '5',
   mediumThreshold: '2',
-  lowThreshold: '0.5'
+  lowThreshold: '0.5',
 }
 
-const STEPS = ['BASICS', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW']
+const STEPS = ['BASICS', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW'] as const
+
+const stepFields: Record<number, (keyof FormData)[]> = {
+  0: ['targetContract', 'forkBlock'],
+  1: ['bountyPool', 'maxPayout', 'mode', 'commitDeadlineHours', 'revealDeadlineHours'],
+  2: ['maxAttackerSeed', 'maxWarpSeconds', 'allowImpersonation', 'disputeWindowHours'],
+  3: ['criticalThreshold', 'highThreshold', 'mediumThreshold', 'lowThreshold'],
+  4: [],
+}
 
 export function CreateProject() {
   const navigate = useNavigate()
   const { isConnected, address, connect, walletClient } = useWallet()
   
   const [activeStep, setActiveStep] = useState(0)
-  const [formData, setFormData] = useState<FormData>(initialFormData)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [txError, setTxError] = useState<string | null>(null)
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
-  const updateField = <K extends keyof FormData>(field: K, value: FormData[K]) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-    if (validationErrors[field]) {
-      setValidationErrors(prev => {
-        const next = { ...prev }
-        delete next[field]
-        return next
-      })
-    }
+  const form = useForm<FormData>({
+    resolver: zodResolver(createProjectSchema),
+    defaultValues,
+    mode: 'onChange',
+  })
+
+  const validateStep = async (step: number): Promise<boolean> => {
+    const fields = stepFields[step]
+    if (fields.length === 0) return true
+    
+    const results = await Promise.all(
+      fields.map(field => form.trigger(field))
+    )
+    return results.every(Boolean)
   }
 
-  const validateStep = (step: number): boolean => {
-    const errors: Record<string, string> = {}
-
-    switch (step) {
-      case 0:
-        if (!formData.targetContract) {
-          errors.targetContract = 'Target contract address is required'
-        } else if (!isAddress(formData.targetContract)) {
-          errors.targetContract = 'Invalid Ethereum address'
-        }
-        if (formData.forkBlock && isNaN(Number(formData.forkBlock))) {
-          errors.forkBlock = 'Must be a valid block number'
-        }
-        break
-
-      case 1:
-        if (!formData.bountyPool || Number(formData.bountyPool) <= 0) {
-          errors.bountyPool = 'Bounty pool must be greater than 0 ETH'
-        }
-        if (!formData.maxPayout || Number(formData.maxPayout) <= 0) {
-          errors.maxPayout = 'Max payout must be greater than 0 ETH'
-        }
-        if (Number(formData.maxPayout) > Number(formData.bountyPool)) {
-          errors.maxPayout = 'Max payout cannot exceed bounty pool'
-        }
-        if (!formData.commitDeadlineHours || Number(formData.commitDeadlineHours) <= 0) {
-          errors.commitDeadlineHours = 'Commit deadline must be greater than 0 hours'
-        }
-        if (!formData.revealDeadlineHours || Number(formData.revealDeadlineHours) <= 0) {
-          errors.revealDeadlineHours = 'Reveal deadline must be greater than 0 hours'
-        }
-        if (Number(formData.revealDeadlineHours) <= Number(formData.commitDeadlineHours)) {
-          errors.revealDeadlineHours = 'Reveal deadline must be after commit deadline'
-        }
-        break
-
-      case 2:
-        if (!formData.maxAttackerSeed || Number(formData.maxAttackerSeed) < 0) {
-          errors.maxAttackerSeed = 'Max attacker seed must be 0 or greater'
-        }
-        if (!formData.maxWarpSeconds || Number(formData.maxWarpSeconds) < 0) {
-          errors.maxWarpSeconds = 'Max warp seconds must be 0 or greater'
-        }
-        if (!formData.disputeWindowHours || Number(formData.disputeWindowHours) <= 0) {
-          errors.disputeWindowHours = 'Dispute window must be greater than 0 hours'
-        }
-        break
-
-      case 3:
-        if (!formData.criticalThreshold || Number(formData.criticalThreshold) <= 0) {
-          errors.criticalThreshold = 'Critical threshold must be greater than 0'
-        }
-        if (!formData.highThreshold || Number(formData.highThreshold) <= 0) {
-          errors.highThreshold = 'High threshold must be greater than 0'
-        }
-        if (!formData.mediumThreshold || Number(formData.mediumThreshold) <= 0) {
-          errors.mediumThreshold = 'Medium threshold must be greater than 0'
-        }
-        if (!formData.lowThreshold || Number(formData.lowThreshold) <= 0) {
-          errors.lowThreshold = 'Low threshold must be greater than 0'
-        }
-        if (Number(formData.lowThreshold) >= Number(formData.mediumThreshold)) {
-          errors.lowThreshold = 'Low must be less than medium'
-        }
-        if (Number(formData.mediumThreshold) >= Number(formData.highThreshold)) {
-          errors.mediumThreshold = 'Medium must be less than high'
-        }
-        if (Number(formData.highThreshold) >= Number(formData.criticalThreshold)) {
-          errors.highThreshold = 'High must be less than critical'
-        }
-        break
-    }
-
-    setValidationErrors(errors)
-    return Object.keys(errors).length === 0
-  }
-
-  const handleNext = () => {
-    if (validateStep(activeStep)) {
+  const handleNext = async () => {
+    const isValid = await validateStep(activeStep)
+    if (isValid) {
       setActiveStep(prev => prev + 1)
     }
   }
@@ -151,13 +184,14 @@ export function CreateProject() {
     setActiveStep(prev => prev - 1)
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (data: FormData) => {
     if (!isConnected || !walletClient) {
       setTxError('Wallet not connected')
       return
     }
 
-    if (!validateStep(3)) {
+    const step3Valid = await validateStep(3)
+    if (!step3Valid) {
       setActiveStep(3)
       return
     }
@@ -168,9 +202,9 @@ export function CreateProject() {
 
     try {
       const now = Math.floor(Date.now() / 1000)
-      const commitDeadline = BigInt(now + Number(formData.commitDeadlineHours) * 3600)
-      const revealDeadline = BigInt(now + Number(formData.revealDeadlineHours) * 3600)
-      const disputeWindow = BigInt(Number(formData.disputeWindowHours) * 3600)
+      const commitDeadline = BigInt(now + Number(data.commitDeadlineHours) * 3600)
+      const revealDeadline = BigInt(now + Number(data.revealDeadlineHours) * 3600)
+      const disputeWindow = BigInt(Number(data.disputeWindowHours) * 3600)
 
       const hash = await walletClient.writeContract({
         address: BOUNTY_HUB_ADDRESS,
@@ -178,27 +212,27 @@ export function CreateProject() {
         functionName: 'registerProjectV2',
         chain: CHAIN,
         account: address,
-        value: parseEther(formData.bountyPool),
+        value: parseEther(data.bountyPool),
         args: [
-          formData.targetContract as `0x${string}`,
-          parseEther(formData.maxPayout),
-          BigInt(formData.forkBlock || 0),
-          formData.mode,
+          data.targetContract as `0x${string}`,
+          parseEther(data.maxPayout),
+          BigInt(data.forkBlock || 0),
+          data.mode === '0' ? 0 : 1,
           commitDeadline,
           revealDeadline,
           disputeWindow,
           {
-            maxAttackerSeedWei: parseEther(formData.maxAttackerSeed),
-            maxWarpSeconds: BigInt(formData.maxWarpSeconds),
-            allowImpersonation: formData.allowImpersonation,
+            maxAttackerSeedWei: parseEther(data.maxAttackerSeed),
+            maxWarpSeconds: BigInt(data.maxWarpSeconds),
+            allowImpersonation: data.allowImpersonation,
             thresholds: {
-              criticalDrainWei: parseEther(formData.criticalThreshold),
-              highDrainWei: parseEther(formData.highThreshold),
-              mediumDrainWei: parseEther(formData.mediumThreshold),
-              lowDrainWei: parseEther(formData.lowThreshold)
-            }
-          }
-        ]
+              criticalDrainWei: parseEther(data.criticalThreshold),
+              highDrainWei: parseEther(data.highThreshold),
+              mediumDrainWei: parseEther(data.mediumThreshold),
+              lowDrainWei: parseEther(data.lowThreshold),
+            },
+          },
+        ],
       })
 
       setTxHash(hash)
@@ -229,7 +263,7 @@ export function CreateProject() {
               className={`wizard-step-label ${index === activeStep ? 'active' : ''}`}
               style={{ 
                 color: index <= activeStep ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                marginLeft: '0.5rem'
+                marginLeft: '0.5rem',
               }}
             >
               {step}
@@ -240,7 +274,7 @@ export function CreateProject() {
               className="wizard-connector"
               style={{ 
                 background: index < activeStep ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                margin: '0 0.75rem'
+                margin: '0 0.75rem',
               }}
             />
           )}
@@ -255,51 +289,50 @@ export function CreateProject() {
         // STEP_01: BASICS
       </h3>
       
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-          TARGET CONTRACT ADDRESS *
-        </label>
-        <input
-          type="text"
-          value={formData.targetContract}
-          onChange={(e) => updateField('targetContract', e.target.value)}
-          placeholder="0x..."
-          style={{ 
-            width: '100%',
-            borderColor: validationErrors.targetContract ? 'var(--color-error)' : undefined
-          }}
-        />
-        {validationErrors.targetContract && (
-          <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-            {validationErrors.targetContract}
-          </span>
+      <FormField
+        control={form.control}
+        name="targetContract"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              TARGET CONTRACT ADDRESS *
+            </FormLabel>
+            <FormControl>
+              <Input 
+                placeholder="0x..." 
+                className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                {...field} 
+              />
+            </FormControl>
+            <FormMessage className="text-[var(--color-error)]" />
+          </FormItem>
         )}
-      </div>
+      />
 
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-          FORK BLOCK (0 = LATEST)
-        </label>
-        <input
-          type="number"
-          value={formData.forkBlock}
-          onChange={(e) => updateField('forkBlock', e.target.value)}
-          placeholder="0"
-          min="0"
-          style={{ 
-            width: '100%',
-            borderColor: validationErrors.forkBlock ? 'var(--color-error)' : undefined
-          }}
-        />
-        {validationErrors.forkBlock && (
-          <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-            {validationErrors.forkBlock}
-          </span>
+      <FormField
+        control={form.control}
+        name="forkBlock"
+        render={({ field }) => (
+          <FormItem className="mt-6">
+            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              FORK BLOCK (0 = LATEST)
+            </FormLabel>
+            <FormControl>
+              <Input 
+                type="number" 
+                placeholder="0" 
+                min="0"
+                className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                {...field} 
+              />
+            </FormControl>
+            <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+              Block number to fork from. Use 0 for the latest block.
+            </FormDescription>
+            <FormMessage className="text-[var(--color-error)]" />
+          </FormItem>
         )}
-        <span style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-          Block number to fork from. Use 0 for the latest block.
-        </span>
-      </div>
+      />
     </div>
   )
 
@@ -310,147 +343,129 @@ export function CreateProject() {
       </h3>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            BOUNTY POOL (ETH) *
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            value={formData.bountyPool}
-            onChange={(e) => updateField('bountyPool', e.target.value)}
-            placeholder="1.0"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.bountyPool ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.bountyPool && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.bountyPool}
-            </span>
+        <FormField
+          control={form.control}
+          name="bountyPool"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                BOUNTY POOL (ETH) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  step="0.001" 
+                  placeholder="1.0"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
           )}
-        </div>
+        />
 
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            MAX PAYOUT PER BUG (ETH) *
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            value={formData.maxPayout}
-            onChange={(e) => updateField('maxPayout', e.target.value)}
-            placeholder="0.5"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.maxPayout ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.maxPayout && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.maxPayout}
-            </span>
+        <FormField
+          control={form.control}
+          name="maxPayout"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                MAX PAYOUT PER BUG (ETH) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  step="0.001" 
+                  placeholder="0.5"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
           )}
-        </div>
+        />
       </div>
 
-      <div style={{ marginTop: '1.5rem' }}>
-        <label style={{ display: 'block', marginBottom: '0.75rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-          COMPETITION MODE *
-        </label>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <label style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.5rem',
-            cursor: 'pointer',
-            padding: '0.75rem 1rem',
-            border: `1px solid ${formData.mode === 0 ? 'var(--color-primary)' : 'var(--color-text-dim)'}`,
-            background: formData.mode === 0 ? 'rgba(0, 255, 157, 0.1)' : 'transparent'
-          }}>
-            <input
-              type="radio"
-              name="mode"
-              checked={formData.mode === 0}
-              onChange={() => updateField('mode', 0)}
-            />
-            <span style={{ fontWeight: formData.mode === 0 ? 'bold' : 'normal', color: formData.mode === 0 ? 'var(--color-primary)' : 'var(--color-text)' }}>
-              UNIQUE
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)' }}>
-              First valid reveal wins
-            </span>
-          </label>
-          <label style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.5rem',
-            cursor: 'pointer',
-            padding: '0.75rem 1rem',
-            border: `1px solid ${formData.mode === 1 ? 'var(--color-secondary)' : 'var(--color-text-dim)'}`,
-            background: formData.mode === 1 ? 'rgba(0, 240, 255, 0.1)' : 'transparent'
-          }}>
-            <input
-              type="radio"
-              name="mode"
-              checked={formData.mode === 1}
-              onChange={() => updateField('mode', 1)}
-            />
-            <span style={{ fontWeight: formData.mode === 1 ? 'bold' : 'normal', color: formData.mode === 1 ? 'var(--color-secondary)' : 'var(--color-text)' }}>
-              MULTI
-            </span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)' }}>
-              Batch verification
-            </span>
-          </label>
-        </div>
-      </div>
+      <FormField
+        control={form.control}
+        name="mode"
+        render={({ field }) => (
+          <FormItem className="mt-6">
+            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              COMPETITION MODE *
+            </FormLabel>
+            <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <FormControl>
+                <SelectTrigger className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]">
+                  <SelectValue placeholder="Select mode" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent className="bg-[var(--color-bg)] border-[var(--color-bg-light)]">
+                <SelectItem value="0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold" style={{ color: 'var(--color-primary)' }}>UNIQUE</span>
+                    <span className="text-xs" style={{ color: 'var(--color-text-dim)' }}>First valid reveal wins</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold" style={{ color: 'var(--color-secondary)' }}>MULTI</span>
+                    <span className="text-xs" style={{ color: 'var(--color-text-dim)' }}>Batch verification</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <FormMessage className="text-[var(--color-error)]" />
+          </FormItem>
+        )}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginTop: '1.5rem' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            COMMIT DEADLINE (HOURS) *
-          </label>
-          <input
-            type="number"
-            value={formData.commitDeadlineHours}
-            onChange={(e) => updateField('commitDeadlineHours', e.target.value)}
-            placeholder="168"
-            min="1"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.commitDeadlineHours ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.commitDeadlineHours && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.commitDeadlineHours}
-            </span>
+        <FormField
+          control={form.control}
+          name="commitDeadlineHours"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                COMMIT DEADLINE (HOURS) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  placeholder="168" 
+                  min="1"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
           )}
-        </div>
+        />
 
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            REVEAL DEADLINE (HOURS) *
-          </label>
-          <input
-            type="number"
-            value={formData.revealDeadlineHours}
-            onChange={(e) => updateField('revealDeadlineHours', e.target.value)}
-            placeholder="336"
-            min="1"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.revealDeadlineHours ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.revealDeadlineHours && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.revealDeadlineHours}
-            </span>
+        <FormField
+          control={form.control}
+          name="revealDeadlineHours"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                REVEAL DEADLINE (HOURS) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  placeholder="336" 
+                  min="1"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
           )}
-        </div>
+        />
       </div>
     </div>
   )
@@ -462,108 +477,117 @@ export function CreateProject() {
       </h3>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            MAX ATTACKER SEED (ETH) *
-          </label>
-          <input
-            type="number"
-            step="0.1"
-            value={formData.maxAttackerSeed}
-            onChange={(e) => updateField('maxAttackerSeed', e.target.value)}
-            placeholder="10"
-            min="0"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.maxAttackerSeed ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.maxAttackerSeed && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.maxAttackerSeed}
-            </span>
+        <FormField
+          control={form.control}
+          name="maxAttackerSeed"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                MAX ATTACKER SEED (ETH) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  step="0.1" 
+                  placeholder="10" 
+                  min="0"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+                Maximum ETH attacker can give themselves in setup
+              </FormDescription>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
           )}
-          <span style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-            Maximum ETH attacker can give themselves in setup
-          </span>
-        </div>
-
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-            MAX WARP SECONDS *
-          </label>
-          <input
-            type="number"
-            value={formData.maxWarpSeconds}
-            onChange={(e) => updateField('maxWarpSeconds', e.target.value)}
-            placeholder="86400"
-            min="0"
-            style={{ 
-              width: '100%',
-              borderColor: validationErrors.maxWarpSeconds ? 'var(--color-error)' : undefined
-            }}
-          />
-          {validationErrors.maxWarpSeconds && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {validationErrors.maxWarpSeconds}
-            </span>
-          )}
-          <span style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-            Maximum time the PoC can warp forward (0 = unlimited)
-          </span>
-        </div>
-      </div>
-
-      <div style={{ marginTop: '1.5rem' }}>
-        <label style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '0.75rem',
-          cursor: 'pointer',
-          padding: '1rem',
-          border: `1px solid ${formData.allowImpersonation ? 'var(--color-primary)' : 'var(--color-text-dim)'}`,
-          background: formData.allowImpersonation ? 'rgba(0, 255, 157, 0.1)' : 'transparent'
-        }}>
-          <input
-            type="checkbox"
-            checked={formData.allowImpersonation}
-            onChange={(e) => updateField('allowImpersonation', e.target.checked)}
-            style={{ width: 'auto' }}
-          />
-          <div>
-            <span style={{ fontWeight: formData.allowImpersonation ? 'bold' : 'normal' }}>
-              ALLOW IMPERSONATION
-            </span>
-            <p style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', margin: '0.25rem 0 0 0' }}>
-              Allow PoC to impersonate arbitrary addresses (e.g., for governance attacks)
-            </p>
-          </div>
-        </label>
-      </div>
-
-      <div style={{ marginTop: '1.5rem', maxWidth: '300px' }}>
-        <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>
-          DISPUTE WINDOW (HOURS) *
-        </label>
-        <input
-          type="number"
-          value={formData.disputeWindowHours}
-          onChange={(e) => updateField('disputeWindowHours', e.target.value)}
-          placeholder="48"
-          min="1"
-          style={{ 
-            width: '100%',
-            borderColor: validationErrors.disputeWindowHours ? 'var(--color-error)' : undefined
-          }}
         />
-        {validationErrors.disputeWindowHours && (
-          <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-            {validationErrors.disputeWindowHours}
-          </span>
+
+        <FormField
+          control={form.control}
+          name="maxWarpSeconds"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                MAX WARP SECONDS *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  placeholder="86400" 
+                  min="0"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+                Maximum time the PoC can warp forward (0 = unlimited)
+              </FormDescription>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
+          )}
+        />
+      </div>
+
+      <FormField
+        control={form.control}
+        name="allowImpersonation"
+        render={({ field }) => (
+          <FormItem className="mt-6">
+            <div 
+              className="flex items-center gap-3 cursor-pointer p-4 border rounded-md transition-colors"
+              style={{ 
+                borderColor: field.value ? 'var(--color-primary)' : 'var(--color-text-dim)',
+                background: field.value ? 'rgba(0, 255, 157, 0.1)' : 'transparent',
+              }}
+              onClick={() => field.onChange(!field.value)}
+            >
+              <FormControl>
+                <input
+                  type="checkbox"
+                  checked={field.value}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                  className="w-4 h-4 accent-[var(--color-primary)]"
+                />
+              </FormControl>
+              <div>
+                <Label className={`cursor-pointer ${field.value ? 'font-bold' : ''}`}>
+                  ALLOW IMPERSONATION
+                </Label>
+                <p className="text-xs mt-1" style={{ color: 'var(--color-text-dim)' }}>
+                  Allow PoC to impersonate arbitrary addresses (e.g., for governance attacks)
+                </p>
+              </div>
+            </div>
+          </FormItem>
         )}
-        <span style={{ color: 'var(--color-text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-          Time for project owner to dispute AI verdicts
-        </span>
+      />
+
+      <div className="mt-6 max-w-[300px]">
+        <FormField
+          control={form.control}
+          name="disputeWindowHours"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+                DISPUTE WINDOW (HOURS) *
+              </FormLabel>
+              <FormControl>
+                <Input 
+                  type="number" 
+                  placeholder="48" 
+                  min="1"
+                  className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                  {...field} 
+                />
+              </FormControl>
+              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+                Time for project owner to dispute AI verdicts
+              </FormDescription>
+              <FormMessage className="text-[var(--color-error)]" />
+            </FormItem>
+          )}
+        />
       </div>
     </div>
   )
@@ -574,338 +598,339 @@ export function CreateProject() {
         // STEP_04: SEVERITY THRESHOLDS
       </h3>
       
-      <p style={{ color: 'var(--color-text-dim)', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
+      <p className="mb-6 text-sm" style={{ color: 'var(--color-text-dim)' }}>
         Define ETH drain amounts that determine vulnerability severity. Higher severity = higher payout.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: '120px 1fr auto', 
-          alignItems: 'center',
-          gap: '1rem',
-          padding: '1rem',
-          border: '1px solid #ff003c',
-          background: 'rgba(255, 0, 60, 0.05)'
-        }}>
-          <span style={{ color: '#ff003c', fontWeight: 'bold' }}>CRITICAL</span>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.criticalThreshold}
-              onChange={(e) => updateField('criticalThreshold', e.target.value)}
-              placeholder="10"
-              min="0"
-              style={{ 
-                width: '100%',
-                borderColor: validationErrors.criticalThreshold ? 'var(--color-error)' : undefined
-              }}
-            />
-            {validationErrors.criticalThreshold && (
-              <span style={{ color: 'var(--color-error)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-                {validationErrors.criticalThreshold}
-              </span>
+      <div className="flex flex-col gap-4">
+        <div 
+          className="grid items-center gap-4 p-4 border rounded-md"
+          style={{ 
+            gridTemplateColumns: '120px 1fr auto',
+            borderColor: '#ff003c',
+            background: 'rgba(255, 0, 60, 0.05)',
+          }}
+        >
+          <span className="font-bold" style={{ color: '#ff003c' }}>CRITICAL</span>
+          <FormField
+            control={form.control}
+            name="criticalThreshold"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="0.1" 
+                    placeholder="10" 
+                    min="0"
+                    className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                    {...field} 
+                  />
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
             )}
-          </div>
+          />
           <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
         </div>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: '120px 1fr auto', 
-          alignItems: 'center',
-          gap: '1rem',
-          padding: '1rem',
-          border: '1px solid #ff8800',
-          background: 'rgba(255, 136, 0, 0.05)'
-        }}>
-          <span style={{ color: '#ff8800', fontWeight: 'bold' }}>HIGH</span>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.highThreshold}
-              onChange={(e) => updateField('highThreshold', e.target.value)}
-              placeholder="5"
-              min="0"
-              style={{ 
-                width: '100%',
-                borderColor: validationErrors.highThreshold ? 'var(--color-error)' : undefined
-              }}
-            />
-            {validationErrors.highThreshold && (
-              <span style={{ color: 'var(--color-error)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-                {validationErrors.highThreshold}
-              </span>
+        <div 
+          className="grid items-center gap-4 p-4 border rounded-md"
+          style={{ 
+            gridTemplateColumns: '120px 1fr auto',
+            borderColor: '#ff8800',
+            background: 'rgba(255, 136, 0, 0.05)',
+          }}
+        >
+          <span className="font-bold" style={{ color: '#ff8800' }}>HIGH</span>
+          <FormField
+            control={form.control}
+            name="highThreshold"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="0.1" 
+                    placeholder="5" 
+                    min="0"
+                    className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                    {...field} 
+                  />
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
             )}
-          </div>
+          />
           <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
         </div>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: '120px 1fr auto', 
-          alignItems: 'center',
-          gap: '1rem',
-          padding: '1rem',
-          border: '1px solid #ffff00',
-          background: 'rgba(255, 255, 0, 0.05)'
-        }}>
-          <span style={{ color: '#ffff00', fontWeight: 'bold' }}>MEDIUM</span>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.mediumThreshold}
-              onChange={(e) => updateField('mediumThreshold', e.target.value)}
-              placeholder="2"
-              min="0"
-              style={{ 
-                width: '100%',
-                borderColor: validationErrors.mediumThreshold ? 'var(--color-error)' : undefined
-              }}
-            />
-            {validationErrors.mediumThreshold && (
-              <span style={{ color: 'var(--color-error)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-                {validationErrors.mediumThreshold}
-              </span>
+        <div 
+          className="grid items-center gap-4 p-4 border rounded-md"
+          style={{ 
+            gridTemplateColumns: '120px 1fr auto',
+            borderColor: '#ffff00',
+            background: 'rgba(255, 255, 0, 0.05)',
+          }}
+        >
+          <span className="font-bold" style={{ color: '#ffff00' }}>MEDIUM</span>
+          <FormField
+            control={form.control}
+            name="mediumThreshold"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="0.1" 
+                    placeholder="2" 
+                    min="0"
+                    className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                    {...field} 
+                  />
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
             )}
-          </div>
+          />
           <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
         </div>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: '120px 1fr auto', 
-          alignItems: 'center',
-          gap: '1rem',
-          padding: '1rem',
-          border: '1px solid #88ff88',
-          background: 'rgba(136, 255, 136, 0.05)'
-        }}>
-          <span style={{ color: '#88ff88', fontWeight: 'bold' }}>LOW</span>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="number"
-              step="0.1"
-              value={formData.lowThreshold}
-              onChange={(e) => updateField('lowThreshold', e.target.value)}
-              placeholder="0.5"
-              min="0"
-              style={{ 
-                width: '100%',
-                borderColor: validationErrors.lowThreshold ? 'var(--color-error)' : undefined
-              }}
-            />
-            {validationErrors.lowThreshold && (
-              <span style={{ color: 'var(--color-error)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
-                {validationErrors.lowThreshold}
-              </span>
+        <div 
+          className="grid items-center gap-4 p-4 border rounded-md"
+          style={{ 
+            gridTemplateColumns: '120px 1fr auto',
+            borderColor: '#88ff88',
+            background: 'rgba(136, 255, 136, 0.05)',
+          }}
+        >
+          <span className="font-bold" style={{ color: '#88ff88' }}>LOW</span>
+          <FormField
+            control={form.control}
+            name="lowThreshold"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Input 
+                    type="number" 
+                    step="0.1" 
+                    placeholder="0.5" 
+                    min="0"
+                    className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+                    {...field} 
+                  />
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
             )}
-          </div>
+          />
           <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
         </div>
       </div>
     </div>
   )
 
-  const renderReviewStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_05: REVIEW & SUBMIT
-      </h3>
+  const renderReviewStep = () => {
+    const formData = form.getValues()
+    
+    return (
+      <div style={{ animation: 'fadeIn 0.3s ease' }}>
+        <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+          // STEP_05: REVIEW & SUBMIT
+        </h3>
 
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(2, 1fr)', 
-        gap: '1.5rem',
-        marginBottom: '2rem'
-      }}>
-        <div style={{ padding: '1rem', border: '1px solid var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-          <h4 style={{ color: 'var(--color-secondary)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-            [BASICS]
-          </h4>
-          <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>TARGET: </span>
-              <span style={{ color: 'var(--color-text)' }}>{formData.targetContract || '—'}</span>
+        <div 
+          className="grid gap-6 mb-8"
+          style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}
+        >
+          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
+            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+              [BASICS]
+            </h4>
+            <div className="text-sm font-mono">
+              <div className="mb-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>TARGET: </span>
+                <span style={{ color: 'var(--color-text)' }}>{formData.targetContract || '—'}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-dim)' }}>FORK_BLOCK: </span>
+                <span>{formData.forkBlock || '0 (latest)'}</span>
+              </div>
             </div>
-            <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>FORK_BLOCK: </span>
-              <span>{formData.forkBlock || '0 (latest)'}</span>
+          </div>
+
+          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
+            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+              [BOUNTY]
+            </h4>
+            <div className="text-sm font-mono">
+              <div className="mb-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>POOL: </span>
+                <span className="font-bold" style={{ color: 'var(--color-primary)' }}>{formData.bountyPool} ETH</span>
+              </div>
+              <div className="mb-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>MAX_PAYOUT: </span>
+                <span>{formData.maxPayout} ETH</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-dim)' }}>MODE: </span>
+                <span 
+                  className="font-bold" 
+                  style={{ color: formData.mode === '0' ? 'var(--color-primary)' : 'var(--color-secondary)' }}
+                >
+                  {formData.mode === '0' ? 'UNIQUE' : 'MULTI'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
+            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+              [RULES]
+            </h4>
+            <div className="text-sm font-mono">
+              <div className="mb-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>MAX_SEED: </span>
+                <span>{formData.maxAttackerSeed} ETH</span>
+              </div>
+              <div className="mb-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>MAX_WARP: </span>
+                <span>{formData.maxWarpSeconds}s</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--color-text-dim)' }}>IMPERSONATE: </span>
+                <span style={{ color: formData.allowImpersonation ? 'var(--color-primary)' : 'var(--color-error)' }}>
+                  {formData.allowImpersonation ? 'YES' : 'NO'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
+            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+              [THRESHOLDS]
+            </h4>
+            <div className="text-sm font-mono">
+              <div className="mb-1">
+                <span style={{ color: '#ff003c' }}>CRITICAL: </span>
+                <span>{formData.criticalThreshold} ETH</span>
+              </div>
+              <div className="mb-1">
+                <span style={{ color: '#ff8800' }}>HIGH: </span>
+                <span>{formData.highThreshold} ETH</span>
+              </div>
+              <div className="mb-1">
+                <span style={{ color: '#ffff00' }}>MEDIUM: </span>
+                <span>{formData.mediumThreshold} ETH</span>
+              </div>
+              <div>
+                <span style={{ color: '#88ff88' }}>LOW: </span>
+                <span>{formData.lowThreshold} ETH</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div style={{ padding: '1rem', border: '1px solid var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-          <h4 style={{ color: 'var(--color-secondary)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-            [BOUNTY]
+        <div 
+          className="p-4 border rounded-md mb-8"
+          style={{ 
+            borderColor: 'var(--color-primary)', 
+            background: 'rgba(0, 255, 157, 0.05)',
+          }}
+        >
+          <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-primary)' }}>
+            [TIMELINE]
           </h4>
-          <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>POOL: </span>
-              <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{formData.bountyPool} ETH</span>
-            </div>
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>MAX_PAYOUT: </span>
-              <span>{formData.maxPayout} ETH</span>
+          <div className="grid gap-4 text-sm font-mono" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div>
+              <span style={{ color: 'var(--color-text-dim)' }}>COMMIT DEADLINE: </span>
+              <span>{formData.commitDeadlineHours}h from now</span>
             </div>
             <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>MODE: </span>
-              <span style={{ color: formData.mode === 0 ? 'var(--color-primary)' : 'var(--color-secondary)', fontWeight: 'bold' }}>
-                {formData.mode === 0 ? 'UNIQUE' : 'MULTI'}
-              </span>
+              <span style={{ color: 'var(--color-text-dim)' }}>REVEAL DEADLINE: </span>
+              <span>{formData.revealDeadlineHours}h from now</span>
+            </div>
+            <div>
+              <span style={{ color: 'var(--color-text-dim)' }}>DISPUTE WINDOW: </span>
+              <span>{formData.disputeWindowHours}h</span>
             </div>
           </div>
         </div>
 
-        <div style={{ padding: '1rem', border: '1px solid var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-          <h4 style={{ color: 'var(--color-secondary)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-            [RULES]
-          </h4>
-          <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>MAX_SEED: </span>
-              <span>{formData.maxAttackerSeed} ETH</span>
-            </div>
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>MAX_WARP: </span>
-              <span>{formData.maxWarpSeconds}s</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>IMPERSONATE: </span>
-              <span style={{ color: formData.allowImpersonation ? 'var(--color-primary)' : 'var(--color-error)' }}>
-                {formData.allowImpersonation ? 'YES' : 'NO'}
-              </span>
-            </div>
+        {!isConnected && (
+          <div 
+            className="p-6 border rounded-md mb-6 text-center"
+            style={{ 
+              borderColor: 'var(--color-error)', 
+              background: 'rgba(255, 0, 60, 0.1)',
+            }}
+          >
+            <p className="mb-4" style={{ color: 'var(--color-error)' }}>
+              Wallet not connected. Connect your wallet to submit.
+            </p>
+            <Button onClick={connect} className="btn-cyber">
+              CONNECT WALLET
+            </Button>
           </div>
-        </div>
+        )}
 
-        <div style={{ padding: '1rem', border: '1px solid var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-          <h4 style={{ color: 'var(--color-secondary)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-            [THRESHOLDS]
-          </h4>
-          <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-            <div style={{ marginBottom: '0.25rem' }}>
-              <span style={{ color: '#ff003c' }}>CRITICAL: </span>
-              <span>{formData.criticalThreshold} ETH</span>
-            </div>
-            <div style={{ marginBottom: '0.25rem' }}>
-              <span style={{ color: '#ff8800' }}>HIGH: </span>
-              <span>{formData.highThreshold} ETH</span>
-            </div>
-            <div style={{ marginBottom: '0.25rem' }}>
-              <span style={{ color: '#ffff00' }}>MEDIUM: </span>
-              <span>{formData.mediumThreshold} ETH</span>
-            </div>
-            <div>
-              <span style={{ color: '#88ff88' }}>LOW: </span>
-              <span>{formData.lowThreshold} ETH</span>
-            </div>
+        {txHash && (
+          <div 
+            className="p-4 border rounded-md mb-6"
+            style={{ 
+              borderColor: 'var(--color-primary)', 
+              background: 'rgba(0, 255, 157, 0.1)',
+            }}
+          >
+            <p className="text-sm font-mono mb-2" style={{ color: 'var(--color-primary)' }}>
+              ✓ TRANSACTION SUBMITTED
+            </p>
+            <p className="text-xs font-mono break-all">
+              <span style={{ color: 'var(--color-text-dim)' }}>TX_HASH: </span>
+              <a 
+                href={`https://sepolia.etherscan.io/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--color-secondary)' }}
+              >
+                {txHash}
+              </a>
+            </p>
+            <p className="text-xs mt-2" style={{ color: 'var(--color-text-dim)' }}>
+              Redirecting to explorer...
+            </p>
           </div>
-        </div>
+        )}
+
+        {txError && (
+          <div 
+            className="p-4 border rounded-md mb-6"
+            style={{ 
+              borderColor: 'var(--color-error)', 
+              background: 'rgba(255, 0, 60, 0.1)',
+            }}
+          >
+            <p className="text-sm font-mono" style={{ color: 'var(--color-error)' }}>
+              ✗ TRANSACTION FAILED
+            </p>
+            <p className="text-xs font-mono mt-2" style={{ color: 'var(--color-text)' }}>
+              {txError}
+            </p>
+          </div>
+        )}
+
+        {isConnected && (
+          <div 
+            className="p-3 border rounded-md mb-6 text-xs font-mono"
+            style={{ borderColor: 'var(--color-bg-light)' }}
+          >
+            <span style={{ color: 'var(--color-text-dim)' }}>SUBMITTING FROM: </span>
+            <span style={{ color: 'var(--color-secondary)' }}>{address}</span>
+          </div>
+        )}
       </div>
-
-      <div style={{ 
-        padding: '1rem', 
-        border: '1px solid var(--color-primary)', 
-        background: 'rgba(0, 255, 157, 0.05)',
-        marginBottom: '2rem'
-      }}>
-        <h4 style={{ color: 'var(--color-primary)', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-          [TIMELINE]
-        </h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-          <div>
-            <span style={{ color: 'var(--color-text-dim)' }}>COMMIT DEADLINE: </span>
-            <span>{formData.commitDeadlineHours}h from now</span>
-          </div>
-          <div>
-            <span style={{ color: 'var(--color-text-dim)' }}>REVEAL DEADLINE: </span>
-            <span>{formData.revealDeadlineHours}h from now</span>
-          </div>
-          <div>
-            <span style={{ color: 'var(--color-text-dim)' }}>DISPUTE WINDOW: </span>
-            <span>{formData.disputeWindowHours}h</span>
-          </div>
-        </div>
-      </div>
-
-      {!isConnected && (
-        <div style={{ 
-          padding: '1.5rem', 
-          border: '1px solid var(--color-error)', 
-          background: 'rgba(255, 0, 60, 0.1)',
-          marginBottom: '1.5rem',
-          textAlign: 'center'
-        }}>
-          <p style={{ color: 'var(--color-error)', marginBottom: '1rem' }}>
-            Wallet not connected. Connect your wallet to submit.
-          </p>
-          <button onClick={connect} className="btn-cyber">
-            CONNECT WALLET
-          </button>
-        </div>
-      )}
-
-      {txHash && (
-        <div style={{ 
-          padding: '1rem', 
-          border: '1px solid var(--color-primary)', 
-          background: 'rgba(0, 255, 157, 0.1)',
-          marginBottom: '1.5rem'
-        }}>
-          <p style={{ color: 'var(--color-primary)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-            ✓ TRANSACTION SUBMITTED
-          </p>
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', wordBreak: 'break-all' }}>
-            <span style={{ color: 'var(--color-text-dim)' }}>TX_HASH: </span>
-            <a 
-              href={`https://sepolia.etherscan.io/tx/${txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: 'var(--color-secondary)' }}
-            >
-              {txHash}
-            </a>
-          </p>
-          <p style={{ color: 'var(--color-text-dim)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
-            Redirecting to explorer...
-          </p>
-        </div>
-      )}
-
-      {txError && (
-        <div style={{ 
-          padding: '1rem', 
-          border: '1px solid var(--color-error)', 
-          background: 'rgba(255, 0, 60, 0.1)',
-          marginBottom: '1.5rem'
-        }}>
-          <p style={{ color: 'var(--color-error)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-            ✗ TRANSACTION FAILED
-          </p>
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--color-text)', marginTop: '0.5rem' }}>
-            {txError}
-          </p>
-        </div>
-      )}
-
-      {isConnected && (
-        <div style={{ 
-          padding: '0.75rem', 
-          border: '1px solid var(--color-bg-light)',
-          marginBottom: '1.5rem',
-          fontSize: '0.8rem',
-          fontFamily: 'var(--font-mono)'
-        }}>
-          <span style={{ color: 'var(--color-text-dim)' }}>SUBMITTING FROM: </span>
-          <span style={{ color: 'var(--color-secondary)' }}>{address}</span>
-        </div>
-      )}
-    </div>
-  )
+    )
+  }
 
   const renderCurrentStep = () => {
     switch (activeStep) {
@@ -919,7 +944,7 @@ export function CreateProject() {
   }
 
   return (
-    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: 'calc(100vh - 142px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <header style={{ marginBottom: '1rem', flexShrink: 0 }}>
           <h1 style={{ 
@@ -927,7 +952,7 @@ export function CreateProject() {
             fontFamily: 'var(--font-display)',
             textTransform: 'uppercase',
             letterSpacing: '0.1em',
-            color: 'var(--color-primary)'
+            color: 'var(--color-primary)',
           }}>
             CREATE PROJECT
           </h1>
@@ -935,12 +960,12 @@ export function CreateProject() {
             height: '2px', 
             background: 'linear-gradient(90deg, var(--color-primary), transparent)',
             width: '150px',
-            margin: '0.25rem 0 0.5rem'
+            margin: '0.25rem 0 0.5rem',
           }} />
           <p style={{ 
             color: 'var(--color-text-dim)', 
             fontFamily: 'var(--font-mono)',
-            fontSize: '0.8rem'
+            fontSize: '0.8rem',
           }}>
             &gt; Register a new bounty project on-chain
           </p>
@@ -950,56 +975,62 @@ export function CreateProject() {
           {renderStepIndicator()}
         </div>
 
-        <div style={{ 
-          background: 'rgba(255, 255, 255, 0.02)', 
-          padding: '1rem', 
-          border: '1px solid var(--color-bg-light)',
-          flex: 1,
-          overflow: 'auto'
-        }}>
-          {renderCurrentStep()}
-        </div>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleSubmit)} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            <div style={{ 
+              background: 'rgba(255, 255, 255, 0.02)', 
+              padding: '1rem', 
+              border: '1px solid var(--color-bg-light)',
+              flex: 1,
+              overflow: 'auto',
+            }}>
+              {renderCurrentStep()}
+            </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexShrink: 0, marginTop: '1rem' }}>
-          <button
-            onClick={handleBack}
-            disabled={activeStep === 0 || isSubmitting}
-            className="btn-cyber"
-            style={{ 
-              opacity: activeStep === 0 ? 0.5 : 1,
-              cursor: activeStep === 0 ? 'not-allowed' : 'pointer'
-            }}
-          >
-            [ PREVIOUS ]
-          </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexShrink: 0, marginTop: '1rem' }}>
+              <Button
+                type="button"
+                onClick={handleBack}
+                disabled={activeStep === 0 || isSubmitting}
+                variant="outline"
+                className="btn-cyber"
+                style={{ 
+                  opacity: activeStep === 0 ? 0.5 : 1,
+                  cursor: activeStep === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                [ PREVIOUS ]
+              </Button>
 
-          {activeStep < STEPS.length - 1 ? (
-            <button onClick={handleNext} className="btn-cyber">
-              [ NEXT ]
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={!isConnected || isSubmitting || !!txHash}
-              className="btn-cyber"
-              style={{ 
-                opacity: (!isConnected || isSubmitting || txHash) ? 0.5 : 1,
-                minWidth: '180px'
-              }}
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="spinner" style={{ marginRight: '0.5rem' }} />
-                  SUBMITTING...
-                </>
-              ) : txHash ? (
-                '✓ SUBMITTED'
+              {activeStep < STEPS.length - 1 ? (
+                <Button type="button" onClick={handleNext} className="btn-cyber">
+                  [ NEXT ]
+                </Button>
               ) : (
-                '[ SUBMIT PROJECT ]'
+                <Button
+                  type="submit"
+                  disabled={!isConnected || isSubmitting || !!txHash}
+                  className="btn-cyber"
+                  style={{ 
+                    opacity: (!isConnected || isSubmitting || txHash) ? 0.5 : 1,
+                    minWidth: '180px',
+                  }}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <span className="spinner" style={{ marginRight: '0.5rem' }} />
+                      SUBMITTING...
+                    </>
+                  ) : txHash ? (
+                    '✓ SUBMITTED'
+                  ) : (
+                    '[ SUBMIT PROJECT ]'
+                  )}
+                </Button>
               )}
-            </button>
-          )}
-        </div>
+            </div>
+          </form>
+        </Form>
       </div>
     </div>
   )

@@ -1,9 +1,13 @@
 import React, { useMemo, useEffect, useCallback, useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
 import { usePoCSubmission } from '../../hooks/usePoCSubmission'
 import { useWallet } from '../../hooks/useWallet'
 import { DEMO_PROJECTS, H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import type { PoCData } from '../../types/poc'
+import { fadeIn } from '../../lib/animations'
+import { Button } from '../ui/button'
+import { cn } from '../../lib/utils'
 
 import { TargetStep } from './Steps/TargetStep'
 import { ConditionsStep } from './Steps/ConditionsStep'
@@ -86,6 +90,8 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
   const handleBack = () => setActiveStep(prev => prev - 1)
   const handleSubmit = () => submitPoC(pocJson)
 
+  const stepLabels = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW']
+
   return (
     <section id="builder" className="container" style={{ padding: '1rem 2rem', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: '1px solid var(--color-text-dim)', marginLeft: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexShrink: 0 }}>
@@ -103,84 +109,152 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
         )}
       </div>
       
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-text-dim)', paddingBottom: '0.75rem', overflowX: 'auto', flexShrink: 0 }}>
-        {[1, 2, 3, 4, 5].map(step => (
-          <button 
-            key={step} 
-            onClick={() => setActiveStep(step)}
-            style={{ 
-              color: activeStep === step ? 'var(--color-bg)' : 'var(--color-text-dim)',
-              backgroundColor: activeStep === step ? 'var(--color-primary)' : 'transparent',
-              padding: '0.5rem 1rem',
-              border: '1px solid var(--color-text-dim)',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              fontSize: '0.8rem',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            STEP_0{step}
-          </button>
-        ))}
+      {/* Progress Bar */}
+      <div className="relative mb-4 flex-shrink-0">
+        <div className="h-1 bg-[var(--color-text-dim)]/20 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)]"
+            initial={false}
+            animate={{ width: `${(activeStep / 5) * 100}%` }}
+            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+          />
+        </div>
+      </div>
+
+      {/* Step Navigation */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', overflowX: 'auto', flexShrink: 0 }}>
+        {[1, 2, 3, 4, 5].map(step => {
+          const isCompleted = activeStep > step
+          const isActive = activeStep === step
+          return (
+            <Button
+              key={step}
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveStep(step)}
+              className={cn(
+                "relative min-w-[100px] font-mono text-xs tracking-wider transition-all duration-300",
+                "border rounded-sm",
+                isActive && "bg-[var(--color-primary)] text-[var(--color-bg)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 hover:text-[var(--color-bg)]",
+                isCompleted && !isActive && "border-[var(--color-secondary)] text-[var(--color-secondary)] hover:bg-[var(--color-secondary)]/10",
+                !isCompleted && !isActive && "border-[var(--color-text-dim)] text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:border-[var(--color-text)]"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                {isCompleted && (
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="text-[var(--color-secondary)]"
+                  >
+                    ✓
+                  </motion.span>
+                )}
+                <span>{stepLabels[step - 1]}</span>
+              </span>
+            </Button>
+          )
+        })}
       </div>
 
       <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', border: '1px solid var(--color-text-dim)', flex: 1, overflow: 'auto' }}>
         
-        {activeStep === 1 && (
-          <TargetStep 
-            config={targetConfig} 
-            onUpdate={updateTargetConfig} 
-            onNext={handleNext} 
-            onLoadExample={handleLoadExample}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {activeStep === 1 && (
+            <motion.div
+              key="step-1"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              <TargetStep 
+                config={targetConfig} 
+                onUpdate={updateTargetConfig} 
+                onNext={handleNext} 
+                onLoadExample={handleLoadExample}
+              />
+            </motion.div>
+          )}
 
-        {activeStep === 2 && (
-          <ConditionsStep 
-            conditions={conditions} 
-            onAdd={addCondition} 
-            onRemove={removeCondition} 
-            onUpdate={updateCondition} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
+          {activeStep === 2 && (
+            <motion.div
+              key="step-2"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              <ConditionsStep 
+                conditions={conditions} 
+                onAdd={addCondition} 
+                onRemove={removeCondition} 
+                onUpdate={updateCondition} 
+                onNext={handleNext}
+                onBack={handleBack}
+              />
+            </motion.div>
+          )}
 
-        {activeStep === 3 && (
-          <TransactionsStep 
-            transactions={transactions} 
-            onAdd={addTransaction} 
-            onRemove={removeTransaction} 
-            onUpdate={updateTransaction} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
+          {activeStep === 3 && (
+            <motion.div
+              key="step-3"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              <TransactionsStep 
+                transactions={transactions} 
+                onAdd={addTransaction} 
+                onRemove={removeTransaction} 
+                onUpdate={updateTransaction} 
+                onNext={handleNext}
+                onBack={handleBack}
+              />
+            </motion.div>
+          )}
 
-        {activeStep === 4 && (
-          <ImpactStep 
-            config={impactConfig} 
-            onUpdate={updateImpactConfig} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
+          {activeStep === 4 && (
+            <motion.div
+              key="step-4"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              <ImpactStep 
+                config={impactConfig} 
+                onUpdate={updateImpactConfig} 
+                onNext={handleNext}
+                onBack={handleBack}
+              />
+            </motion.div>
+          )}
 
-        {activeStep === 5 && (
-          <ReviewStep 
-            pocJson={pocJson}
-            isConnected={isConnected}
-            isSubmitting={isSubmitting}
-            submissionHash={submissionHash}
-            error={error}
-            onConnect={connect}
-            onSubmit={handleSubmit}
-            onBack={handleBack}
-            projectId={1n}
-            useV2={true}
-          />
-        )}
+          {activeStep === 5 && (
+            <motion.div
+              key="step-5"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              <ReviewStep 
+                pocJson={pocJson}
+                isConnected={isConnected}
+                isSubmitting={isSubmitting}
+                submissionHash={submissionHash}
+                error={error}
+                onConnect={connect}
+                onSubmit={handleSubmit}
+                onBack={handleBack}
+                projectId={1n}
+                useV2={true}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
       </div>
 

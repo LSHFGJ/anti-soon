@@ -677,6 +677,81 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* ============================================
+   DESKTOP ENHANCED STYLES (1280px+)
+   ============================================ */
+@media (min-width: 1280px) {
+  .container {
+    max-width: 1400px;
+    padding: 0 var(--spacing-xl);
+  }
+
+  .page-title {
+    font-size: 3rem;
+  }
+
+  .page-subtitle {
+    font-size: 1rem;
+  }
+
+  .page-divider {
+    width: 300px;
+  }
+
+  .stat-card {
+    padding: 2rem;
+  }
+
+  .stat-value {
+    font-size: 2.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.85rem;
+  }
+
+  .stat-sub {
+    font-size: 0.9rem;
+  }
+
+  .glitch-text {
+    font-size: 6rem !important;
+  }
+
+  .btn-cyber {
+    padding: 1rem 3rem;
+    font-size: 1.1rem;
+  }
+
+  .timeline-connector {
+    width: 100px;
+  }
+
+  .timeline-dot {
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+  }
+
+  .timeline-label {
+    font-size: 0.85rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .container {
+    max-width: 1600px;
+  }
+
+  .glitch-text {
+    font-size: 7rem !important;
+  }
+
+  .page-title {
+    font-size: 3.5rem;
+  }
+}
+
+/* ============================================
    RESPONSIVE / MOBILE STYLES
    ============================================ */
 @media (max-width: 768px) {

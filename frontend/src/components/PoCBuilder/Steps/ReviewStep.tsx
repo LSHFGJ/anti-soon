@@ -1,6 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
 import { useCommitReveal } from '../../../hooks/useCommitReveal'
+import { useToast } from '@/hooks/use-toast'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 interface ReviewStepProps {
   pocJson: string
@@ -47,6 +50,49 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
 }) => {
   const commitReveal = useCommitReveal(projectId, pocJson)
   const [showV1Fallback, setShowV1Fallback] = useState(false)
+  const { success, error: toastError } = useToast()
+  const [prevPhase, setPrevPhase] = useState(commitReveal.state.phase)
+
+  useEffect(() => {
+    const { state } = commitReveal
+    if (prevPhase !== state.phase) {
+      if (state.phase === 'committed') {
+        success({
+          title: 'PoC Committed',
+          description: 'Your encrypted PoC has been submitted successfully.',
+        })
+      } else if (state.phase === 'revealed') {
+        success({
+          title: 'PoC Revealed',
+          description: 'Verification is now in progress.',
+        })
+      } else if (state.phase === 'idle' && state.error) {
+        toastError({
+          title: 'Transaction Failed',
+          description: state.error,
+        })
+      }
+      setPrevPhase(state.phase)
+    }
+  }, [commitReveal.state.phase, commitReveal.state.error, success, toastError, prevPhase])
+
+  useEffect(() => {
+    if (submissionHash && !useV2) {
+      success({
+        title: 'PoC Transmitted (V1)',
+        description: 'Transaction submitted successfully.',
+      })
+    }
+  }, [submissionHash, useV2, success])
+
+  useEffect(() => {
+    if (error && !useV2) {
+      toastError({
+        title: 'Submission Error',
+        description: error,
+      })
+    }
+  }, [error, useV2, toastError])
 
   const renderV2Flow = () => {
     const { state, commit, reveal, reset } = commitReveal
@@ -404,49 +450,32 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.review} />
       
-      <div style={{ marginBottom: '1.5rem' }}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          marginBottom: '0.75rem'
-        }}>
-          <h4 style={{ color: 'var(--color-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
+      <Card className="bg-card/50 border-primary/20">
+        <CardHeader className="flex flex-row items-center justify-between py-4">
+          <CardTitle className="text-sm font-mono text-secondary">
             GENERATED_POC.JSON
-          </h4>
-          <span style={{ 
-            fontSize: '0.75rem', 
-            color: 'var(--color-text-dim)',
-            fontFamily: 'var(--font-mono)'
-          }}>
+          </CardTitle>
+          <span className="text-xs text-muted-foreground font-mono">
             {pocJson.length} bytes
           </span>
-        </div>
-        <pre style={{ 
-          background: '#000', 
-          padding: '1rem', 
-          border: '1px solid var(--color-primary-dim)', 
-          borderRadius: '4px',
-          overflowX: 'auto',
-          fontSize: '0.8rem',
-          color: 'var(--color-primary)',
-          maxHeight: '400px',
-          overflowY: 'auto'
-        }}>
-          {pocJson}
-        </pre>
-      </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <pre className="bg-black/50 p-4 border border-primary/20 rounded-md overflow-auto text-xs font-mono text-primary max-h-[400px]">
+            {pocJson}
+          </pre>
+        </CardContent>
+      </Card>
 
       {useV2 && !showV1Fallback ? renderV2Flow() : renderV1Flow()}
 
-      <div style={{ marginTop: '1.5rem' }}>
-        <button 
-          className="btn-cyber" 
+      <div className="mt-6">
+        <Button 
+          variant="outline"
           onClick={onBack}
-          style={{ padding: '0.75rem 1.5rem', background: 'transparent', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', cursor: 'pointer' }}
+          className="font-mono"
         >
           &lt;&lt; BACK
-        </button>
+        </Button>
       </div>
     </div>
   )

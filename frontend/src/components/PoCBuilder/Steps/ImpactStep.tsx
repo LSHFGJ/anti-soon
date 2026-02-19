@@ -1,6 +1,18 @@
 import React, { useCallback } from 'react'
 import type { ImpactConfig, ImpactType } from '../../../types/poc'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface ImpactStepProps {
   config: ImpactConfig
@@ -9,74 +21,114 @@ interface ImpactStepProps {
   onBack: () => void
 }
 
+const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] = [
+  { value: 'fundsDrained', label: 'Funds Drained', description: 'Direct theft of protocol funds' },
+  { value: 'accessEscalation', label: 'Access Escalation', description: 'Unauthorized privilege gain' },
+  { value: 'stateCorruption', label: 'State Corruption', description: 'Contract state manipulation' },
+  { value: 'other', label: 'Other', description: 'Other vulnerability type' },
+]
+
 export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack }) => {
-  const handleChange = useCallback((field: keyof ImpactConfig, value: string | ImpactType) => {
-    onUpdate(field, value)
+  const handleTypeChange = useCallback((value: ImpactType) => {
+    onUpdate('type', value)
   }, [onUpdate])
+
+  const handleLossChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    onUpdate('estimatedLoss', e.target.value)
+  }, [onUpdate])
+
+  const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    onUpdate('description', e.target.value)
+  }, [onUpdate])
+
+  const selectedType = IMPACT_TYPES.find(t => t.value === config.type)
 
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.impact} />
       
-      <div style={{ display: 'grid', gap: '1.5rem' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-            Vulnerability Type
-          </label>
-          <select 
-            value={config.type} 
-            onChange={e => handleChange('type', e.target.value as ImpactType)}
-            style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', cursor: 'pointer' }}
-          >
-            <option value="fundsDrained">Funds Drained</option>
-            <option value="accessEscalation">Access Escalation</option>
-            <option value="stateCorruption">State Corruption</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-            Estimated Loss (ETH in wei)
-          </label>
-          <input 
-            type="number" 
-            value={config.estimatedLoss} 
-            onChange={e => handleChange('estimatedLoss', e.target.value)}
-            placeholder="e.g. 1000000000000000000000 (1000 ETH)"
-            style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
-          />
-        </div>
-        
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-            Impact Description
-          </label>
-          <textarea 
-            rows={4} 
-            value={config.description} 
-            onChange={e => handleChange('description', e.target.value)} 
-            placeholder="Describe the vulnerability impact and how the exploit works..."
-            style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', resize: 'vertical' }}
-          />
-        </div>
-      </div>
+      <Card className="bg-card/50 border-primary/20">
+        <CardHeader>
+          <CardTitle className="text-lg font-mono text-secondary">Vulnerability Classification</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="impact-type" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+              Vulnerability Type
+            </Label>
+            <Select value={config.type} onValueChange={handleTypeChange}>
+              <SelectTrigger id="impact-type" className="font-mono bg-background/50">
+                <SelectValue placeholder="Select impact type" />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-primary/20">
+                {IMPACT_TYPES.map((type) => (
+                  <SelectItem 
+                    key={type.value} 
+                    value={type.value}
+                    className="font-mono focus:bg-primary/10"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="font-semibold">{type.label}</span>
+                      <span className="text-xs text-muted-foreground">{type.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedType && (
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                {selectedType.description}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="estimated-loss" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+              Estimated Loss (ETH in wei)
+            </Label>
+            <Input
+              id="estimated-loss"
+              type="number"
+              value={config.estimatedLoss}
+              onChange={handleLossChange}
+              placeholder="e.g. 1000000000000000000000 (1000 ETH)"
+              className="font-mono bg-background/50"
+            />
+            <p className="text-xs text-muted-foreground">
+              Enter the amount in wei (1 ETH = 10<sup>18</sup> wei)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="impact-description" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+              Impact Description
+            </Label>
+            <Textarea
+              id="impact-description"
+              rows={4}
+              value={config.description}
+              onChange={handleDescriptionChange}
+              placeholder="Describe the vulnerability impact and how the exploit works..."
+              className="font-mono bg-background/50 resize-y min-h-[100px]"
+            />
+          </div>
+        </CardContent>
+      </Card>
       
-      <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between' }}>
-        <button 
-          className="btn-cyber" 
+      <div className="flex justify-between items-center mt-8">
+        <Button 
+          variant="outline"
           onClick={onBack}
-          style={{ padding: '0.75rem 1.5rem', background: 'transparent', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', cursor: 'pointer' }}
+          className="font-mono"
         >
           &lt;&lt; BACK
-        </button>
-        <button 
-          className="btn-cyber" 
+        </Button>
+        <Button 
           onClick={onNext}
-          style={{ padding: '0.75rem 2rem', background: 'var(--color-primary)', color: 'var(--color-bg)', border: 'none', cursor: 'pointer' }}
+          className="font-mono bg-primary hover:bg-primary/90"
         >
           REVIEW &gt;&gt;
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -6,7 +6,7 @@ export function Builder() {
   const [selectedProject] = useState<typeof DEMO_PROJECTS[0] | null>(null)
 
   return (
-    <main style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <main style={{ height: 'calc(100vh - 142px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
         background: 'var(--color-bg)',
         padding: '1rem 0',

@@ -1,6 +1,9 @@
 import React, { useCallback } from 'react'
 import type { Condition } from '../../../types/poc'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface ConditionsStepProps {
   conditions: Condition[]
@@ -16,48 +19,59 @@ export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ condi
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.conditions} />
       
-      {conditions.map((cond, index) => (
-        <ConditionItem 
-          key={cond.id} 
-          condition={cond}
-          index={index}
-          onRemove={onRemove} 
-          onUpdate={onUpdate} 
-        />
-      ))}
+      <div className="space-y-4 mb-6">
+        {conditions.map((cond, index) => (
+          <ConditionItem 
+            key={cond.id} 
+            condition={cond}
+            index={index}
+            onRemove={onRemove} 
+            onUpdate={onUpdate} 
+          />
+        ))}
+      </div>
       
-      <button 
-        onClick={onAdd} 
-        style={{ 
-          color: 'var(--color-primary)', 
-          border: '1px dashed var(--color-primary)', 
-          padding: '0.75rem', 
-          width: '100%', 
-          marginBottom: '2rem',
-          background: 'transparent',
-          cursor: 'pointer',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.9rem'
-        }}
+      <Button
+        onClick={onAdd}
+        variant="outline"
+        className={cn(
+          "w-full mb-8 py-3 border-dashed border-2",
+          "text-[var(--color-primary)] border-[var(--color-primary)]",
+          "hover:bg-[var(--color-primary-dim)] hover:text-[var(--color-primary)]",
+          "font-mono text-sm tracking-wider",
+          "transition-all duration-200"
+        )}
       >
         + ADD_CONDITION
-      </button>
+      </Button>
       
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <button 
-          className="btn-cyber" 
+      <div className="flex justify-between gap-4">
+        <Button
           onClick={onBack}
-          style={{ padding: '0.75rem 1.5rem', background: 'transparent', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', cursor: 'pointer' }}
+          variant="outline"
+          className={cn(
+            "px-6 py-3",
+            "bg-transparent border border-[var(--color-text-dim)]",
+            "text-[var(--color-text)]",
+            "hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
+            "font-mono tracking-wider",
+            "transition-all duration-200"
+          )}
         >
           &lt;&lt; BACK
-        </button>
-        <button 
-          className="btn-cyber" 
+        </Button>
+        <Button
           onClick={onNext}
-          style={{ padding: '0.75rem 2rem', background: 'var(--color-primary)', color: 'var(--color-bg)', border: 'none', cursor: 'pointer' }}
+          className={cn(
+            "px-8 py-3",
+            "bg-[var(--color-primary)] text-[var(--color-bg)]",
+            "hover:shadow-[0_0_20px_var(--color-primary-dim)]",
+            "font-mono tracking-wider font-semibold",
+            "transition-all duration-200"
+          )}
         >
           NEXT &gt;&gt;
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -78,76 +92,129 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
   }, [condition.id, onUpdate])
 
   return (
-    <div style={{ 
-      border: '1px solid var(--color-text-dim)', 
-      padding: '1rem', 
-      marginBottom: '1rem', 
-      position: 'relative',
-      borderRadius: '4px'
-    }}>
-      <div style={{ 
-        position: 'absolute', 
-        top: '0.5rem', 
-        left: '1rem',
-        fontFamily: 'var(--font-mono)',
-        color: 'var(--color-secondary)',
-        fontSize: '0.8rem'
-      }}>
-        COND_{String(index + 1).padStart(2, '0')}
-      </div>
-      
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem', marginBottom: '0.5rem', marginTop: '1rem' }}>
-        <select 
-          value={condition.type} 
-          onChange={e => handleChange('type', e.target.value)}
-          style={{ padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}
-        >
-          <option value="setBalance">Set Balance (ETH)</option>
-          <option value="setTimestamp">Set Timestamp</option>
-          <option value="setStorage">Set Storage Slot</option>
-        </select>
-        <input 
-          placeholder="Value (e.g. 1000000000000000000)" 
-          value={condition.value} 
-          onChange={e => handleChange('value', e.target.value)}
-          style={{ padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}
-        />
-      </div>
-      
-      {condition.type === 'setBalance' && (
-        <input 
-          placeholder="Target Address" 
-          value={condition.target || ''} 
-          onChange={e => handleChange('target', e.target.value)}
-          style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)', marginTop: '0.5rem' }}
-        />
+    <Card 
+      className={cn(
+        "relative overflow-hidden",
+        "border border-[var(--color-text-dim)]",
+        "bg-[var(--color-bg)]",
+        "transition-all duration-300",
+        "animate-item-enter",
+        "hover:border-[var(--color-primary)]",
+        "hover:shadow-[0_0_15px_var(--color-primary-dim)]"
       )}
+    >
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center justify-between">
+          <span className={cn(
+            "font-mono text-xs tracking-wider",
+            "text-[var(--color-secondary)]"
+          )}>
+            COND_{String(index + 1).padStart(2, '0')}
+          </span>
+          <Button
+            onClick={() => onRemove(condition.id)}
+            variant="ghost"
+            size="sm"
+            aria-label="Remove condition"
+            className={cn(
+              "h-auto p-1",
+              "text-[var(--color-error)] hover:text-[var(--color-error)]",
+              "hover:bg-transparent",
+              "font-bold text-lg",
+              "transition-all duration-200"
+            )}
+          >
+            [x]
+          </Button>
+        </div>
+      </CardHeader>
       
-      {condition.type === 'setStorage' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
+      <CardContent className="pt-2 pb-4 px-4 space-y-3">
+        <div className="grid grid-cols-[1fr_2fr] gap-3">
+          <select 
+            value={condition.type} 
+            onChange={e => handleChange('type', e.target.value)}
+            className={cn(
+              "h-10 px-3 rounded-sm",
+              "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
+              "text-[var(--color-text)] font-mono text-sm",
+              "focus:border-[var(--color-primary)] focus:outline-none",
+              "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
+              "transition-all duration-200",
+              "cursor-pointer"
+            )}
+          >
+            <option value="setBalance">Set Balance (ETH)</option>
+            <option value="setTimestamp">Set Timestamp</option>
+            <option value="setStorage">Set Storage Slot</option>
+          </select>
           <input 
-            placeholder="Contract Address" 
-            value={condition.target || ''} 
-            onChange={e => handleChange('target', e.target.value)}
-            style={{ padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}
-          />
-          <input 
-            placeholder="Slot (Hex)" 
-            value={condition.slot || ''} 
-            onChange={e => handleChange('slot', e.target.value)}
-            style={{ padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}
+            placeholder="Value (e.g. 1000000000000000000)" 
+            value={condition.value} 
+            onChange={e => handleChange('value', e.target.value)}
+            className={cn(
+              "h-10 px-3 rounded-sm",
+              "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
+              "text-[var(--color-primary)] font-mono text-sm",
+              "placeholder:text-[var(--color-text-dim)]",
+              "focus:border-[var(--color-primary)] focus:outline-none",
+              "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
+              "transition-all duration-200"
+            )}
           />
         </div>
-      )}
-      
-      <button 
-        onClick={() => onRemove(condition.id)}
-        aria-label="Remove condition"
-        style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', color: 'var(--color-error)', fontWeight: 'bold', background: 'transparent', border: 'none', cursor: 'pointer' }}
-      >
-        [x]
-      </button>
-    </div>
+        
+        {condition.type === 'setBalance' && (
+          <input 
+            placeholder="Target Address" 
+            value={condition.target || ''} 
+            onChange={e => handleChange('target', e.target.value)}
+            className={cn(
+              "w-full h-10 px-3 rounded-sm",
+              "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
+              "text-[var(--color-primary)] font-mono text-sm",
+              "placeholder:text-[var(--color-text-dim)]",
+              "focus:border-[var(--color-primary)] focus:outline-none",
+              "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
+              "transition-all duration-200"
+            )}
+          />
+        )}
+        
+        {condition.type === 'setStorage' && (
+          <div className="grid grid-cols-2 gap-3">
+            <input 
+              placeholder="Contract Address" 
+              value={condition.target || ''} 
+              onChange={e => handleChange('target', e.target.value)}
+              className={cn(
+                "h-10 px-3 rounded-sm",
+                "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
+                "text-[var(--color-primary)] font-mono text-sm",
+                "placeholder:text-[var(--color-text-dim)]",
+                "focus:border-[var(--color-primary)] focus:outline-none",
+                "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
+                "transition-all duration-200"
+              )}
+            />
+            <input 
+              placeholder="Slot (Hex)" 
+              value={condition.slot || ''} 
+              onChange={e => handleChange('slot', e.target.value)}
+              className={cn(
+                "h-10 px-3 rounded-sm",
+                "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
+                "text-[var(--color-primary)] font-mono text-sm",
+                "placeholder:text-[var(--color-text-dim)]",
+                "focus:border-[var(--color-primary)] focus:outline-none",
+                "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
+                "transition-all duration-200"
+              )}
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 })
 

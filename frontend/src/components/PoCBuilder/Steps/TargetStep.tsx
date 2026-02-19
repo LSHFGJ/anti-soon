@@ -1,8 +1,24 @@
-import React, { useState, useCallback } from 'react'
-import { isAddress } from 'viem'
+import React, { useCallback } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import type { TargetConfig } from '../../../types/poc'
 import { CodeEditor } from '../../CodeEditor'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '../../ui/form'
+import { Input } from '../../ui/input'
+import { Button } from '../../ui/button'
+import { 
+  targetConfigSchema, 
+  type TargetConfigFormData,
+  chainOptions 
+} from '../../../lib/validations/poc'
 
 interface TargetStepProps {
   config: TargetConfig
@@ -11,128 +27,171 @@ interface TargetStepProps {
   onLoadExample?: () => void
 }
 
-export const TargetStep: React.FC<TargetStepProps> = React.memo(({ config, onUpdate, onNext, onLoadExample }) => {
-  const [errors, setErrors] = useState<Record<string, string>>({})
+export const TargetStep: React.FC<TargetStepProps> = React.memo(({ 
+  config, 
+  onUpdate, 
+  onNext, 
+  onLoadExample 
+}) => {
+  const form = useForm<TargetConfigFormData>({
+    resolver: zodResolver(targetConfigSchema),
+    defaultValues: {
+      targetContract: config.targetContract,
+      chain: config.chain as typeof chainOptions[number],
+      forkBlock: config.forkBlock,
+      abiJson: config.abiJson,
+    },
+    mode: 'onChange',
+  })
 
-  const validate = useCallback(() => {
-    const newErrors: Record<string, string> = {}
-    if (!config.targetContract) newErrors.targetContract = "Target address is required"
-    else if (!isAddress(config.targetContract)) newErrors.targetContract = "Invalid Ethereum address"
-    
-    if (!config.forkBlock) newErrors.forkBlock = "Fork block is required"
-
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }, [config.targetContract, config.forkBlock])
-
-  const handleNext = useCallback(() => {
-    if (validate()) onNext()
-  }, [validate, onNext])
+  const handleFieldChange = useCallback((
+    field: keyof TargetConfig, 
+    onChange: (value: string) => void
+  ) => {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      const value = e.target.value
+      onChange(value)
+      onUpdate(field, value)
+    }
+  }, [onUpdate])
 
   const handleAbiChange = useCallback((value: string) => {
+    form.setValue('abiJson', value, { shouldValidate: true })
     onUpdate('abiJson', value)
-  }, [onUpdate])
+  }, [form, onUpdate])
+
+  const handleSubmit = useCallback((data: TargetConfigFormData) => {
+    Object.entries(data).forEach(([key, value]) => {
+      onUpdate(key as keyof TargetConfig, value)
+    })
+    onNext()
+  }, [onUpdate, onNext])
 
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.target} />
       
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
         {onLoadExample && (
-          <button 
+          <Button 
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={onLoadExample}
-            style={{ 
-              fontSize: '0.8rem', 
-              color: 'var(--color-secondary)', 
-              border: '1px solid var(--color-secondary)', 
-              padding: '0.5rem 1rem',
-              cursor: 'pointer',
-              background: 'transparent',
-              fontFamily: 'var(--font-mono)',
-              transition: 'all 0.2s ease'
-            }}
+            className="font-mono text-xs tracking-wider border-[var(--color-secondary)] text-[var(--color-secondary)] hover:bg-[var(--color-secondary)] hover:text-[var(--color-bg)]"
           >
             [ LOAD_EXAMPLE_POC ]
-          </button>
+          </Button>
         )}
       </div>
 
-      <div style={{ display: 'grid', gap: '1.5rem' }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-            Target Contract Address
-          </label>
-          <input 
-            value={config.targetContract} 
-            onChange={e => onUpdate('targetContract', e.target.value)} 
-            placeholder="0x..." 
-            style={{ 
-              width: '100%', padding: '0.75rem', background: 'var(--color-bg)',
-              border: `1px solid ${errors.targetContract ? 'var(--color-error)' : 'var(--color-text-dim)'}`,
-              color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem'
-            }}
-          />
-          {errors.targetContract && (
-            <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-              {errors.targetContract}
-            </span>
-          )}
-        </div>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-              Chain
-            </label>
-            <select 
-              value={config.chain} 
-              onChange={e => onUpdate('chain', e.target.value)}
-              style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: '1px solid var(--color-text-dim)', color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', cursor: 'pointer' }}
-            >
-              <option value="Mainnet">Ethereum Mainnet</option>
-              <option value="Sepolia">Sepolia Testnet</option>
-              <option value="Optimism">Optimism</option>
-              <option value="Arbitrum">Arbitrum</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text)' }}>
-              Fork Block Number
-            </label>
-            <input 
-              value={config.forkBlock} 
-              onChange={e => onUpdate('forkBlock', e.target.value)} 
-              placeholder="e.g. 18500000" 
-              type="number" 
-              style={{ width: '100%', padding: '0.75rem', background: 'var(--color-bg)', border: `1px solid ${errors.forkBlock ? 'var(--color-error)' : 'var(--color-text-dim)'}`, color: 'var(--color-text)', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}
-            />
-            {errors.forkBlock && (
-              <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem', display: 'block' }}>
-                {errors.forkBlock}
-              </span>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <FormField
+            control={form.control}
+            name="targetContract"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-[var(--color-text)] text-sm font-medium">
+                  Target Contract Address
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder="0x..."
+                    onChange={handleFieldChange('targetContract', field.onChange)}
+                    className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+                  />
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
             )}
+          />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            <FormField
+              control={form.control}
+              name="chain"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-[var(--color-text)] text-sm font-medium">
+                    Chain
+                  </FormLabel>
+                  <FormControl>
+                    <select 
+                      value={field.value} 
+                      onChange={handleFieldChange('chain', field.onChange)}
+                      className="flex h-10 w-full rounded-md border border-[var(--color-text-dim)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] font-mono focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] cursor-pointer"
+                    >
+                      <option value="Mainnet">Ethereum Mainnet</option>
+                      <option value="Sepolia">Sepolia Testnet</option>
+                      <option value="Optimism">Optimism</option>
+                      <option value="Arbitrum">Arbitrum</option>
+                    </select>
+                  </FormControl>
+                  <FormMessage className="text-[var(--color-error)] text-xs" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="forkBlock"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-[var(--color-text)] text-sm font-medium">
+                    Fork Block Number
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="text"
+                      placeholder="e.g. 18500000"
+                      onChange={handleFieldChange('forkBlock', field.onChange)}
+                      className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+                    />
+                  </FormControl>
+                  <FormMessage className="text-[var(--color-error)] text-xs" />
+                </FormItem>
+              )}
+            />
           </div>
-        </div>
-        
-        <CodeEditor
-          label="Contract ABI (JSON)"
-          value={config.abiJson}
-          onChange={handleAbiChange}
-          language="json"
-          height={250}
-          placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
-        />
-      </div>
-      
-      <div style={{ marginTop: '2rem', textAlign: 'right' }}>
-        <button 
-          className="btn-cyber" 
-          onClick={handleNext}
-          style={{ padding: '0.75rem 2rem', fontSize: '1rem', fontFamily: 'var(--font-mono)', background: 'var(--color-primary)', color: 'var(--color-bg)', border: 'none', cursor: 'pointer' }}
-        >
-          NEXT &gt;&gt;
-        </button>
-      </div>
+
+          <FormField
+            control={form.control}
+            name="abiJson"
+            render={({ field, fieldState }) => (
+              <FormItem>
+                <FormLabel className="text-[var(--color-text-dim)] text-sm font-medium">
+                  Contract ABI (JSON)
+                </FormLabel>
+                <FormControl>
+                  <div className="abi-upload-area">
+                    <CodeEditor
+                      value={field.value}
+                      onChange={handleAbiChange}
+                      language="json"
+                      height={280}
+                      placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
+                      error={fieldState.error?.message}
+                    />
+                  </div>
+                </FormControl>
+                <FormMessage className="text-[var(--color-error)] text-xs" />
+              </FormItem>
+            )}
+          />
+
+          <div style={{ marginTop: '2rem', textAlign: 'right' }}>
+            <Button 
+              type="submit"
+              className="font-mono text-base px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary)]/90 tracking-wider"
+            >
+              NEXT &gt;&gt;
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   )
 })

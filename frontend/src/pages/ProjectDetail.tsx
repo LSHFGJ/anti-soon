@@ -6,6 +6,9 @@ import { StatCard } from '../components/shared/StatCard'
 import { CountdownTimer } from '../components/shared/CountdownTimer'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
 import { STATUS_LABELS, type Project, type Submission, type ProjectRules } from '../types'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type ProjectTuple = readonly [
   owner: Address,
@@ -56,6 +59,65 @@ const publicClient = createPublicClient({
   chain: CHAIN,
   transport: http()
 })
+
+function ProjectDetailSkeleton() {
+  return (
+    <div className="py-8">
+      <div className="container max-w-6xl mx-auto px-4">
+        <Skeleton className="h-4 w-32 mb-4" />
+        <div className="flex items-center gap-4 mb-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+        <Skeleton className="h-1 w-48 mb-8" />
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="bg-[#111]/80 border-[#1a1a1a]">
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-20 mb-2" />
+                <Skeleton className="h-6 w-28" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        
+        <Card className="bg-[#111]/80 border-[#1a1a1a] mb-8">
+          <CardHeader>
+            <Skeleton className="h-6 w-32" />
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              {[1, 2].map((i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-[#111]/80 border-[#1a1a1a]">
+          <CardHeader>
+            <Skeleton className="h-6 w-40" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-6 w-20" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
@@ -188,15 +250,15 @@ export function ProjectDetail() {
   }, [project, fetchSubmissions])
 
   const getDeadlineStatus = () => {
-    if (!project) return { text: 'UNKNOWN', color: 'var(--color-text-dim)' }
+    if (!project) return { text: 'UNKNOWN', variant: 'outline' as const }
     const now = BigInt(Math.floor(Date.now() / 1000))
     if (project.commitDeadline === 0n || now < project.commitDeadline) {
-      return { text: 'COMMIT OPEN', color: 'var(--color-primary)' }
+      return { text: 'COMMIT OPEN', variant: 'success' as const }
     }
     if (project.revealDeadline === 0n || now < project.revealDeadline) {
-      return { text: 'REVEAL PHASE', color: 'var(--color-secondary)' }
+      return { text: 'REVEAL PHASE', variant: 'info' as const }
     }
-    return { text: 'CLOSED', color: 'var(--color-error)' }
+    return { text: 'CLOSED', variant: 'error' as const }
   }
 
   const formatTimestamp = (timestamp: bigint) => {
@@ -214,45 +276,34 @@ export function ProjectDetail() {
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`
   }
 
+  const getStatusVariant = (status: number): "success" | "error" | "warning" | "info" | "outline" => {
+    if (status <= 1) return 'success'
+    if (status === 5) return 'error'
+    if (status === 3) return 'warning'
+    return 'info'
+  }
+
   if (isLoading) {
-    return (
-      <div style={{ minHeight: '100vh', paddingTop: '80px' }}>
-        <div className="container">
-          <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--color-text-dim)' }}>
-            <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
-            <p style={{ fontFamily: 'var(--font-mono)' }}>&gt; Loading project data...</p>
-          </div>
-        </div>
-      </div>
-    )
+    return <ProjectDetailSkeleton />
   }
 
   if (error || !project) {
     return (
-      <div style={{ minHeight: '100vh', paddingTop: '80px' }}>
-        <div className="container">
-          <div style={{ 
-            padding: '2rem', 
-            border: '1px solid var(--color-error)', 
-            color: 'var(--color-error)',
-            background: 'rgba(255, 0, 60, 0.1)',
-            textAlign: 'center'
-          }}>
-            <p style={{ fontFamily: 'var(--font-mono)' }}>
-              &gt; ERROR: {error || 'Project not found'}
-            </p>
-            <Link 
-              to="/explorer" 
-              style={{ 
-                color: 'var(--color-primary)', 
-                marginTop: '1rem', 
-                display: 'inline-block',
-                fontFamily: 'var(--font-mono)'
-              }}
-            >
-              [&lt; Back to Explorer]
-            </Link>
-          </div>
+      <div className="py-8">
+        <div className="container max-w-6xl mx-auto px-4">
+          <Card className="bg-[#ff003c]/10 border-[#ff003c]/50 text-[#ff003c]">
+            <CardContent className="p-8 text-center">
+              <p className="font-mono text-lg mb-4">
+                ERROR: {error || 'Project not found'}
+              </p>
+              <Link 
+                to="/explorer" 
+                className="text-[#00ff9d] hover:text-[#00ff9d]/80 font-mono transition-colors"
+              >
+                [← Back to Explorer]
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </div>
     )
@@ -261,77 +312,38 @@ export function ProjectDetail() {
   const deadlineStatus = getDeadlineStatus()
 
   return (
-    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header style={{ marginBottom: '1rem', flexShrink: 0 }}>
+    <div className="py-8">
+      <div className="container max-w-6xl mx-auto px-4">
+        <header className="mb-8">
           <Link 
             to="/explorer" 
-            style={{ 
-              color: 'var(--color-text-dim)', 
-              fontSize: '0.75rem',
-              fontFamily: 'var(--font-mono)',
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginBottom: '0.5rem'
-            }}
+            className="inline-flex items-center gap-2 text-[#888] hover:text-[#00ff9d] font-mono text-xs uppercase tracking-wider transition-colors mb-4"
           >
-            <span>&larr;</span> BACK_TO_EXPLORER
+            <span>←</span> Back to Explorer
           </Link>
           
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', marginBottom: '0.25rem' }}>
-            <h1 style={{ 
-              fontSize: '1.5rem', 
-              fontFamily: 'var(--font-display)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              color: 'var(--color-primary)'
-            }}>
-              PROJECT_#{project.id.toString()}
+          <div className="flex items-center gap-4 mb-2">
+            <h1 className="text-2xl font-display font-bold uppercase tracking-widest text-[#00ff9d]">
+              PROJECT #{project.id.toString()}
             </h1>
-            <span style={{ 
-              padding: '0.25rem 0.75rem',
-              background: project.mode === 0 ? 'var(--color-primary)' : 'var(--color-secondary)',
-              color: 'var(--color-bg)',
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              fontFamily: 'var(--font-display)',
-              letterSpacing: '0.1em'
-            }}>
+            <Badge variant={project.mode === 0 ? 'unique' : 'multi'}>
               {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
-            </span>
+            </Badge>
           </div>
           
-          <div style={{ 
-            height: '2px', 
-            background: 'linear-gradient(90deg, var(--color-primary), transparent)',
-            width: '200px'
-          }} />
+          <div className="h-[2px] w-48 bg-gradient-to-r from-[#00ff9d] to-transparent mb-4" />
           
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '1.5rem',
-            marginTop: '0.5rem',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.9rem'
-          }}>
-            <span style={{ color: deadlineStatus.color, fontWeight: 'bold' }}>
-              [{deadlineStatus.text}]
-            </span>
-            <span style={{ color: 'var(--color-text-dim)' }}>
-              TARGET: <span style={{ color: 'var(--color-secondary)' }}>{formatAddress(project.targetContract)}</span>
+          <div className="flex items-center gap-6 font-mono text-sm">
+            <Badge variant={deadlineStatus.variant}>
+              {deadlineStatus.text}
+            </Badge>
+            <span className="text-[#888]">
+              TARGET: <span className="text-[#00f0ff]">{formatAddress(project.targetContract)}</span>
             </span>
           </div>
         </header>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: '1.5rem',
-          marginBottom: '3rem'
-        }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <StatCard 
             label="BOUNTY POOL" 
             value={`${formatEther(project.bountyPool)} ETH`}
@@ -354,372 +366,199 @@ export function ProjectDetail() {
           />
         </div>
 
-        <section style={{ marginBottom: '3rem' }}>
-          <h2 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '1.2rem',
-            color: 'var(--color-text)',
-            marginBottom: '1.5rem',
-            letterSpacing: '0.05em'
-          }}>
-            DEADLINES
-          </h2>
-          
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-            gap: '1.5rem'
-          }}>
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: '1px solid var(--color-bg-light)',
-              borderRadius: '4px',
-              padding: '1.5rem'
-            }}>
-              <div style={{ 
-                color: 'var(--color-text-dim)', 
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.8rem',
-                marginBottom: '0.5rem'
-              }}>
-                COMMIT DEADLINE
+        <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-display tracking-wide">
+              DEADLINES
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <p className="text-[#888] font-mono text-xs uppercase">Commit Deadline</p>
+                <p className="font-mono text-sm">{formatTimestamp(project.commitDeadline)}</p>
+                <CountdownTimer deadline={project.commitDeadline} />
               </div>
-              <div style={{ marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-                {formatTimestamp(project.commitDeadline)}
+              <div className="space-y-2">
+                <p className="text-[#888] font-mono text-xs uppercase">Reveal Deadline</p>
+                <p className="font-mono text-sm">{formatTimestamp(project.revealDeadline)}</p>
+                <CountdownTimer deadline={project.revealDeadline} />
               </div>
-              <CountdownTimer deadline={project.commitDeadline} />
             </div>
-            
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: '1px solid var(--color-bg-light)',
-              borderRadius: '4px',
-              padding: '1.5rem'
-            }}>
-              <div style={{ 
-                color: 'var(--color-text-dim)', 
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.8rem',
-                marginBottom: '0.5rem'
-              }}>
-                REVEAL DEADLINE
-              </div>
-              <div style={{ marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.9rem' }}>
-                {formatTimestamp(project.revealDeadline)}
-              </div>
-              <CountdownTimer deadline={project.revealDeadline} />
-            </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {rules && (
-          <section style={{ marginBottom: '3rem' }}>
-            <h2 style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '1.2rem',
-              color: 'var(--color-text)',
-              marginBottom: '1.5rem',
-              letterSpacing: '0.05em'
-            }}>
-              RULES &amp; THRESHOLDS
-            </h2>
-            
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: '1px solid var(--color-bg-light)',
-              borderRadius: '4px',
-              padding: '1.5rem'
-            }}>
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9rem',
-                  color: 'var(--color-secondary)',
-                  marginBottom: '1rem'
-                }}>
-                  // EXECUTION_RULES
-                </h3>
-                
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                  gap: '1rem',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.85rem'
-                }}>
+          <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-display tracking-wide">
+                RULES & THRESHOLDS
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <p className="text-[#00f0ff] font-mono text-xs mb-3">// EXECUTION_RULES</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>MAX_ATTACKER_SEED: </span>
+                    <span className="text-[#888]">MAX_ATTACKER_SEED: </span>
                     <span>{formatEther(rules.maxAttackerSeedWei)} ETH</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>MAX_TIME_WARP: </span>
+                    <span className="text-[#888]">MAX_TIME_WARP: </span>
                     <span>{rules.maxWarpSeconds.toString()}s</span>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>IMPERSONATION: </span>
-                    <span style={{ color: rules.allowImpersonation ? 'var(--color-primary)' : 'var(--color-error)' }}>
+                    <span className="text-[#888]">IMPERSONATION: </span>
+                    <Badge variant={rules.allowImpersonation ? 'success' : 'error'}>
                       {rules.allowImpersonation ? 'ALLOWED' : 'DISABLED'}
-                    </span>
+                    </Badge>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--color-text-dim)' }}>DISPUTE_WINDOW: </span>
+                    <span className="text-[#888]">DISPUTE_WINDOW: </span>
                     <span>{project.disputeWindow.toString()}s</span>
                   </div>
                 </div>
               </div>
               
               <div>
-                <h3 style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9rem',
-                  color: 'var(--color-secondary)',
-                  marginBottom: '1rem'
-                }}>
-                  // SEVERITY_THRESHOLDS
-                </h3>
-                
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(4, 1fr)', 
-                  gap: '1rem'
-                }}>
-                  <div style={{
-                    padding: '1rem',
-                    background: 'rgba(255, 0, 60, 0.1)',
-                    borderLeft: '3px solid #ff003c'
-                  }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.75rem', color: '#ff003c', marginBottom: '0.5rem' }}>
-                      CRITICAL
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      &gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH
-                    </div>
-                  </div>
-                  
-                  <div style={{
-                    padding: '1rem',
-                    background: 'rgba(255, 136, 0, 0.1)',
-                    borderLeft: '3px solid #ff8800'
-                  }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.75rem', color: '#ff8800', marginBottom: '0.5rem' }}>
-                      HIGH
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      &gt; {formatEther(rules.thresholds.highDrainWei)} ETH
-                    </div>
-                  </div>
-                  
-                  <div style={{
-                    padding: '1rem',
-                    background: 'rgba(255, 255, 0, 0.1)',
-                    borderLeft: '3px solid #ffff00'
-                  }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.75rem', color: '#ffff00', marginBottom: '0.5rem' }}>
-                      MEDIUM
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      &gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH
-                    </div>
-                  </div>
-                  
-                  <div style={{
-                    padding: '1rem',
-                    background: 'rgba(136, 255, 136, 0.1)',
-                    borderLeft: '3px solid #88ff88'
-                  }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.75rem', color: '#88ff88', marginBottom: '0.5rem' }}>
-                      LOW
-                    </div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      &gt; {formatEther(rules.thresholds.lowDrainWei)} ETH
-                    </div>
-                  </div>
+                <p className="text-[#00f0ff] font-mono text-xs mb-3">// SEVERITY_THRESHOLDS</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <Card className="bg-[#ff003c]/10 border-l-[#ff003c] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                    <CardContent className="p-3">
+                      <p className="font-display text-xs text-[#ff003c] mb-1">CRITICAL</p>
+                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-[#ff8800]/10 border-l-[#ff8800] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                    <CardContent className="p-3">
+                      <p className="font-display text-xs text-[#ff8800] mb-1">HIGH</p>
+                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.highDrainWei)} ETH</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-[#ffff00]/10 border-l-[#ffff00] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                    <CardContent className="p-3">
+                      <p className="font-display text-xs text-[#ffff00] mb-1">MEDIUM</p>
+                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-[#88ff88]/10 border-l-[#88ff88] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                    <CardContent className="p-3">
+                      <p className="font-display text-xs text-[#88ff88] mb-1">LOW</p>
+                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.lowDrainWei)} ETH</p>
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         )}
 
         {project.active && (
-          <section style={{ marginBottom: '3rem' }}>
+          <div className="mb-8">
             <Link 
               to={`/?project=${project.id.toString()}`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.75rem',
-                padding: '1rem 2rem',
-                background: 'linear-gradient(135deg, var(--color-primary), #00cc7d)',
-                color: 'var(--color-bg)',
-                fontFamily: 'var(--font-display)',
-                fontSize: '1rem',
-                fontWeight: 'bold',
-                letterSpacing: '0.1em',
-                textDecoration: 'none',
-                transition: 'all 0.2s',
-                boxShadow: '0 0 20px rgba(0, 255, 157, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 0 30px rgba(0, 255, 157, 0.5)'
-                e.currentTarget.style.transform = 'translateY(-2px)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 0 20px rgba(0, 255, 157, 0.3)'
-                e.currentTarget.style.transform = 'translateY(0)'
-              }}
+              className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-[#00ff9d] to-[#00cc7d] text-[#0a0a0a] font-display font-bold uppercase tracking-widest text-sm transition-all hover:shadow-[0_0_30px_rgba(0,255,157,0.5)] hover:-translate-y-0.5"
             >
-              <span>SUBMIT_POC</span>
-              <span>&rarr;</span>
+              <span>SUBMIT POC</span>
+              <span>→</span>
             </Link>
-          </section>
+          </div>
         )}
 
-        <section style={{ marginBottom: '3rem' }}>
-          <h2 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '1.2rem',
-            color: 'var(--color-text)',
-            marginBottom: '1.5rem',
-            letterSpacing: '0.05em'
-          }}>
-            SUBMISSIONS [{submissions.length}]
-          </h2>
-          
-          {submissions.length === 0 ? (
-            <div style={{
-              padding: '3rem',
-              border: '1px dashed var(--color-text-dim)',
-              textAlign: 'center',
-              color: 'var(--color-text-dim)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.9rem'
-            }}>
-              <p>&gt; No submissions yet</p>
-              <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                Be the first to submit a PoC for this project
-              </p>
-            </div>
-          ) : (
-            <div style={{
-              overflowX: 'auto',
-              border: '1px solid var(--color-bg-light)',
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))'
-            }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.85rem'
-              }}>
-                <thead>
-                  <tr style={{ 
-                    borderBottom: '1px solid var(--color-bg-light)',
-                    textAlign: 'left'
-                  }}>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>ID</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>AUDITOR</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>STATUS</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>SEVERITY</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>DRAIN</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>PAYOUT</th>
-                    <th style={{ padding: '1rem', color: 'var(--color-text-dim)', fontWeight: 'normal' }}>COMMITTED</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissions.map((sub) => (
-                    <tr 
-                      key={sub.id.toString()}
-                      style={{ 
-                        borderBottom: '1px solid var(--color-bg-light)',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(0, 255, 157, 0.05)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent'
-                      }}
-                    >
-                      <td style={{ padding: '1rem', color: 'var(--color-text-dim)' }}>
-                        #{sub.id.toString()}
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <span style={{ color: 'var(--color-secondary)' }}>
-                          {formatAddress(sub.auditor)}
-                        </span>
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <span style={{
-                          padding: '0.25rem 0.5rem',
-                          background: sub.status <= 1 ? 'rgba(0, 255, 157, 0.1)' 
-                            : sub.status === 5 ? 'rgba(255, 0, 60, 0.1)'
-                            : sub.status === 3 ? 'rgba(255, 136, 0, 0.1)'
-                            : 'rgba(0, 240, 255, 0.1)',
-                          color: sub.status <= 1 ? 'var(--color-primary)'
-                            : sub.status === 5 ? 'var(--color-error)'
-                            : sub.status === 3 ? '#ff8800'
-                            : 'var(--color-secondary)',
-                          fontSize: '0.75rem',
-                          fontWeight: 'bold'
-                        }}>
-                          {STATUS_LABELS[sub.status]}
-                        </span>
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <SeverityBadge severity={sub.severity} />
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        {sub.drainAmountWei > 0n ? (
-                          <span style={{ color: 'var(--color-text)' }}>
-                            {formatEther(sub.drainAmountWei)} ETH
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--color-text-dim)' }}>-</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        {sub.payoutAmount > 0n ? (
-                          <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>
-                            {formatEther(sub.payoutAmount)} ETH
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--color-text-dim)' }}>-</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '1rem', color: 'var(--color-text-dim)' }}>
-                        {formatTimestamp(sub.commitTimestamp)}
-                      </td>
+        <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-display tracking-wide">
+              SUBMISSIONS [{submissions.length}]
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {submissions.length === 0 ? (
+              <div className="py-12 border border-dashed border-[#333] text-center">
+                <p className="font-mono text-[#888] text-sm mb-2">&gt; No submissions yet</p>
+                <p className="font-mono text-[#666] text-xs">
+                  Be the first to submit a PoC for this project
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-6">
+                <table className="w-full font-mono text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1a1a1a] text-left">
+                      <th className="px-6 py-3 text-[#888] font-normal">ID</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">AUDITOR</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">STATUS</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">SEVERITY</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">DRAIN</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">PAYOUT</th>
+                      <th className="px-6 py-3 text-[#888] font-normal">COMMITTED</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+                  </thead>
+                  <tbody>
+                    {submissions.map((sub) => (
+                      <tr 
+                        key={sub.id.toString()}
+                        className="border-b border-[#1a1a1a] hover:bg-[#00ff9d]/5 transition-colors"
+                      >
+                        <td className="px-6 py-3 text-[#888]">
+                          #{sub.id.toString()}
+                        </td>
+                        <td className="px-6 py-3 text-[#00f0ff]">
+                          {formatAddress(sub.auditor)}
+                        </td>
+                        <td className="px-6 py-3">
+                          <Badge variant={getStatusVariant(sub.status)}>
+                            {STATUS_LABELS[sub.status]}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-3">
+                          <SeverityBadge severity={sub.severity} />
+                        </td>
+                        <td className="px-6 py-3">
+                          {sub.drainAmountWei > 0n ? (
+                            <span>{formatEther(sub.drainAmountWei)} ETH</span>
+                          ) : (
+                            <span className="text-[#888]">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-3">
+                          {sub.payoutAmount > 0n ? (
+                            <span className="text-[#00ff9d] font-bold">
+                              {formatEther(sub.payoutAmount)} ETH
+                            </span>
+                          ) : (
+                            <span className="text-[#888]">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-3 text-[#888]">
+                          {formatTimestamp(sub.commitTimestamp)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        <section style={{
-          padding: '1.5rem',
-          background: 'rgba(17, 17, 17, 0.5)',
-          border: '1px solid var(--color-bg-light)',
-          borderRadius: '4px',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.85rem'
-        }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
-            <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>OWNER: </span>
-              <span style={{ color: 'var(--color-secondary)' }}>{project.owner}</span>
+        <Card className="bg-[#111]/50 border-[#1a1a1a]">
+          <CardContent className="p-4">
+            <div className="grid md:grid-cols-3 gap-4 font-mono text-sm">
+              <div>
+                <span className="text-[#888]">OWNER: </span>
+                <span className="text-[#00f0ff] break-all">{project.owner}</span>
+              </div>
+              <div>
+                <span className="text-[#888]">TARGET_CONTRACT: </span>
+                <span className="text-[#00f0ff] break-all">{project.targetContract}</span>
+              </div>
+              <div>
+                <span className="text-[#888]">RULES_HASH: </span>
+                <span className="break-all">{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>
+              </div>
             </div>
-            <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>TARGET_CONTRACT: </span>
-              <span style={{ color: 'var(--color-secondary)' }}>{project.targetContract}</span>
-            </div>
-            <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>RULES_HASH: </span>
-              <span>{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>
-            </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

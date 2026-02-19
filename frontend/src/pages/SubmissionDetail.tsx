@@ -6,6 +6,9 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { Timeline, getSubmissionTimeline } from '../components/shared/Timeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
 import { useWallet } from '../hooks/useWallet'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import type { Submission, Project } from '../types'
 
 type SubmissionTuple = readonly [
@@ -237,13 +240,22 @@ export function SubmissionDetail() {
   const canResolve = submission && submission.challenged && isProjectOwner && submission.status === 3
   const canFinalize = submission && (submission.status === 2 || submission.status === 3) && !submission.challenged
 
+  const getStatusBadgeVariant = (): 'success' | 'error' | 'warning' | 'info' => {
+    if (submission?.status === 5) return 'error'
+    if (submission?.challenged) return 'error'
+    if (submission?.status === 4) return 'success'
+    if (submission?.status === 2) return 'success'
+    if (submission?.status === 1) return 'info'
+    return 'warning'
+  }
+
   if (isLoading) {
     return (
-      <div style={{ minHeight: '100vh', paddingTop: '120px' }}>
+      <div className="min-h-[calc(100vh-142px)] flex items-center justify-center">
         <div className="container">
-          <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--color-text-dim)' }}>
-            <div className="spinner" style={{ width: '40px', height: '40px', margin: '0 auto 1rem' }} />
-            <p style={{ fontFamily: 'var(--font-mono)' }}>&gt; Loading submission data...</p>
+          <div className="text-center p-8 text-[var(--color-text-dim)]">
+            <div className="spinner w-10 h-10 mx-auto mb-4 border-[var(--color-primary)] border-t-transparent" />
+            <p className="font-mono">&gt; Loading submission data...</p>
           </div>
         </div>
       </div>
@@ -252,32 +264,20 @@ export function SubmissionDetail() {
 
   if (error || !submission) {
     return (
-      <div style={{ minHeight: '100vh', paddingTop: '120px' }}>
+      <div className="min-h-[calc(100vh-142px)] flex items-center justify-center pt-[50px]">
         <div className="container">
-          <div style={{
-            padding: '2rem',
-            border: '1px solid var(--color-error)',
-            color: 'var(--color-error)',
-            background: 'rgba(255, 0, 60, 0.1)',
-            textAlign: 'center'
-          }}>
-            <p style={{ fontFamily: 'var(--font-mono)', marginBottom: '1rem' }}>
-              &gt; ERROR: {error || 'Submission not found'}
-            </p>
-            <Link
-              to="/explorer"
-              style={{
-                color: 'var(--color-primary)',
-                fontFamily: 'var(--font-mono)',
-                textDecoration: 'none',
-                border: '1px solid var(--color-primary)',
-                padding: '0.5rem 1rem',
-                display: 'inline-block'
-              }}
-            >
-              [ BACK TO EXPLORER ]
-            </Link>
-          </div>
+          <Card className="border-[var(--color-error)] bg-[rgba(255,0,60,0.05)] max-w-md mx-auto">
+            <CardContent className="p-6 text-center">
+              <p className="font-mono text-[var(--color-error)] mb-4">
+                &gt; ERROR: {error || 'Submission not found'}
+              </p>
+              <Link to="/explorer">
+                <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)]">
+                  [ BACK TO EXPLORER ]
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </div>
     )
@@ -291,417 +291,273 @@ export function SubmissionDetail() {
   )
 
   return (
-    <div style={{ height: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-        <header style={{ marginBottom: '1rem', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', marginBottom: '0.25rem' }}>
-            <h1 style={{ fontSize: '1.5rem', fontFamily: 'var(--font-display)', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--color-primary)' }}>SUBMISSION_#{id}</h1>
-            <span style={{
-              padding: '0.25rem 0.75rem',
-              background: submission.status <= 1 ? 'rgba(0, 255, 157, 0.1)'
-                : submission.status === 5 ? 'rgba(255, 0, 60, 0.1)'
-                : submission.challenged ? 'rgba(255, 0, 60, 0.1)'
-                : 'rgba(0, 240, 255, 0.1)',
-              color: submission.status <= 1 ? 'var(--color-primary)'
-                : submission.status === 5 ? 'var(--color-error)'
-                : submission.challenged ? 'var(--color-error)'
-                : 'var(--color-secondary)',
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              fontFamily: 'var(--font-mono)',
-              letterSpacing: '0.05em'
-            }}>
+    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
+      <div className="container flex-1 flex flex-col overflow-auto py-6">
+        <header className="mb-6 flex-shrink-0">
+          <div className="flex items-baseline gap-4 mb-2">
+            <h1 className="text-2xl font-[var(--font-display)] uppercase tracking-wider text-[var(--color-primary)]">
+              SUBMISSION_#{id}
+            </h1>
+            <Badge variant={getStatusBadgeVariant()}>
               [{STATUS_LABELS[submission.status]}]
-            </span>
+            </Badge>
           </div>
-          <div style={{ height: '2px', background: 'linear-gradient(90deg, var(--color-primary), transparent)', width: '150px' }} />
-          <p style={{ color: 'var(--color-text-dim)', marginTop: '0.5rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
+          <div className="h-0.5 bg-gradient-to-r from-[var(--color-primary)] to-transparent w-40" />
+          <p className="text-[var(--color-text-dim)] mt-2 font-mono text-sm">
             &gt; View submission details and dispute status
           </p>
         </header>
 
-        <section style={{ marginBottom: '1.5rem', flexShrink: 0 }}>
-          <h2 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '0.9rem',
-            color: 'var(--color-text)',
-            marginBottom: '1rem',
-            letterSpacing: '0.05em'
-          }}>
+        <section className="mb-6 flex-shrink-0">
+          <h2 className="font-[var(--font-display)] text-sm text-[var(--color-text)] mb-4 tracking-wider">
             SUBMISSION_PROGRESS
           </h2>
           <Timeline steps={timelineSteps} />
         </section>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <section style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: '1px solid var(--color-bg-light)',
-              padding: '1rem'
-            }}>
-              <h3 style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                color: 'var(--color-secondary)',
-                marginBottom: '1rem',
-                letterSpacing: '0.05em'
-              }}>
-                POC_METADATA
-              </h3>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '1rem',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.85rem'
-              }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+          <div className="flex flex-col gap-6">
+            <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-secondary)] tracking-wider">
+                  POC_METADATA
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 font-mono text-sm">
                 <div>
-                  <label style={{ color: 'var(--color-text-dim)', display: 'block', marginBottom: '0.25rem' }}>
+                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
                     COMMIT_HASH
                   </label>
-                  <span style={{ color: 'var(--color-secondary)', wordBreak: 'break-all' }}>
+                  <span className="text-[var(--color-secondary)] break-all">
                     {submission.commitHash}
                   </span>
                 </div>
                 <div>
-                  <label style={{ color: 'var(--color-text-dim)', display: 'block', marginBottom: '0.25rem' }}>
+                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
                     AUDITOR
                   </label>
-                  <span style={{ color: 'var(--color-text)' }}>
+                  <span className="text-[var(--color-text)]">
                     {submission.auditor}
                   </span>
                 </div>
                 <div>
-                  <label style={{ color: 'var(--color-text-dim)', display: 'block', marginBottom: '0.25rem' }}>
+                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
                     PROJECT_ID
                   </label>
-                  <Link
-                    to="/explorer"
-                    style={{ color: 'var(--color-primary)', textDecoration: 'none' }}
-                  >
+                  <Link to="/explorer" className="text-[var(--color-primary)] hover:underline">
                     #{submission.projectId.toString()}
                   </Link>
                 </div>
                 {project && (
                   <div>
-                    <label style={{ color: 'var(--color-text-dim)', display: 'block', marginBottom: '0.25rem' }}>
+                    <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
                       TARGET_CONTRACT
                     </label>
-                    <span style={{ color: 'var(--color-secondary)', fontSize: '0.8rem' }}>
+                    <span className="text-[var(--color-secondary)] text-xs">
                       {project.targetContract}
                     </span>
                   </div>
                 )}
-              </div>
-            </section>
+              </CardContent>
+            </Card>
 
-            <section style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: '1px solid var(--color-bg-light)',
-              padding: '1.5rem'
-            }}>
-              <h3 style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                color: 'var(--color-secondary)',
-                marginBottom: '1rem',
-                letterSpacing: '0.05em'
-              }}>
-                TIMESTAMPS
-              </h3>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '1rem',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.85rem'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-dim)' }}>COMMITTED</span>
-                  <span style={{ color: 'var(--color-text)' }}>
+            <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-secondary)] tracking-wider">
+                  TIMESTAMPS
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 font-mono text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-dim)]">COMMITTED</span>
+                  <span className="text-[var(--color-text)]">
                     {formatTimestamp(submission.commitTimestamp)}
                   </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-dim)' }}>REVEALED</span>
-                  <span style={{ color: submission.revealTimestamp > 0n ? 'var(--color-text)' : 'var(--color-text-dim)' }}>
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-dim)]">REVEALED</span>
+                  <span className={submission.revealTimestamp > 0n ? 'text-[var(--color-text)]' : 'text-[var(--color-text-dim)]'}>
                     {formatTimestamp(submission.revealTimestamp)}
                   </span>
                 </div>
                 {submission.disputeDeadline > 0n && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>DISPUTE_DEADLINE</span>
-                    <span style={{ color: 'var(--color-text)' }}>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--color-text-dim)]">DISPUTE_DEADLINE</span>
+                    <span className="text-[var(--color-text)]">
                       {formatTimestamp(submission.disputeDeadline)}
                     </span>
                   </div>
                 )}
-              </div>
-            </section>
+              </CardContent>
+            </Card>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-            <section style={{
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              border: submission.status >= 2 ? '1px solid var(--color-primary)' : '1px solid var(--color-bg-light)',
-              padding: '1.5rem'
-            }}>
-              <h3 style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                color: 'var(--color-primary)',
-                marginBottom: '1rem',
-                letterSpacing: '0.05em'
-              }}>
-                VERIFICATION_RESULT
-              </h3>
-
-              {submission.status < 2 ? (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '2rem',
-                  color: 'var(--color-text-dim)',
-                  fontFamily: 'var(--font-mono)'
-                }}>
-                  <p>&gt; Pending verification...</p>
-                  <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                    Results will appear after CRE workflow execution
-                  </p>
-                </div>
-              ) : (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1.25rem',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.85rem'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>SEVERITY</span>
-                    <SeverityBadge severity={submission.severity} />
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>DRAIN_AMOUNT</span>
-                    <span style={{ color: 'var(--color-secondary)' }}>
-                      {formatEther(submission.drainAmountWei)} ETH
-                    </span>
-                  </div>
-
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    paddingTop: '1rem',
-                    borderTop: '1px solid var(--color-bg-light)'
-                  }}>
-                    <span style={{ color: 'var(--color-text-dim)' }}>PAYOUT</span>
-                    <span style={{
-                      color: submission.payoutAmount > 0n ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                      fontWeight: submission.payoutAmount > 0n ? 'bold' : 'normal',
-                      fontSize: submission.payoutAmount > 0n ? '1rem' : '0.85rem'
-                    }}>
-                      {submission.payoutAmount > 0n ? `${formatEther(submission.payoutAmount)} ETH` : 'N/A'}
-                    </span>
-                  </div>
-
-                  <div style={{
-                    marginTop: '0.5rem',
-                    padding: '0.75rem',
-                    background: submission.status === 5
-                      ? 'rgba(255, 0, 60, 0.1)'
-                      : submission.challenged
-                        ? 'rgba(255, 0, 60, 0.1)'
-                        : 'rgba(0, 255, 157, 0.1)',
-                    border: `1px solid ${submission.status === 5
-                      ? 'var(--color-error)'
-                      : submission.challenged
-                        ? 'var(--color-error)'
-                        : 'var(--color-primary)'}`,
-                    textAlign: 'center'
-                  }}>
-                    <span style={{
-                      color: submission.status === 5
-                        ? 'var(--color-error)'
-                        : submission.challenged
-                          ? 'var(--color-error)'
-                          : 'var(--color-primary)',
-                      fontWeight: 'bold',
-                      letterSpacing: '0.05em'
-                    }}>
-                      {submission.status === 5 ? '[ INVALID ]' : submission.challenged ? '[ DISPUTED ]' : '[ VALID ]'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className={`dispute-panel ${submission.challenged ? 'challenged' : ''}`}>
-              <h3 style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                color: submission.challenged ? 'var(--color-error)' : 'var(--color-text)',
-                marginBottom: '1rem',
-                letterSpacing: '0.05em'
-              }}>
-                {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
-              </h3>
-
-              {submission.status === 4 ? (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '1rem',
-                  color: 'var(--color-text-dim)',
-                  fontFamily: 'var(--font-mono)'
-                }}>
-                  <p style={{ color: 'var(--color-primary)' }}>[ FINALIZED ]</p>
-                  <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
-                    No further actions available
-                  </p>
-                </div>
-              ) : submission.challenged ? (
-                <>
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.75rem',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.85rem',
-                    marginBottom: '1rem'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--color-text-dim)' }}>CHALLENGER</span>
-                      <span style={{ color: 'var(--color-error)' }}>
-                        {submission.challenger.slice(0, 8)}...{submission.challenger.slice(-6)}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--color-text-dim)' }}>BOND_AMOUNT</span>
-                      <span style={{ color: 'var(--color-secondary)' }}>
-                        {formatEther(submission.challengeBond)} ETH
-                      </span>
-                    </div>
-                  </div>
-
-                  {canResolve ? (
-                    <>
-                      <p style={{
-                        color: 'var(--color-text-dim)',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '0.8rem',
-                        marginBottom: '1rem'
-                      }}>
-                        &gt; As project owner, you can resolve this dispute:
-                      </p>
-                      <div className="dispute-actions">
-                        <button
-                          className="btn-accept"
-                          onClick={() => handleResolve(false)}
-                          disabled={actionLoading !== null}
-                        >
-                          {actionLoading === 'accept' ? (
-                            <><span className="spinner" style={{ width: '12px', height: '12px', marginRight: '0.5rem' }} /> ACCEPTING...</>
-                          ) : 'ACCEPT (Uphold Result)'}
-                        </button>
-                        <button
-                          className="btn-reject"
-                          onClick={() => handleResolve(true)}
-                          disabled={actionLoading !== null}
-                        >
-                          {actionLoading === 'reject' ? (
-                            <><span className="spinner" style={{ width: '12px', height: '12px', marginRight: '0.5rem' }} /> REJECTING...</>
-                          ) : 'REJECT (Overturn)'}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <p style={{
-                      color: 'var(--color-text-dim)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.8rem'
-                    }}>
-                      &gt; Awaiting resolution from project owner
+          <div className="flex flex-col gap-6">
+            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.status >= 2 ? 'border-[var(--color-primary)]' : 'border-[var(--color-bg-light)]'}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-primary)] tracking-wider">
+                  VERIFICATION_RESULT
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {submission.status < 2 ? (
+                  <div className="text-center py-8 text-[var(--color-text-dim)] font-mono">
+                    <p>&gt; Pending verification...</p>
+                    <p className="text-xs mt-2">
+                      Results will appear after CRE workflow execution
                     </p>
-                  )}
-                </>
-              ) : canChallenge ? (
-                <>
-                  <p style={{
-                    color: 'var(--color-text-dim)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.8rem',
-                    marginBottom: '1rem'
-                  }}>
-                    &gt; Challenge this verification result if you believe it's incorrect.
-                    Requires a bond of {project ? formatEther(project.maxPayoutPerBug / 10n) : '0'} ETH.
+                  </div>
+                ) : (
+                  <div className="space-y-4 font-mono text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--color-text-dim)]">SEVERITY</span>
+                      <SeverityBadge severity={submission.severity} />
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-[var(--color-text-dim)]">DRAIN_AMOUNT</span>
+                      <span className="text-[var(--color-secondary)]">
+                        {formatEther(submission.drainAmountWei)} ETH
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between pt-4 border-t border-[var(--color-bg-light)]">
+                      <span className="text-[var(--color-text-dim)]">PAYOUT</span>
+                      <span className={`${submission.payoutAmount > 0n ? 'text-[var(--color-primary)] font-bold text-base' : 'text-[var(--color-text-dim)]'}`}>
+                        {submission.payoutAmount > 0n ? `${formatEther(submission.payoutAmount)} ETH` : 'N/A'}
+                      </span>
+                    </div>
+
+                    <div className={`mt-4 p-3 text-center border ${
+                      submission.status === 5 
+                        ? 'bg-[rgba(255,0,60,0.1)] border-[var(--color-error)]'
+                        : submission.challenged 
+                          ? 'bg-[rgba(255,0,60,0.1)] border-[var(--color-error)]'
+                          : 'bg-[rgba(0,255,157,0.1)] border-[var(--color-primary)]'
+                    }`}>
+                      <span className={`font-bold tracking-wider ${
+                        submission.status === 5 
+                          ? 'text-[var(--color-error)]'
+                          : submission.challenged 
+                            ? 'text-[var(--color-error)]'
+                            : 'text-[var(--color-primary)]'
+                      }`}>
+                        {submission.status === 5 ? '[ INVALID ]' : submission.challenged ? '[ DISPUTED ]' : '[ VALID ]'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.challenged ? 'border-[var(--color-error)] bg-[rgba(255,0,60,0.03)]' : 'border-[var(--color-bg-light)]'}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className={`text-sm font-[var(--font-display)] tracking-wider ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
+                  {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {submission.status === 4 ? (
+                  <div className="text-center py-4 text-[var(--color-text-dim)] font-mono">
+                    <p className="text-[var(--color-primary)]">[ FINALIZED ]</p>
+                    <p className="text-xs mt-2">No further actions available</p>
+                  </div>
+                ) : submission.challenged ? (
+                  <>
+                    <div className="space-y-3 font-mono text-sm mb-4">
+                      <div className="flex justify-between">
+                        <span className="text-[var(--color-text-dim)]">CHALLENGER</span>
+                        <span className="text-[var(--color-error)]">
+                          {submission.challenger.slice(0, 8)}...{submission.challenger.slice(-6)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[var(--color-text-dim)]">BOND_AMOUNT</span>
+                        <span className="text-[var(--color-secondary)]">
+                          {formatEther(submission.challengeBond)} ETH
+                        </span>
+                      </div>
+                    </div>
+
+                    {canResolve ? (
+                      <>
+                        <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
+                          &gt; As project owner, you can resolve this dispute:
+                        </p>
+                        <div className="flex gap-3">
+                          <Button 
+                            onClick={() => handleResolve(false)}
+                            disabled={actionLoading !== null}
+                            className="flex-1 bg-transparent border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono"
+                          >
+                            {actionLoading === 'accept' ? (
+                              <><span className="spinner w-3 h-3 mr-2 border-[var(--color-bg)] border-t-transparent" /> ACCEPTING...</>
+                            ) : 'ACCEPT (Uphold)'}
+                          </Button>
+                          <Button 
+                            onClick={() => handleResolve(true)}
+                            disabled={actionLoading !== null}
+                            className="flex-1 bg-transparent border border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] font-mono"
+                          >
+                            {actionLoading === 'reject' ? (
+                              <><span className="spinner w-3 h-3 mr-2 border-[var(--color-bg)] border-t-transparent" /> REJECTING...</>
+                            ) : 'REJECT (Overturn)'}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-[var(--color-text-dim)] font-mono text-xs">
+                        &gt; Awaiting resolution from project owner
+                      </p>
+                    )}
+                  </>
+                ) : canChallenge ? (
+                  <>
+                    <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
+                      &gt; Challenge this verification result if you believe it's incorrect.
+                      Requires a bond of {project ? formatEther(project.maxPayoutPerBug / 10n) : '0'} ETH.
+                    </p>
+                    <Button 
+                      onClick={handleChallenge}
+                      disabled={actionLoading !== null}
+                      className="w-full bg-transparent border border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] font-mono"
+                    >
+                      {actionLoading === 'challenge' ? (
+                        <><span className="spinner w-3 h-3 mr-2 border-[var(--color-bg)] border-t-transparent" /> CHALLENGING...</>
+                      ) : '[ CHALLENGE RESULT ]'}
+                    </Button>
+                  </>
+                ) : canFinalize && isProjectOwner ? (
+                  <>
+                    <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
+                      &gt; Dispute window has passed. Finalize to release payout.
+                    </p>
+                    <Button 
+                      onClick={handleFinalize}
+                      disabled={actionLoading !== null}
+                      className="w-full bg-transparent border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono"
+                    >
+                      {actionLoading === 'finalize' ? (
+                        <><span className="spinner w-3 h-3 mr-2 border-[var(--color-bg)] border-t-transparent" /> FINALIZING...</>
+                      ) : '[ FINALIZE PAYOUT ]'}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-[var(--color-text-dim)] font-mono text-xs">
+                    &gt; No dispute actions available
+                    {!isConnected && ' (Connect wallet to challenge)'}
                   </p>
-                  <button
-                    className="btn-challenge"
-                    onClick={handleChallenge}
-                    disabled={actionLoading !== null}
-                  >
-                    {actionLoading === 'challenge' ? (
-                      <><span className="spinner" style={{ width: '12px', height: '12px', marginRight: '0.5rem' }} /> CHALLENGING...</>
-                    ) : '[ CHALLENGE RESULT ]'}
-                  </button>
-                </>
-              ) : canFinalize && isProjectOwner ? (
-                <>
-                  <p style={{
-                    color: 'var(--color-text-dim)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.8rem',
-                    marginBottom: '1rem'
-                  }}>
-                    &gt; Dispute window has passed. Finalize to release payout.
-                  </p>
-                  <button
-                    className="btn-accept"
-                    onClick={handleFinalize}
-                    disabled={actionLoading !== null}
-                  >
-                    {actionLoading === 'finalize' ? (
-                      <><span className="spinner" style={{ width: '12px', height: '12px', marginRight: '0.5rem' }} /> FINALIZING...</>
-                    ) : '[ FINALIZE PAYOUT ]'}
-                  </button>
-                </>
-              ) : (
-                <p style={{
-                  color: 'var(--color-text-dim)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.8rem'
-                }}>
-                  &gt; No dispute actions available
-                  {!isConnected && ' (Connect wallet to challenge)'}
-                </p>
-              )}
-            </section>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
 
-        <div style={{ marginTop: '3rem', textAlign: 'center' }}>
-          <Link
-            to="/explorer"
-            style={{
-              color: 'var(--color-primary)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.85rem',
-              textDecoration: 'none',
-              border: '1px solid var(--color-primary)',
-              padding: '0.75rem 1.5rem',
-              display: 'inline-block',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--color-primary)'
-              e.currentTarget.style.color = 'var(--color-bg)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'var(--color-primary)'
-            }}
-          >
-            [ BACK TO EXPLORER ]
+        <div className="mt-8 text-center">
+          <Link to="/explorer">
+            <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono px-6 py-3">
+              [ BACK TO EXPLORER ]
+            </Button>
           </Link>
         </div>
       </div>
