@@ -10,6 +10,7 @@
   "skipLlm": false,
   "skipStateVerification": true,
   "mainnetRpcUrl": "https://eth.drpc.org",
+  "owner": "0x0000000000000000000000000000000000000000",
   "defaultRules": {
     "maxAttackerSeedWei": "1000000000000000000000",
     "maxWarpSeconds": "31536000",

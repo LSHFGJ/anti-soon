@@ -1,6 +1,7 @@
 import {
   EVMClient,
   HTTPClient,
+  ConfidentialHTTPClient,
   handler,
   getNetwork,
   hexToBase64,
@@ -20,6 +21,7 @@ import {
   decodeAbiParameters,
 } from "viem"
 import { z } from "zod"
+import { gcm } from "@noble/ciphers/aes.js"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -35,6 +37,7 @@ const configSchema = z.object({
   skipLlm: z.boolean().optional().default(false),
   mainnetRpcUrl: z.string().optional(),
   skipStateVerification: z.boolean().optional().default(true),
+  owner: z.string(), // DON owner address for vaultDonSecrets
 })
 
 type Config = z.infer<typeof configSchema>
@@ -88,7 +91,67 @@ const BountyResultParamsV2 = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei"
 )
 
-// ═══════════════════ XOR Decryption Helper ═══════════════════
+// ═══════════════════ AES-GCM Decryption Helpers ═══════════════════
+
+/**
+ * Convert hex string to Uint8Array
+ */
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
+  const bytes = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < clean.length; i += 2) {
+    bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16)
+  }
+  return bytes
+}
+
+/**
+ * AES-256-GCM decryption using pure JS implementation from @noble/ciphers.
+ * Compatible with CRE WASM runtime (no Web Crypto API needed).
+ *
+ * @param ciphertext - Ciphertext with auth tag appended (as hex string)
+ * @param iv - 12-byte initialization vector as hex string
+ * @param key - 32-byte AES key as hex string
+ * @returns Decrypted plaintext string
+ */
+function aesGcmDecrypt(
+  ciphertext: string,
+  iv: string,
+  key: string
+): string {
+  const keyBytes = hexToBytes(key)
+  const ivBytes = hexToBytes(iv)
+  const ciphertextBytes = hexToBytes(ciphertext)
+
+  // @noble/ciphers GCM: ciphertext includes the 16-byte auth tag at the end
+  const decrypted = gcm(keyBytes, ivBytes).decrypt(ciphertextBytes)
+
+  return new TextDecoder().decode(decrypted)
+}
+
+/**
+ * Parse encrypted PoC data from IPFS.
+ * Frontend format: { ciphertext: hex, iv: hex }
+ */
+type EncryptedPoC = {
+  ciphertext: string
+  iv: string
+}
+
+function parseEncryptedPoC(rawData: string): EncryptedPoC {
+  try {
+    const parsed = JSON.parse(rawData)
+    if (typeof parsed.ciphertext === "string" && typeof parsed.iv === "string") {
+      return parsed
+    }
+    throw new Error("Invalid encrypted PoC format: missing ciphertext or iv")
+  } catch (e) {
+    throw new Error(`Failed to parse encrypted PoC: ${e}`)
+  }
+}
+
+// ═══════════════════ DEPRECATED: XOR Decryption ═══════════════════
+// Kept for backward compatibility with V1 submissions (non-AES-GCM format)
 
 function xorDecrypt(ciphertextHex: string, keyHex: string): string {
   // Remove 0x prefix if present
@@ -251,7 +314,7 @@ const verifyPoC = (
   submissionId: bigint,
   pocHash: string,
   cipherURI: string,
-  decryptionKey: string,
+  projectKey: string,
   rules: ProjectRules,
   tenderlyApiKey: string,
   llmApiKey: string
@@ -276,11 +339,18 @@ const verifyPoC = (
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  const ciphertext = new TextDecoder().decode(cipherResp.body)
+  const ciphertextRaw = new TextDecoder().decode(cipherResp.body)
 
-  // Decrypt using revealed key (XOR-based for hackathon simplicity)
-  const plaintext = xorDecrypt(ciphertext, decryptionKey)
-  const pocJson: PoCData = JSON.parse(plaintext)
+  // Decrypt using AES-GCM with project key (fetched from Vault DON in DON mode)
+  let pocJson: PoCData
+  try {
+    const encryptedPoC = parseEncryptedPoC(ciphertextRaw)
+    const plaintext = aesGcmDecrypt(encryptedPoC.ciphertext, encryptedPoC.iv, projectKey)
+    pocJson = JSON.parse(plaintext)
+  } catch (e) {
+    nodeRuntime.log(`Decryption failed: ${String(e)}`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
 
   nodeRuntime.log(`Decrypted PoC: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
   nodeRuntime.log(`PoC ready: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
@@ -295,26 +365,34 @@ const verifyPoC = (
 
   // ═══ HTTP 2: Create Tenderly Virtual TestNet ═══
 
+  const confidentialHttpClient = new ConfidentialHTTPClient()
 
-  const createVnetResp = httpClient.sendRequest(nodeRuntime, {
-    url: `https://api.tenderly.co/api/v1/account/${config.tenderlyAccountSlug}/project/${config.tenderlyProjectSlug}/vnets`,
-    method: "POST" as const,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Access-Key": tenderlyApiKey,
+  const createVnetResp = confidentialHttpClient.sendRequest(nodeRuntime, {
+    request: {
+      url: `https://api.tenderly.co/api/v1/account/${config.tenderlyAccountSlug}/project/${config.tenderlyProjectSlug}/vnets`,
+      method: "POST",
+      multiHeaders: {
+        "Content-Type": { values: ["application/json"] },
+        "X-Access-Key": { values: ["{{.TENDERLY_API_KEY}}"] },
+      },
+      bodyString: JSON.stringify({
+        slug: `antisoon-${submissionId}-${Date.now()}`,
+        display_name: `AntiSoon Verify #${submissionId}`,
+        fork_config: {
+          network_id: pocJson.target.chain,
+          block_number: pocJson.target.forkBlock,
+        },
+        virtual_network_config: {
+          chain_config: { chain_id: 73571 },
+        },
+        sync_state_config: { enabled: false },
+      }),
     },
-    body: JSON.stringify({
-      slug: `antisoon-${submissionId}-${Date.now()}`,
-      display_name: `AntiSoon Verify #${submissionId}`,
-      fork_config: {
-        network_id: pocJson.target.chain,
-        block_number: pocJson.target.forkBlock,
-      },
-      virtual_network_config: {
-        chain_config: { chain_id: 73571 },
-      },
-      sync_state_config: { enabled: false },
-    }),
+    vaultDonSecrets: [
+      { key: "TENDERLY_API_KEY", owner: config.owner },
+      { key: "san_marino_aes_gcm_encryption_key" },
+    ],
+    encryptOutput: true,
   }).result()
 
   if (createVnetResp.statusCode !== 200 && createVnetResp.statusCode !== 201) {
@@ -471,21 +549,27 @@ const verifyPoC = (
       'Respond ONLY in JSON: {"valid":true/false,"severity":0-100,"payout":"wei_string","summary":"one line"}',
     ].join("\n")
 
-    const llmResp = httpClient.sendRequest(nodeRuntime, {
-      url: config.llmApiUrl,
-      method: "POST" as const,
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${llmApiKey}`,
+    const llmResp = confidentialHttpClient.sendRequest(nodeRuntime, {
+      request: {
+        url: config.llmApiUrl,
+        method: "POST",
+        multiHeaders: {
+          "Content-Type": { values: ["application/json"] },
+          "Authorization": { values: ["Bearer {{.LLM_API_KEY}}"] },
+        },
+        bodyString: JSON.stringify({
+          model: config.llmModel,
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+          temperature: 0,
+          max_tokens: 300,
+        }),
       },
-      body: JSON.stringify({
-        model: config.llmModel,
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0,
-        max_tokens: 300,
-      }),
-      cacheSettings: { maxAge: "0s" },
+      vaultDonSecrets: [
+        { key: "LLM_API_KEY", owner: config.owner },
+        { key: "san_marino_aes_gcm_encryption_key" },
+      ],
+      encryptOutput: true,
     }).result()
 
     if (llmResp.statusCode === 200) {
@@ -531,21 +615,17 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
   const topic1 = bytesToHex(log.topics[1])
   const submissionId = BigInt(topic1.startsWith("0x") ? topic1 : "0x" + topic1)
 
-  const decryptionKey = log.topics.length > 2
-    ? bytesToHex(log.topics[2])
-    : bytesToHex(log.data.slice(0, 32))
-
-  runtime.log(`PoC Revealed #${submissionId}, key: ${decryptionKey}`)
+  runtime.log(`PoC Revealed #${submissionId}`)
 
   const tenderlyApiKey = runtime.getSecret({ id: "TENDERLY_API_KEY" }).result().value
   const llmApiKey = runtime.getSecret({ id: "LLM_API_KEY" }).result().value
 
   const cipherURI = extractCipherURI(runtime, submissionId)
+  const projectId = extractProjectId(runtime, submissionId)
 
-  // NOTE: Rules are currently hardcoded defaults.
-  // Future: Fetch from BountyHub contract using projectId -> projectRules mapping
-  // This would require an additional HTTP call to read contract state
-  // or passing rules hash in the event
+  // Get project private key from Vault DON
+  const projectKey = runtime.getSecret({ id: `PROJECT_KEY_${projectId}` }).result().value
+
   const defaultRules: ProjectRules = {
     maxAttackerSeedWei: 1000000000000000000000n, // 1000 ETH
     maxWarpSeconds: 365n * 24n * 60n * 60n, // 1 year
@@ -564,7 +644,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     .runInNodeMode(
       verifyPoC,
       consensusIdenticalAggregation<VerificationResult>()
-    )(submissionId, pocHash, cipherURI, decryptionKey, defaultRules, tenderlyApiKey, llmApiKey)
+    )(submissionId, pocHash, cipherURI, projectKey, defaultRules, tenderlyApiKey, llmApiKey)
     .result()
 
   runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
@@ -615,6 +695,10 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
 const extractCipherURI = (_runtime: Runtime<Config>, _submissionId: bigint): string => {
   return "ipfs://placeholder"
+}
+
+const extractProjectId = (_runtime: Runtime<Config>, _submissionId: bigint): bigint => {
+  return 1n // TODO: Fetch from BountyHub contract using eth_call
 }
 
 // ═══════════════════ Workflow Init ═══════════════════
