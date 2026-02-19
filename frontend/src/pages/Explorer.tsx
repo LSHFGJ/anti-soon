@@ -40,7 +40,8 @@ type ProjectTuple = readonly [
   commitDeadline: bigint,
   revealDeadline: bigint,
   disputeWindow: bigint,
-  rulesHash: `0x${string}`
+  rulesHash: `0x${string}`,
+  projectPublicKey: `0x${string}`
 ]
 
 const publicClient = createPublicClient({
