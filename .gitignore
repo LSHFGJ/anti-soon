@@ -63,8 +63,10 @@ __pycache__/
 # Design docs (local-only reference)
 docs/
 
-# Test screenshots
+# Test screenshots and results
 test-screenshots/
+test-results/
+playwright-report/
 
 # Reference docs
 cre-full-ts.md
