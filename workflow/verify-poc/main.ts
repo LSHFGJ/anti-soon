@@ -150,24 +150,6 @@ function parseEncryptedPoC(rawData: string): EncryptedPoC {
   }
 }
 
-// ═══════════════════ DEPRECATED: XOR Decryption ═══════════════════
-// Kept for backward compatibility with V1 submissions (non-AES-GCM format)
-
-function xorDecrypt(ciphertextHex: string, keyHex: string): string {
-  // Remove 0x prefix if present
-  const cipher = ciphertextHex.startsWith("0x") ? ciphertextHex.slice(2) : ciphertextHex
-  const key = keyHex.startsWith("0x") ? keyHex.slice(2) : keyHex
-
-  // XOR each byte with key byte (cycling through key)
-  let result = ""
-  for (let i = 0; i < cipher.length; i += 2) {
-    const cipherByte = parseInt(cipher.slice(i, i + 2), 16)
-    const keyByte = parseInt(key.slice((i % key.length), (i % key.length) + 2), 16)
-    result += String.fromCharCode(cipherByte ^ keyByte)
-  }
-  return result
-}
-
 // ═══════════════════ Verification Logic ═══════════════════
 
 /**

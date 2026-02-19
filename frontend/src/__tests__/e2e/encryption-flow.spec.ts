@@ -148,7 +148,7 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should display landing page with hero section', async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     await expect(page.locator('body')).toContainText('ANTI-SOON')
     
@@ -160,10 +160,10 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should navigate to PoC builder', async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     await expect(page.locator('#builder')).toBeVisible()
     
@@ -175,13 +175,13 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should display multi-step form in builder', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
-    await expect(page.getByText('TARGET')).toBeVisible()
-    await expect(page.getByText('CONDITIONS')).toBeVisible()
-    await expect(page.getByText('TRANSACTIONS')).toBeVisible()
-    await expect(page.getByText('IMPACT')).toBeVisible()
-    await expect(page.getByText('REVIEW')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'TARGET' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'CONDITIONS' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'TRANSACTIONS' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'IMPACT' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'REVIEW' })).toBeVisible()
     
     await page.screenshot({ 
       path: 'test-results/03-builder-steps.png',
@@ -191,7 +191,7 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should fill target configuration step', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     const targetInput = page.locator('input').first()
     if (await targetInput.isVisible()) {
@@ -200,7 +200,7 @@ test.describe('Encryption Flow E2E', () => {
     
     const chainSelect = page.locator('select').first()
     if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia' })
+      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
     }
     
     await page.screenshot({ 
@@ -211,9 +211,25 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should display connect wallet prompt when not connected', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
-    for (let i = 0; i < 4; i++) {
+    const targetInput = page.locator('input').first()
+    if (await targetInput.isVisible()) {
+      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+    }
+    
+    const chainSelect = page.locator('select').first()
+    if (await chainSelect.isVisible()) {
+      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
+    }
+    
+    const inputs = page.locator('input')
+    const forkBlockInput = inputs.nth(1)
+    if (await forkBlockInput.isVisible()) {
+      await forkBlockInput.fill('18000000')
+    }
+    
+    for (let i = 0; i < 5; i++) {
       const nextButton = page.getByRole('button', { name: /next|continue/i })
       if (await nextButton.isVisible()) {
         await nextButton.click()
@@ -231,17 +247,73 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should display commit/reveal flow UI elements', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
+    
+    const targetInput = page.locator('input').first()
+    if (await targetInput.isVisible()) {
+      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+    }
+    
+    const chainSelect = page.locator('select').first()
+    if (await chainSelect.isVisible()) {
+      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
+    }
+    
+    const inputs = page.locator('input')
+    const forkBlockInput = inputs.nth(1)
+    if (await forkBlockInput.isVisible()) {
+      await forkBlockInput.fill('18000000')
+    }
     
     for (let i = 0; i < 4; i++) {
       const nextButton = page.getByRole('button', { name: /next|continue/i })
       if (await nextButton.isVisible()) {
         await nextButton.click()
-        await page.waitForTimeout(300)
+        await page.waitForTimeout(500)
       }
     }
     
     await page.waitForTimeout(500)
+    
+    const vulnTypeSelects = page.locator('select')
+    for (let j = 0; j < await vulnTypeSelects.count(); j++) {
+      try {
+        await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
+        await page.waitForTimeout(200)
+      } catch {}
+    }
+    
+    await page.waitForTimeout(500)
+    
+    const allInputs = page.locator('input')
+    for (let j = 0; j < await allInputs.count(); j++) {
+      const input = allInputs.nth(j)
+      try {
+        const placeholder = await input.getAttribute('placeholder')
+        if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
+          await input.fill('1000000000000000000')
+          await page.waitForTimeout(200)
+        }
+      } catch {}
+    }
+    
+    await page.waitForTimeout(500)
+    
+    const textareas = page.locator('textarea')
+    if (await textareas.count() > 0) {
+      await textareas.first().fill('Test impact description')
+      await page.waitForTimeout(200)
+    }
+    
+    await page.waitForTimeout(500)
+    
+    const reviewButton = page.getByRole('button', { name: /review/i })
+    if (await reviewButton.isVisible()) {
+      await reviewButton.click()
+      await page.waitForTimeout(500)
+    }
+    
+    await page.waitForTimeout(1000)
     
     await expect(page.locator('body')).toContainText('COMMIT')
     
@@ -253,13 +325,60 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should display generated POC JSON in review step', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
-    for (let i = 0; i < 4; i++) {
+    const targetInput = page.locator('input').first()
+    if (await targetInput.isVisible()) {
+      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+    }
+    
+    const chainSelect = page.locator('select').first()
+    if (await chainSelect.isVisible()) {
+      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
+    }
+    
+    const inputs = page.locator('input')
+    const forkBlockInput = inputs.nth(1)
+    if (await forkBlockInput.isVisible()) {
+      await forkBlockInput.fill('18000000')
+    }
+    
+    for (let i = 0; i < 5; i++) {
       const nextButton = page.getByRole('button', { name: /next|continue/i })
       if (await nextButton.isVisible()) {
         await nextButton.click()
-        await page.waitForTimeout(300)
+        await page.waitForTimeout(500)
+        
+        if (i === 3) {
+          await page.waitForTimeout(300)
+          
+          const vulnTypeSelects = page.locator('select')
+          for (let j = 0; j < await vulnTypeSelects.count(); j++) {
+            try {
+              await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
+            } catch {}
+          }
+          
+          await page.waitForTimeout(300)
+          
+          const allInputs = page.locator('input')
+          for (let j = 0; j < await allInputs.count(); j++) {
+            const input = allInputs.nth(j)
+            try {
+              const placeholder = await input.getAttribute('placeholder')
+              if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
+                await input.fill('1000000000000000000')
+              }
+            } catch {}
+          }
+          
+          await page.waitForTimeout(300)
+          
+          const textareas = page.locator('textarea')
+          if (await textareas.count() > 0) {
+            await textareas.first().fill('Test impact description')
+          }
+        }
       }
     }
     
@@ -280,17 +399,64 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should show encryption flow phases', async ({ page }) => {
     await page.goto('/builder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
-    for (let i = 0; i < 4; i++) {
+    const targetInput = page.locator('input').first()
+    if (await targetInput.isVisible()) {
+      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+    }
+    
+    const chainSelect = page.locator('select').first()
+    if (await chainSelect.isVisible()) {
+      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
+    }
+    
+    const inputs = page.locator('input')
+    const forkBlockInput = inputs.nth(1)
+    if (await forkBlockInput.isVisible()) {
+      await forkBlockInput.fill('18000000')
+    }
+    
+    for (let i = 0; i < 5; i++) {
       const nextButton = page.getByRole('button', { name: /next|continue/i })
       if (await nextButton.isVisible()) {
         await nextButton.click()
-        await page.waitForTimeout(300)
+        await page.waitForTimeout(500)
+        
+        if (i === 3) {
+          await page.waitForTimeout(300)
+          
+          const vulnTypeSelects = page.locator('select')
+          for (let j = 0; j < await vulnTypeSelects.count(); j++) {
+            try {
+              await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
+            } catch {}
+          }
+          
+          await page.waitForTimeout(300)
+          
+          const allInputs = page.locator('input')
+          for (let j = 0; j < await allInputs.count(); j++) {
+            const input = allInputs.nth(j)
+            try {
+              const placeholder = await input.getAttribute('placeholder')
+              if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
+                await input.fill('1000000000000000000')
+              }
+            } catch {}
+          }
+          
+          await page.waitForTimeout(300)
+          
+          const textareas = page.locator('textarea')
+          if (await textareas.count() > 0) {
+            await textareas.first().fill('Test impact description')
+          }
+        }
       }
     }
     
-    await page.waitForTimeout(500)
+    await page.waitForTimeout(1000)
     
     await expect(page.locator('body')).toContainText('1. COMMIT')
     await expect(page.locator('body')).toContainText('2. REVEAL')
@@ -304,7 +470,7 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should navigate to create-project page', async ({ page }) => {
     await page.goto('/create-project')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     await page.screenshot({ 
       path: 'test-results/09-create-project.png',
@@ -314,7 +480,7 @@ test.describe('Encryption Flow E2E', () => {
 
   test('should navigate to explorer page', async ({ page }) => {
     await page.goto('/explorer')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     await page.screenshot({ 
       path: 'test-results/10-explorer.png',
@@ -326,7 +492,7 @@ test.describe('Encryption Flow E2E', () => {
 test.describe('Encryption Utilities E2E', () => {
   test('should have Web Crypto API available for AES-GCM', async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     const cryptoAvailable = await page.evaluate(() => {
       return typeof window.crypto !== 'undefined' && 
@@ -338,7 +504,7 @@ test.describe('Encryption Utilities E2E', () => {
 
   test('should be able to generate AES key', async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     const keyGenerated = await page.evaluate(async () => {
       try {
@@ -358,7 +524,7 @@ test.describe('Encryption Utilities E2E', () => {
 
   test('should be able to encrypt and decrypt data with AES-GCM', async ({ page }) => {
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
     
     const encryptionWorks = await page.evaluate(async () => {
       try {

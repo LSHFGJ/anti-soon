@@ -75,11 +75,12 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
     }
   }, [loadTemplate, setActiveStep])
 
-  const { 
-    isSubmitting, 
-    submissionHash, 
-    error, 
-    submitPoC 
+  const {
+    isSubmitting,
+    commitTxHash,
+    revealTxHash,
+    error,
+    submitPoC
   } = usePoCSubmission()
 
   const { isConnected, connect } = useWallet()
@@ -240,12 +241,12 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
               animate="visible"
               exit="exit"
             >
-              <ReviewStep 
+              <ReviewStep
                 pocJson={pocJson}
                 isConnected={isConnected}
                 isSubmitting={isSubmitting}
-                submissionHash={submissionHash}
-                error={error}
+                submissionHash={commitTxHash || revealTxHash || ''}
+                error={error || null}
                 onConnect={connect}
                 onSubmit={handleSubmit}
                 onBack={handleBack}
