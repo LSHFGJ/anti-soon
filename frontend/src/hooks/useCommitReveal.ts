@@ -1,23 +1,38 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { keccak256, decodeEventLog } from 'viem'
 import type { Address } from 'viem'
 import { useWallet } from './useWallet'
+import { useProjectPublicKey } from './useProjectPublicKey'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import {
-  generateRandomKey,
   generateRandomSalt,
-  xorEncrypt,
+  aesGcmEncrypt,
   computeCommitHash,
   hashCiphertext
 } from '../utils/encryption'
 
-type CommitPhase = 'idle' | 'encrypting' | 'uploading' | 'committing' | 'committed' | 'revealing' | 'revealed' | 'error'
+// Helper to convert hex string to Uint8Array
+function hexToBytes(hex: `0x${string}`): Uint8Array {
+  const clean = hex.slice(2)
+  const bytes = new Uint8Array(clean.length / 2)
+  for (let i = 0; i < clean.length; i += 2) {
+    bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16)
+  }
+  return bytes
+}
+
+// Helper to convert Uint8Array to hex string
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+type CommitPhase = 'idle' | 'encrypting' | 'uploading' | 'committing' | 'committed' | 'revealing' | 'revealed' | 'error' | 'no_public_key'
 
 interface CommitState {
   phase: CommitPhase
   submissionId?: bigint
-  key?: `0x${string}`
   salt?: `0x${string}`
+  iv?: `0x${string}`
   cipherURI?: string
   commitHash?: `0x${string}`
   ciphertext?: `0x${string}`
@@ -26,39 +41,16 @@ interface CommitState {
   error?: string
 }
 
-const STORAGE_KEY_PREFIX = 'antisoon-poc-commit-'
-
 export function useCommitReveal(projectId: bigint, pocJson: string) {
   const [state, setState] = useState<CommitState>({ phase: 'idle' })
   const { address, walletClient, publicClient, isConnected } = useWallet()
+  const { publicKey, isLoading: isKeyLoading, error: keyError } = useProjectPublicKey(projectId)
 
-  useEffect(() => {
-    const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${projectId}`)
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored)
-        if (parsed.submissionId && parsed.key && parsed.salt) {
-          setState({
-            phase: 'committed',
-            submissionId: BigInt(parsed.submissionId),
-            key: parsed.key,
-            salt: parsed.salt,
-            cipherURI: parsed.cipherURI,
-            commitHash: parsed.commitHash,
-            ciphertext: parsed.ciphertext,
-            commitTxHash: parsed.commitTxHash
-          })
-        }
-      } catch {
-        localStorage.removeItem(`${STORAGE_KEY_PREFIX}${projectId}`)
-      }
-    }
-  }, [projectId])
-
-  const uploadToIPFS = async (ciphertext: `0x${string}`): Promise<string> => {
+  const uploadToIPFS = async (ciphertext: `0x${string}`, iv: `0x${string}`): Promise<string> => {
     await new Promise(resolve => setTimeout(resolve, 800))
-    const hash = keccak256(ciphertext)
-    return `ipfs://Qm${hash.slice(4, 50)}`
+    const payload = JSON.stringify({ ciphertext, iv })
+    const payloadHash = keccak256(`0x${bytesToHex(new TextEncoder().encode(payload))}` as `0x${string}`)
+    return `ipfs://Qm${payloadHash.slice(4, 50)}`
   }
 
   const commit = useCallback(async () => {
@@ -67,20 +59,43 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
       return
     }
 
+    if (isKeyLoading) {
+      setState(s => ({ ...s, phase: 'error', error: 'Loading project public key...' }))
+      return
+    }
+
+    if (!publicKey) {
+      setState(s => ({ 
+        ...s, 
+        phase: 'no_public_key', 
+        error: 'Project public key not available. The project must be registered with a public key before submissions.' 
+      }))
+      return
+    }
+
+    if (keyError) {
+      setState(s => ({ ...s, phase: 'error', error: `Failed to load public key: ${keyError.message}` }))
+      return
+    }
+
     try {
       setState(s => ({ ...s, phase: 'encrypting', error: undefined }))
 
-      const key = generateRandomKey()
+      const publicKeyBytes = hexToBytes(publicKey)
+      const { ciphertext, iv } = await aesGcmEncrypt(pocJson, publicKeyBytes)
+      
+      const ciphertextHex = `0x${bytesToHex(ciphertext)}` as `0x${string}`
+      const ivHex = `0x${bytesToHex(iv)}` as `0x${string}`
+      
       const salt = generateRandomSalt()
-      const ciphertext = xorEncrypt(pocJson, key)
-      const cipherHash = hashCiphertext(ciphertext)
+      const cipherHash = hashCiphertext(ciphertextHex)
       const commitHash = computeCommitHash(cipherHash, address as Address, salt)
 
       setState(s => ({ ...s, phase: 'uploading' }))
 
-      const cipherURI = await uploadToIPFS(ciphertext)
+      const cipherURI = await uploadToIPFS(ciphertextHex, ivHex)
 
-      setState(s => ({ ...s, phase: 'committing', key, salt, ciphertext, cipherURI, commitHash }))
+      setState(s => ({ ...s, phase: 'committing', salt, iv: ivHex, ciphertext: ciphertextHex, cipherURI, commitHash }))
 
       const { request } = await publicClient.simulateContract({
         account: address,
@@ -117,17 +132,6 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
         submissionId = BigInt(Date.now())
       }
 
-      const commitData = {
-        submissionId: submissionId.toString(),
-        key,
-        salt,
-        cipherURI,
-        commitHash,
-        ciphertext,
-        commitTxHash: txHash
-      }
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${projectId}`, JSON.stringify(commitData))
-
       setState(s => ({
         ...s,
         phase: 'committed',
@@ -142,7 +146,7 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
         error: err.message || 'Commit failed'
       }))
     }
-  }, [isConnected, walletClient, publicClient, address, projectId, pocJson])
+  }, [isConnected, walletClient, publicClient, address, projectId, pocJson, publicKey, isKeyLoading, keyError])
 
   const reveal = useCallback(async () => {
     if (!isConnected || !walletClient || !publicClient || !address) {
@@ -150,7 +154,7 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
       return
     }
 
-    if (!state.submissionId || !state.key || !state.salt) {
+    if (!state.submissionId || !state.salt) {
       setState(s => ({ ...s, phase: 'error', error: 'No commit found' }))
       return
     }
@@ -158,12 +162,16 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
     try {
       setState(s => ({ ...s, phase: 'revealing', error: undefined }))
 
+      // Vault DON manages the decryption key, so we pass zero
+      // The CRE workflow will decrypt using the DON's private key
+      const zeroKey = '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`
+
       const { request } = await publicClient.simulateContract({
         account: address,
         address: BOUNTY_HUB_ADDRESS,
         abi: BOUNTY_HUB_V2_ABI,
         functionName: 'revealPoC',
-        args: [state.submissionId, state.key, state.salt]
+        args: [state.submissionId, zeroKey, state.salt]
       })
 
       const txHash = await walletClient.writeContract(request)
@@ -171,8 +179,6 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
       setState(s => ({ ...s, revealTxHash: txHash }))
 
       await publicClient.waitForTransactionReceipt({ hash: txHash })
-
-      localStorage.removeItem(`${STORAGE_KEY_PREFIX}${projectId}`)
 
       setState(s => ({ ...s, phase: 'revealed' }))
 
@@ -184,12 +190,11 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
         error: err.message || 'Reveal failed'
       }))
     }
-  }, [isConnected, walletClient, publicClient, address, state.submissionId, state.key, state.salt, projectId])
+  }, [isConnected, walletClient, publicClient, address, state.submissionId, state.salt])
 
   const reset = useCallback(() => {
-    localStorage.removeItem(`${STORAGE_KEY_PREFIX}${projectId}`)
     setState({ phase: 'idle' })
-  }, [projectId])
+  }, [])
 
   return {
     state,
