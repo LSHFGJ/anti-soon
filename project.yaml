@@ -4,3 +4,6 @@ staging-settings:
       url: https://ethereum-sepolia-rpc.publicnode.com
   account:
     workflow-owner-address: ""
+  workflows:
+    - workflow: workflow/verify-poc/workflow.yaml
+    - workflow: workflow/project-keygen/workflow.yaml
