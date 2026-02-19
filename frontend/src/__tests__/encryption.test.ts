@@ -99,7 +99,8 @@ describe('AES-GCM Encryption', () => {
       expect(ciphertext1).not.toEqual(ciphertext2)
       const decrypted1 = await aesGcmDecrypt(ciphertext1, iv1, keyBytes)
       const decrypted2 = await aesGcmDecrypt(ciphertext2, iv2, keyBytes)
-      expect(decrypted1).toBe(decrypted2).toBe(plaintext)
+      expect(decrypted1).toBe(decrypted2)
+      expect(decrypted1).toBe(plaintext)
     })
 
     it('should use 12-byte IV for GCM', async () => {
