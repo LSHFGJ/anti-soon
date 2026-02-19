@@ -1,0 +1,375 @@
+/**
+ * CSS Keyframe Animations for AntiSoon
+ * 
+ * Infinite loop animations - use CSS for performance
+ * Interactive animations - use Motion (see animations.ts)
+ * 
+ * Usage:
+ * ```css
+ * .my-element {
+ *   animation: neon-pulse 2s ease-in-out infinite;
+ * }
+ * ```
+ */
+
+/* ============================================
+   NEON PULSE - Breathing glow effect
+   ============================================ */
+@keyframes neon-pulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 5px rgba(0, 255, 157, 0.3),
+      0 0 10px rgba(0, 255, 157, 0.2),
+      0 0 20px rgba(0, 255, 157, 0.1);
+  }
+  50% {
+    box-shadow: 
+      0 0 10px rgba(0, 255, 157, 0.5),
+      0 0 20px rgba(0, 255, 157, 0.3),
+      0 0 40px rgba(0, 255, 157, 0.2);
+  }
+}
+
+@keyframes neon-pulse-cyan {
+  0%, 100% {
+    box-shadow: 
+      0 0 5px rgba(0, 240, 255, 0.3),
+      0 0 10px rgba(0, 240, 255, 0.2),
+      0 0 20px rgba(0, 240, 255, 0.1);
+  }
+  50% {
+    box-shadow: 
+      0 0 10px rgba(0, 240, 255, 0.5),
+      0 0 20px rgba(0, 240, 255, 0.3),
+      0 0 40px rgba(0, 240, 255, 0.2);
+  }
+}
+
+@keyframes neon-pulse-red {
+  0%, 100% {
+    box-shadow: 
+      0 0 5px rgba(255, 0, 60, 0.3),
+      0 0 10px rgba(255, 0, 60, 0.2),
+      0 0 20px rgba(255, 0, 60, 0.1);
+  }
+  50% {
+    box-shadow: 
+      0 0 10px rgba(255, 0, 60, 0.5),
+      0 0 20px rgba(255, 0, 60, 0.3),
+      0 0 40px rgba(255, 0, 60, 0.2);
+  }
+}
+
+/* ============================================
+   SCANLINES - CRT monitor effect
+   ============================================ */
+@keyframes scanlines {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 100%;
+  }
+}
+
+/* Scanline overlay pseudo-element helper */
+.scanlines-overlay {
+  position: relative;
+}
+
+.scanlines-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+  pointer-events: none;
+  animation: scanlines 8s linear infinite;
+}
+
+/* ============================================
+   CRT FLICKER - Old monitor interference
+   ============================================ */
+@keyframes crt-flicker {
+  0%, 100% {
+    opacity: 1;
+  }
+  3%, 8%, 12% {
+    opacity: 0.9;
+  }
+  5% {
+    opacity: 0.95;
+  }
+  7% {
+    opacity: 0.85;
+  }
+  10% {
+    opacity: 0.92;
+  }
+}
+
+@keyframes crt-flicker-intense {
+  0%, 100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  10% {
+    opacity: 0.8;
+    transform: translateY(-1px);
+  }
+  20% {
+    opacity: 0.95;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 0.85;
+    transform: translateY(1px);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-0.5px);
+  }
+}
+
+/* ============================================
+   TERMINAL CURSOR BLINK
+   ============================================ */
+@keyframes cursor-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* ============================================
+   DATA STREAM - Matrix-style falling chars
+   ============================================ */
+@keyframes data-stream {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   BORDER GLOW - Animated border pulse
+   ============================================ */
+@keyframes border-glow {
+  0%, 100% {
+    border-color: rgba(0, 255, 157, 0.3);
+  }
+  50% {
+    border-color: rgba(0, 255, 157, 0.8);
+  }
+}
+
+@keyframes border-glow-cyan {
+  0%, 100% {
+    border-color: rgba(0, 240, 255, 0.3);
+  }
+  50% {
+    border-color: rgba(0, 240, 255, 0.8);
+  }
+}
+
+/* ============================================
+   TEXT GLOW - Glowing text effect
+   ============================================ */
+@keyframes text-glow {
+  0%, 100% {
+    text-shadow: 
+      0 0 5px currentColor,
+      0 0 10px currentColor;
+  }
+  50% {
+    text-shadow: 
+      0 0 10px currentColor,
+      0 0 20px currentColor,
+      0 0 30px currentColor;
+  }
+}
+
+/* ============================================
+   LOADING DOTS - Sequential dot animation
+   ============================================ */
+@keyframes loading-dot {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.loading-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.loading-dots span {
+  width: 8px;
+  height: 8px;
+  background: var(--color-primary);
+  border-radius: 50%;
+  animation: loading-dot 1.4s ease-in-out infinite;
+}
+
+.loading-dots span:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ============================================
+   RIPPLE - Click feedback animation
+   ============================================ */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   SHAKE - Error/warning attention
+   ============================================ */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-4px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(4px);
+  }
+}
+
+/* ============================================
+   FLOAT - Gentle floating motion
+   ============================================ */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* ============================================
+   ROTATE SLOW - Continuous rotation
+   ============================================ */
+@keyframes rotate-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   CYBER GRID - Animated grid background
+   ============================================ */
+@keyframes cyber-grid-move {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 50px 50px;
+  }
+}
+
+.cyber-grid-bg {
+  background-image: 
+    linear-gradient(rgba(0, 255, 157, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  animation: cyber-grid-move 20s linear infinite;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.animate-neon-pulse {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.animate-neon-pulse-cyan {
+  animation: neon-pulse-cyan 2s ease-in-out infinite;
+}
+
+.animate-neon-pulse-red {
+  animation: neon-pulse-red 2s ease-in-out infinite;
+}
+
+.animate-crt-flicker {
+  animation: crt-flicker 0.15s infinite;
+}
+
+.animate-border-glow {
+  animation: border-glow 2s ease-in-out infinite;
+}
+
+.animate-text-glow {
+  animation: text-glow 2s ease-in-out infinite;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-rotate-slow {
+  animation: rotate-slow 20s linear infinite;
+}
+
+/* Hover-triggered animations */
+.hover-glow:hover {
+  animation: neon-pulse 1s ease-in-out infinite;
+}
+
+.hover-shake:hover {
+  animation: shake 0.5s ease-in-out;
+}
