@@ -191,7 +191,8 @@ export const BOUNTY_HUB_V2_ABI = [
       { name: "commitDeadline", type: "uint256" },
       { name: "revealDeadline", type: "uint256" },
       { name: "disputeWindow", type: "uint256" },
-      { name: "rulesHash", type: "bytes32" }
+      { name: "rulesHash", type: "bytes32" },
+      { name: "projectPublicKey", type: "bytes" }
     ]
   },
   {
@@ -279,6 +280,24 @@ export const BOUNTY_HUB_V2_ABI = [
     type: "event",
     inputs: [
       { name: "submissionId", type: "uint256", indexed: true }
+    ]
+  },
+  {
+    name: "updateProjectPublicKey",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_projectId", type: "uint256" },
+      { name: "_publicKey", type: "bytes" }
+    ],
+    outputs: []
+  },
+  {
+    name: "ProjectPublicKeyUpdated",
+    type: "event",
+    inputs: [
+      { name: "projectId", type: "uint256", indexed: true },
+      { name: "publicKey", type: "bytes", indexed: false }
     ]
   }
 ] as const

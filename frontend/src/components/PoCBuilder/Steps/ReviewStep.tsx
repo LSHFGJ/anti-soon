@@ -268,8 +268,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
               fontSize: '0.8rem',
               color: 'var(--color-text-dim)'
             }}>
-              Your PoC is encrypted on IPFS. Reveal when ready to trigger verification.
-              The decryption key and salt are stored locally.
+              Your PoC is encrypted on IPFS. Keys are securely managed by the protocol.
+              Reveal when ready to trigger verification.
             </div>
 
             <button 
