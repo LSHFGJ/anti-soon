@@ -49,7 +49,7 @@ abstract contract ReceiverTemplate is IReceiver, Ownable {
     }
 
     /// @notice Returns the configured forwarder address
-    function getForwarderAddress() external view returns (address) {
+    function getForwarderAddress() public view returns (address) {
         return s_forwarderAddress;
     }
 

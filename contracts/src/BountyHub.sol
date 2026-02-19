@@ -50,6 +50,7 @@ contract BountyHub is ReceiverTemplate {
         uint256 revealDeadline;      // MULTI: reveal deadline (0 = no limit)
         uint256 disputeWindow;       // Seconds for dispute resolution
         bytes32 rulesHash;           // keccak256(abi.encode(ProjectRules))
+        bytes projectPublicKey;      // ECDH public key for POC encryption (64 bytes)
     }
 
     /// @notice Vulnerability submission with commit-reveal mechanism
@@ -119,6 +120,7 @@ contract BountyHub is ReceiverTemplate {
     event DisputeRaised(uint256 indexed submissionId, address indexed challenger, uint256 bond);
     event DisputeResolved(uint256 indexed submissionId, bool overturned);
     event BountyFinalized(uint256 indexed submissionId);
+    event ProjectPublicKeyUpdated(uint256 indexed projectId, bytes publicKey);
 
     // ═══════════ Constructor ═══════════
 
@@ -165,6 +167,7 @@ contract BountyHub is ReceiverTemplate {
         p.revealDeadline = _revealDeadline;
         p.disputeWindow = _disputeWindow;
         p.rulesHash = keccak256(abi.encode(_rules));
+        p.projectPublicKey = "";  // Empty until filled by CRE workflow
 
         projectRules[projectId] = _rules;
 
@@ -177,6 +180,16 @@ contract BountyHub is ReceiverTemplate {
     function topUpBounty(uint256 _projectId) external payable {
         require(projects[_projectId].owner == msg.sender, "Not owner");
         projects[_projectId].bountyPool += msg.value;
+    }
+
+    /// @notice Update project public key (CRE Forwarder only)
+    /// @dev Only the CRE Forwarder can call this to set the ECDH public key after key generation
+    /// @param _projectId The project ID to update
+    /// @param _publicKey The ECDH public key (64 bytes)
+    function updateProjectPublicKey(uint256 _projectId, bytes calldata _publicKey) external {
+        require(msg.sender == getForwarderAddress(), "Not authorized");
+        projects[_projectId].projectPublicKey = _publicKey;
+        emit ProjectPublicKeyUpdated(_projectId, _publicKey);
     }
 
     // ═══════════ Project Management (V1 - Backward Compatibility) ═══════════
@@ -208,7 +221,8 @@ contract BountyHub is ReceiverTemplate {
             commitDeadline: 0,
             revealDeadline: 0,
             disputeWindow: 0,
-            rulesHash: bytes32(0)
+            rulesHash: bytes32(0),
+            projectPublicKey: ""
         });
 
         // Store default rules
@@ -299,15 +313,13 @@ contract BountyHub is ReceiverTemplate {
     // ═══════════ V1 Submission (Backward Compatibility) ═══════════
 
     /// @notice V1 PoC submission (no encryption, immediate CRE trigger)
-    /// @param _projectId The project ID to submit to
-    /// @param _pocHash Hash of the PoC data
-    /// @param _pocURI URI to the PoC data
-    /// @return submissionId The ID of the new submission
+    /// @dev DEPRECATED: Use commitPoC + revealPoC instead
     function submitPoC(
         uint256 _projectId,
         bytes32 _pocHash,
         string calldata _pocURI
     ) external returns (uint256 submissionId) {
+        // DEPRECATED: Use V2 commit-reveal flow
         Project storage p = projects[_projectId];
         require(p.active, "Project not active");
         require(p.bountyPool > 0, "No bounty remaining");
