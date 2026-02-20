@@ -9,6 +9,12 @@ import { useWallet } from '../hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { GitHubConnect } from '@/components/GitHubConnect'
+import { RepoPicker } from '@/components/RepoPicker'
+import { ScriptPicker } from '@/components/ScriptPicker'
+import { ScopeEditor } from '@/components/ScopeEditor'
+import type { GitHubRepo } from '@/lib/github'
+import type { DeployScript, ContractScope } from '@/types'
 import {
   Select,
   SelectContent,
@@ -138,14 +144,17 @@ const defaultValues: FormData = {
   lowThreshold: '0.5',
 }
 
-const STEPS = ['BASICS', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW'] as const
+const STEPS = ['GITHUB', 'REPO', 'SCRIPT', 'SCOPE', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW'] as const
 
 const stepFields: Record<number, (keyof FormData)[]> = {
-  0: ['targetContract', 'forkBlock'],
-  1: ['bountyPool', 'maxPayout', 'mode', 'commitDeadlineHours', 'revealDeadlineHours'],
-  2: ['maxAttackerSeed', 'maxWarpSeconds', 'allowImpersonation', 'disputeWindowHours'],
-  3: ['criticalThreshold', 'highThreshold', 'mediumThreshold', 'lowThreshold'],
-  4: [],
+  0: [],
+  1: [],
+  2: [],
+  3: [],
+  4: ['bountyPool', 'maxPayout', 'mode', 'commitDeadlineHours', 'revealDeadlineHours'],
+  5: ['maxAttackerSeed', 'maxWarpSeconds', 'allowImpersonation', 'disputeWindowHours'],
+  6: ['criticalThreshold', 'highThreshold', 'mediumThreshold', 'lowThreshold'],
+  7: [],
 }
 
 export function CreateProject() {
@@ -156,6 +165,14 @@ export function CreateProject() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [txError, setTxError] = useState<string | null>(null)
+
+  const [githubToken, setGithubToken] = useState<string | null>(null)
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null)
+  const [scripts, setScripts] = useState<DeployScript[]>([])
+  const [selectedScript, setSelectedScript] = useState<DeployScript | null>(null)
+  const [isScanning, setIsScanning] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+  const [scopes, setScopes] = useState<ContractScope[]>([])
 
   const form = useForm<FormData>({
     resolver: zodResolver(createProjectSchema),
@@ -174,6 +191,24 @@ export function CreateProject() {
   }
 
   const handleNext = async () => {
+    if (activeStep === 0 && !githubToken) {
+      setTxError('Connect GitHub first')
+      return
+    }
+    if (activeStep === 1 && !selectedRepo) {
+      setTxError('Select a repository')
+      return
+    }
+    if (activeStep === 2 && !selectedScript) {
+      setTxError('Select a deployment script')
+      return
+    }
+    if (activeStep === 3 && scopes.length === 0) {
+      setTxError('Select at least one contract in scope')
+      return
+    }
+    setTxError(null)
+    
     const isValid = await validateStep(activeStep)
     if (isValid) {
       setActiveStep(prev => prev + 1)
@@ -282,6 +317,104 @@ export function CreateProject() {
       ))}
     </div>
   )
+
+  const renderGitHubStep = () => (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+        // STEP_01: CONNECT GITHUB
+      </h3>
+      <p style={{ color: 'var(--color-text-dim)', marginBottom: '2rem' }}>
+        Connect your GitHub account to select a repository with your smart contracts.
+      </p>
+      <GitHubConnect 
+        onConnected={(token) => {
+          setGithubToken(token)
+          setTxError(null)
+        }}
+        onDisconnected={() => {
+          setGithubToken(null)
+          setSelectedRepo(null)
+          setSelectedScript(null)
+          setScripts([])
+          setScopes([])
+        }}
+      />
+      {githubToken && (
+        <p style={{ color: 'var(--color-primary)', marginTop: '1rem', fontSize: '0.875rem' }}>
+          ✓ GitHub connected. Click NEXT to continue.
+        </p>
+      )}
+    </div>
+  )
+
+  const renderRepoStep = () => (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+        // STEP_02: SELECT REPOSITORY
+      </h3>
+      <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
+        Select the repository containing your smart contracts.
+      </p>
+      {githubToken && (
+        <RepoPicker
+          token={githubToken}
+          selectedRepo={selectedRepo}
+          onSelect={(repo) => {
+            setSelectedRepo(repo)
+            setTxError(null)
+          }}
+        />
+      )}
+    </div>
+  )
+
+  const renderScriptStep = () => (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+        // STEP_03: SELECT DEPLOY SCRIPT
+      </h3>
+      <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
+        Select a Foundry deployment script to deploy your contracts.
+      </p>
+      <ScriptPicker
+        scripts={scripts}
+        isLoading={isScanning}
+        error={scanError}
+        selectedScript={selectedScript}
+        onSelect={(script) => {
+          setSelectedScript(script)
+          setTxError(null)
+        }}
+      />
+    </div>
+  )
+
+  const renderScopeStep = () => {
+    const contracts = selectedScript?.contracts.map((name, i) => ({
+      name,
+      address: `0x${(i + 1).toString(16).padStart(40, '0')}` as `0x${string}`,
+      verified: true,
+    })) || []
+
+    return (
+      <div style={{ animation: 'fadeIn 0.3s ease' }}>
+        <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+          // STEP_04: DEFINE SCOPE
+        </h3>
+        <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
+          Select which contracts should be included in the audit scope.
+        </p>
+        <ScopeEditor
+          contracts={contracts}
+          initialScopes={scopes}
+          onScopeChange={(newScopes) => {
+            setScopes(newScopes)
+            setTxError(null)
+          }}
+        />
+      </div>
+    )
+  }
 
   const renderBasicsStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
@@ -934,11 +1067,14 @@ export function CreateProject() {
 
   const renderCurrentStep = () => {
     switch (activeStep) {
-      case 0: return renderBasicsStep()
-      case 1: return renderBountyStep()
-      case 2: return renderRulesStep()
-      case 3: return renderThresholdsStep()
-      case 4: return renderReviewStep()
+      case 0: return renderGitHubStep()
+      case 1: return renderRepoStep()
+      case 2: return renderScriptStep()
+      case 3: return renderScopeStep()
+      case 4: return renderBountyStep()
+      case 5: return renderRulesStep()
+      case 6: return renderThresholdsStep()
+      case 7: return renderReviewStep()
       default: return null
     }
   }
