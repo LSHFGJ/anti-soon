@@ -18,6 +18,9 @@ contract BountyHub is ReceiverTemplate {
     /// @notice Severity levels based on drain amount thresholds
     enum Severity { NONE, LOW, MEDIUM, HIGH, CRITICAL }
 
+    /// @notice VNet creation status for a project
+    enum VnetStatus { None, Pending, Active, Failed }
+
     // ═══════════ Structs ═══════════
 
     /// @notice Thresholds for determining severity based on drain amount
@@ -51,6 +54,11 @@ contract BountyHub is ReceiverTemplate {
         uint256 disputeWindow;       // Seconds for dispute resolution
         bytes32 rulesHash;           // keccak256(abi.encode(ProjectRules))
         bytes projectPublicKey;      // ECDH public key for POC encryption (64 bytes)
+        // VNet fields
+        VnetStatus vnetStatus;       // VNet creation status
+        string vnetRpcUrl;           // Tenderly VNet RPC URL
+        bytes32 baseSnapshotId;      // evm_snapshot ID for state isolation
+        uint256 vnetCreatedAt;       // Timestamp of VNet creation
     }
 
     /// @notice Vulnerability submission with commit-reveal mechanism
@@ -121,6 +129,8 @@ contract BountyHub is ReceiverTemplate {
     event DisputeResolved(uint256 indexed submissionId, bool overturned);
     event BountyFinalized(uint256 indexed submissionId);
     event ProjectPublicKeyUpdated(uint256 indexed projectId, bytes publicKey);
+    event ProjectVnetCreated(uint256 indexed projectId, string vnetRpcUrl, bytes32 baseSnapshotId);
+    event ProjectVnetFailed(uint256 indexed projectId, string reason);
 
     // ═══════════ Constructor ═══════════
 
@@ -171,6 +181,8 @@ contract BountyHub is ReceiverTemplate {
 
         projectRules[projectId] = _rules;
 
+        _setVnetPending(projectId);
+
         emit ProjectRegistered(projectId, msg.sender);
         emit ProjectRegisteredV2(projectId, msg.sender, _mode);
     }
@@ -190,6 +202,40 @@ contract BountyHub is ReceiverTemplate {
         require(msg.sender == getForwarderAddress(), "Not authorized");
         projects[_projectId].projectPublicKey = _publicKey;
         emit ProjectPublicKeyUpdated(_projectId, _publicKey);
+    }
+
+    /// @notice Set VNet info after successful creation (CRE Forwarder only)
+    function setProjectVnet(
+        uint256 _projectId,
+        string calldata _vnetRpcUrl,
+        bytes32 _baseSnapshotId
+    ) external {
+        require(msg.sender == getForwarderAddress(), "Not authorized");
+        require(_projectId < nextProjectId, "Invalid project");
+        require(bytes(_vnetRpcUrl).length > 0, "Empty RPC URL");
+
+        Project storage p = projects[_projectId];
+        require(p.vnetStatus == VnetStatus.None || p.vnetStatus == VnetStatus.Pending, "VNet already set");
+
+        p.vnetRpcUrl = _vnetRpcUrl;
+        p.baseSnapshotId = _baseSnapshotId;
+        p.vnetStatus = VnetStatus.Active;
+        p.vnetCreatedAt = block.timestamp;
+
+        emit ProjectVnetCreated(_projectId, _vnetRpcUrl, _baseSnapshotId);
+    }
+
+    /// @notice Mark VNet creation as failed (CRE Forwarder only)
+    function markVnetFailed(uint256 _projectId, string calldata _reason) external {
+        require(msg.sender == getForwarderAddress(), "Not authorized");
+        require(_projectId < nextProjectId, "Invalid project");
+        projects[_projectId].vnetStatus = VnetStatus.Failed;
+        emit ProjectVnetFailed(_projectId, _reason);
+    }
+
+    /// @notice Set VNet status to Pending (called during project registration)
+    function _setVnetPending(uint256 _projectId) internal {
+        projects[_projectId].vnetStatus = VnetStatus.Pending;
     }
 
     // ═══════════ Project Management (V1 - Backward Compatibility) ═══════════
@@ -222,7 +268,11 @@ contract BountyHub is ReceiverTemplate {
             revealDeadline: 0,
             disputeWindow: 0,
             rulesHash: bytes32(0),
-            projectPublicKey: ""
+            projectPublicKey: "",
+            vnetStatus: VnetStatus.Pending,
+            vnetRpcUrl: "",
+            baseSnapshotId: bytes32(0),
+            vnetCreatedAt: 0
         });
 
         // Store default rules
