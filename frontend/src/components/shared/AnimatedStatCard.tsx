@@ -26,62 +26,26 @@ export function AnimatedStatCard({
         ease: [0.4, 0, 0.2, 1]
       }}
     >
-      <motion.div
-        whileHover={{
-          scale: 1.03,
-          boxShadow: `0 0 30px ${color}25, 0 0 60px ${color}10`
-        }}
-        whileTap={{ scale: 0.98 }}
-        transition={{
-          type: 'spring',
-          stiffness: 400,
-          damping: 20
-        }}
+      <Card
+        className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] transition-colors duration-200"
       >
-        <Card
-          className="relative overflow-hidden bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] transition-colors duration-200"
-        >
-          <motion.div
-            className="absolute inset-0 opacity-0 pointer-events-none"
-            style={{
-              background: `radial-gradient(circle at center, ${color}15 0%, transparent 70%)`
-            }}
-            whileHover={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-          />
-
-          <div className="relative z-10 text-center p-6">
-            <div className="font-mono text-xs uppercase tracking-wider text-[var(--color-text-dim)] mb-2">
-              {label}
-            </div>
-            <motion.div
-              className="font-display text-3xl font-bold"
-              style={{ color }}
-              whileHover={{
-                textShadow: `0 0 20px ${color}60, 0 0 40px ${color}30`
-              }}
-            >
-              {value}
-            </motion.div>
-            {subValue && (
-              <div className="font-mono text-sm text-[var(--color-text-dim)] mt-1">
-                {subValue}
-              </div>
-            )}
+        <div className="text-center p-6">
+          <div className="font-mono text-xs uppercase tracking-wider text-[var(--color-text-dim)] mb-2">
+            {label}
           </div>
-
-          <motion.div
-            className="absolute top-0 right-0 w-16 h-16 pointer-events-none"
-            style={{
-              background: `linear-gradient(135deg, ${color}10 0%, transparent 50%)`
-            }}
-            whileHover={{
-              opacity: [0.5, 1, 0.5],
-              transition: { duration: 1, repeat: Infinity }
-            }}
-          />
-        </Card>
-      </motion.div>
+          <div
+            className="font-display text-3xl font-bold"
+            style={{ color }}
+          >
+            {value}
+          </div>
+          {subValue && (
+            <div className="font-mono text-sm text-[var(--color-text-dim)] mt-1">
+              {subValue}
+            </div>
+          )}
+        </div>
+      </Card>
     </motion.div>
   )
 }

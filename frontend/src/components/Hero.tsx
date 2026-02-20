@@ -40,21 +40,13 @@ export const Hero: React.FC = () => {
             <motion.span
               className="relative inline-block"
               animate={{
-                x: [0, -2, 2, -1, 1, 0],
-                textShadow: [
-                  '0 0 0 transparent',
-                  '-2px 0 #ff003c, 2px 0 #00f0ff',
-                  '2px 0 #ff003c, -2px 0 #00f0ff',
-                  '-1px 0 #ff003c, 1px 0 #00f0ff',
-                  '1px 0 #ff003c, -1px 0 #00f0ff',
-                  '0 0 0 transparent',
-                ],
+                x: [0, -1, 1, 0],
               }}
               transition={{
-                duration: 0.3,
-                times: [0, 0.2, 0.4, 0.6, 0.8, 1],
+                duration: 0.15,
+                times: [0, 0.33, 0.66, 1],
                 repeat: Infinity,
-                repeatDelay: 4,
+                repeatDelay: 5,
               }}
             >
               ANTI-SOON
@@ -107,7 +99,7 @@ export const Hero: React.FC = () => {
         >
           <Button
             size="lg"
-            className="relative overflow-hidden border border-[var(--color-primary)] bg-transparent text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono uppercase tracking-wider px-8 transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,255,157,0.5)]"
+            className="relative overflow-hidden border border-[var(--color-primary)] bg-transparent text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono uppercase tracking-wider px-8 transition-all duration-200"
             style={{
               fontFamily: 'var(--font-mono)',
             }}
