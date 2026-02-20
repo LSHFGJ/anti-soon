@@ -37,7 +37,7 @@ export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
 export async function importAesKey(keyBytes: Uint8Array): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
-    keyBytes,
+    keyBytes.buffer as ArrayBuffer,
     { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt']
@@ -64,10 +64,10 @@ export async function aesGcmEncrypt(
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: 'AES-GCM',
-      iv: iv,
+      iv: iv.buffer as ArrayBuffer,
     },
     key,
-    data
+    data.buffer as ArrayBuffer
   )
 
   return {
@@ -93,10 +93,10 @@ export async function aesGcmDecrypt(
   const decrypted = await crypto.subtle.decrypt(
     {
       name: 'AES-GCM',
-      iv: iv,
+      iv: iv.buffer as ArrayBuffer,
     },
     key,
-    ciphertext
+    ciphertext.buffer as ArrayBuffer
   )
 
   const decoder = new TextDecoder()

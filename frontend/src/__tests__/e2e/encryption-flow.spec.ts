@@ -1,7 +1,7 @@
-import { test, expect, Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 const MOCK_WALLET_ADDRESS = '0x1234567890123456789012345678901234567890'
-const MOCK_PROJECT_ID = 1
 
 async function mockWalletConnection(page: Page) {
   await page.addInitScript(() => {
