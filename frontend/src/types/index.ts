@@ -30,6 +30,31 @@ export interface Project {
   rulesHash: `0x${string}`
 }
 
+export interface ContractScope {
+  address: `0x${string}`;
+  name: string;
+  ipfsCid: string;
+  verified: boolean;
+}
+
+export interface ProjectV3 extends Project {
+  repoUrl: string;
+  scopes: ContractScope[];
+}
+
+export interface GitHubRepo {
+  owner: string;
+  name: string;
+  url: string;
+  defaultBranch: string;
+}
+
+export interface DeployScript {
+  name: string;
+  path: string;
+  contracts: string[];
+}
+
 export interface ProjectRules {
   maxAttackerSeedWei: bigint
   maxWarpSeconds: bigint

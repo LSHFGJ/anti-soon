@@ -39,6 +39,14 @@ contract BountyHub is ReceiverTemplate {
         SeverityThresholds thresholds;   // Severity calculation thresholds
     }
 
+    /// @notice Contract scope for multi-contract projects (V4)
+    struct ContractScope {
+        address contractAddress;
+        string name;
+        string ipfsCid;          // IPFS CID for ABI/source metadata
+        bool verified;           // Etherscan verification status
+    }
+
     /// @notice Project configuration for bounty programs
     struct Project {
         address owner;
@@ -59,6 +67,7 @@ contract BountyHub is ReceiverTemplate {
         string vnetRpcUrl;           // Tenderly VNet RPC URL
         bytes32 baseSnapshotId;      // evm_snapshot ID for state isolation
         uint256 vnetCreatedAt;       // Timestamp of VNet creation
+        string repoUrl;              // V4: GitHub repository URL
     }
 
     /// @notice Vulnerability submission with commit-reveal mechanism
@@ -99,9 +108,10 @@ contract BountyHub is ReceiverTemplate {
 
     uint256 public nextProjectId;
     uint256 public nextSubmissionId;
-    mapping(uint256 => Project) public projects;
+    mapping(uint256 => Project) internal _projects;
     mapping(uint256 => Submission) public submissions;
     mapping(uint256 => ProjectRules) public projectRules;
+    mapping(uint256 => ContractScope[]) public projectScopes;  // V4: multi-contract support
 
     // V1 mappings for backward compatibility
     mapping(bytes32 => bool) public pocHashUsed;           // V1: duplicate PoC check
@@ -131,6 +141,14 @@ contract BountyHub is ReceiverTemplate {
     event ProjectPublicKeyUpdated(uint256 indexed projectId, bytes publicKey);
     event ProjectVnetCreated(uint256 indexed projectId, string vnetRpcUrl, bytes32 baseSnapshotId);
     event ProjectVnetFailed(uint256 indexed projectId, string reason);
+
+    // V3 Events
+    event ProjectRegisteredV3(
+        uint256 indexed projectId,
+        address indexed owner,
+        string repoUrl,
+        ContractScope[] scopes
+    );
 
     // ═══════════ Constructor ═══════════
 
@@ -165,7 +183,7 @@ contract BountyHub is ReceiverTemplate {
 
         projectId = nextProjectId++;
         
-        Project storage p = projects[projectId];
+        Project storage p = _projects[projectId];
         p.owner = msg.sender;
         p.bountyPool = msg.value;
         p.maxPayoutPerBug = _maxPayoutPerBug;
@@ -187,11 +205,71 @@ contract BountyHub is ReceiverTemplate {
         emit ProjectRegisteredV2(projectId, msg.sender, _mode);
     }
 
+    /// @notice Register a new bounty project with V3 features (repo URL + multi-contract scopes)
+    /// @param _repoUrl GitHub repository URL
+    /// @param _scopes Array of contract scopes for multi-contract projects
+    /// @param _targetContract The vulnerable contract to test
+    /// @param _maxPayoutPerBug Maximum payout per bug
+    /// @param _forkBlock Block number to fork from
+    /// @param _mode Competition mode (UNIQUE or MULTI)
+    /// @param _commitDeadline Timestamp for commit deadline (0 = no limit)
+    /// @param _revealDeadline Timestamp for reveal deadline (0 = no limit)
+    /// @param _disputeWindow Seconds for dispute resolution
+    /// @param _rules Project rules and thresholds
+    /// @return projectId The ID of the newly registered project
+    function registerProjectV3(
+        string calldata _repoUrl,
+        ContractScope[] calldata _scopes,
+        address _targetContract,
+        uint256 _maxPayoutPerBug,
+        uint256 _forkBlock,
+        CompetitionMode _mode,
+        uint256 _commitDeadline,
+        uint256 _revealDeadline,
+        uint256 _disputeWindow,
+        ProjectRules calldata _rules
+    ) external payable returns (uint256 projectId) {
+        require(msg.value > 0, "Must deposit bounty");
+        require(_targetContract != address(0), "Invalid target");
+        require(_commitDeadline == 0 || _commitDeadline > block.timestamp, "Invalid commit deadline");
+        require(_revealDeadline == 0 || _revealDeadline > _commitDeadline, "Reveal must be after commit");
+
+        projectId = nextProjectId++;
+
+        Project storage p = _projects[projectId];
+        p.owner = msg.sender;
+        p.bountyPool = msg.value;
+        p.maxPayoutPerBug = _maxPayoutPerBug;
+        p.targetContract = _targetContract;
+        p.forkBlock = _forkBlock;
+        p.active = true;
+        p.mode = _mode;
+        p.commitDeadline = _commitDeadline;
+        p.revealDeadline = _revealDeadline;
+        p.disputeWindow = _disputeWindow;
+        p.rulesHash = keccak256(abi.encode(_rules));
+        p.projectPublicKey = "";  // Empty until filled by CRE workflow
+        p.repoUrl = _repoUrl;
+
+        projectRules[projectId] = _rules;
+
+        // Store scopes
+        for (uint256 i = 0; i < _scopes.length; i++) {
+            projectScopes[projectId].push(_scopes[i]);
+        }
+
+        _setVnetPending(projectId);
+
+        emit ProjectRegistered(projectId, msg.sender);
+        emit ProjectRegisteredV2(projectId, msg.sender, _mode);
+        emit ProjectRegisteredV3(projectId, msg.sender, _repoUrl, _scopes);
+    }
+
     /// @notice Add more funds to a project's bounty pool
     /// @param _projectId The project ID to top up
     function topUpBounty(uint256 _projectId) external payable {
-        require(projects[_projectId].owner == msg.sender, "Not owner");
-        projects[_projectId].bountyPool += msg.value;
+        require(_projects[_projectId].owner == msg.sender, "Not owner");
+        _projects[_projectId].bountyPool += msg.value;
     }
 
     /// @notice Update project public key (CRE Forwarder only)
@@ -200,7 +278,7 @@ contract BountyHub is ReceiverTemplate {
     /// @param _publicKey The ECDH public key (64 bytes)
     function updateProjectPublicKey(uint256 _projectId, bytes calldata _publicKey) external {
         require(msg.sender == getForwarderAddress(), "Not authorized");
-        projects[_projectId].projectPublicKey = _publicKey;
+        _projects[_projectId].projectPublicKey = _publicKey;
         emit ProjectPublicKeyUpdated(_projectId, _publicKey);
     }
 
@@ -214,7 +292,7 @@ contract BountyHub is ReceiverTemplate {
         require(_projectId < nextProjectId, "Invalid project");
         require(bytes(_vnetRpcUrl).length > 0, "Empty RPC URL");
 
-        Project storage p = projects[_projectId];
+        Project storage p = _projects[_projectId];
         require(p.vnetStatus == VnetStatus.None || p.vnetStatus == VnetStatus.Pending, "VNet already set");
 
         p.vnetRpcUrl = _vnetRpcUrl;
@@ -229,13 +307,13 @@ contract BountyHub is ReceiverTemplate {
     function markVnetFailed(uint256 _projectId, string calldata _reason) external {
         require(msg.sender == getForwarderAddress(), "Not authorized");
         require(_projectId < nextProjectId, "Invalid project");
-        projects[_projectId].vnetStatus = VnetStatus.Failed;
+        _projects[_projectId].vnetStatus = VnetStatus.Failed;
         emit ProjectVnetFailed(_projectId, _reason);
     }
 
     /// @notice Set VNet status to Pending (called during project registration)
     function _setVnetPending(uint256 _projectId) internal {
-        projects[_projectId].vnetStatus = VnetStatus.Pending;
+        _projects[_projectId].vnetStatus = VnetStatus.Pending;
     }
 
     // ═══════════ Project Management (V1 - Backward Compatibility) ═══════════
@@ -256,7 +334,7 @@ contract BountyHub is ReceiverTemplate {
         projectId = nextProjectId++;
 
         // Store project with default V1 rules
-        projects[projectId] = Project({
+        _projects[projectId] = Project({
             owner: msg.sender,
             bountyPool: msg.value,
             maxPayoutPerBug: _maxPayoutPerBug,
@@ -272,7 +350,8 @@ contract BountyHub is ReceiverTemplate {
             vnetStatus: VnetStatus.Pending,
             vnetRpcUrl: "",
             baseSnapshotId: bytes32(0),
-            vnetCreatedAt: 0
+            vnetCreatedAt: 0,
+            repoUrl: ""
         });
 
         // Store default rules
@@ -296,7 +375,7 @@ contract BountyHub is ReceiverTemplate {
         bytes32 _commitHash,
         string calldata _cipherURI
     ) external returns (uint256 submissionId) {
-        Project storage p = projects[_projectId];
+        Project storage p = _projects[_projectId];
         require(p.active, "Project not active");
         require(p.bountyPool > 0, "No bounty remaining");
         require(!commitHashUsed[_commitHash], "Duplicate commit");
@@ -336,7 +415,7 @@ contract BountyHub is ReceiverTemplate {
         require(sub.auditor == msg.sender, "Not the auditor");
         require(sub.status == SubmissionStatus.Committed, "Not in committed status");
 
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
 
         // Verify commit hash: keccak256(abi.encodePacked(keccak256(cipherURI), msg.sender, _salt))
         // Note: cipherURI is the IPFS hash, we verify the commitment matches
@@ -370,7 +449,7 @@ contract BountyHub is ReceiverTemplate {
         string calldata _pocURI
     ) external returns (uint256 submissionId) {
         // DEPRECATED: Use V2 commit-reveal flow
-        Project storage p = projects[_projectId];
+        Project storage p = _projects[_projectId];
         require(p.active, "Project not active");
         require(p.bountyPool > 0, "No bounty remaining");
         require(!pocHashUsed[_pocHash], "Duplicate PoC");
@@ -406,7 +485,7 @@ contract BountyHub is ReceiverTemplate {
         Submission storage sub = submissions[submissionId];
         require(sub.status == SubmissionStatus.Revealed, "Not revealed");
 
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
         sub.drainAmountWei = drainAmountWei;
 
         if (isValid && drainAmountWei > 0) {
@@ -461,7 +540,7 @@ contract BountyHub is ReceiverTemplate {
     /// @param _submissionId The submission ID
     /// @param sub The submission storage reference
     function _executePayout(uint256 _submissionId, Submission storage sub) internal {
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
 
         uint256 payout = sub.payoutAmount;
         if (payout > p.maxPayoutPerBug) payout = p.maxPayoutPerBug;
@@ -501,7 +580,7 @@ contract BountyHub is ReceiverTemplate {
     /// @param _overturn If true, overturn the verification result
     function resolveDispute(uint256 _submissionId, bool _overturn) external {
         Submission storage sub = submissions[_submissionId];
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
 
         require(p.owner == msg.sender, "Not owner");
         require(sub.status == SubmissionStatus.Disputed, "Not disputed");
@@ -537,7 +616,7 @@ contract BountyHub is ReceiverTemplate {
         );
         require(block.timestamp > sub.disputeDeadline, "Dispute window open");
 
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
         uint256 timeoutPenalty = 0;
 
         if (sub.status == SubmissionStatus.Disputed && sub.challenged) {
@@ -566,8 +645,12 @@ contract BountyHub is ReceiverTemplate {
 
     // ═══════════ View Functions ═══════════
     
-    // Note: projects() and submissions() mappings are public and can be accessed directly
-    // For full struct access, use the auto-generated getters from the public mappings
+    /// @notice Get project by ID (replaces auto-generated getter to avoid stack-too-deep)
+    /// @param _projectId The project ID
+    /// @return project The project struct
+    function projects(uint256 _projectId) external view returns (Project memory) {
+        return _projects[_projectId];
+    }
 
     /// @notice Check if a submission can be revealed
     /// @param _submissionId The submission ID
@@ -577,7 +660,7 @@ contract BountyHub is ReceiverTemplate {
         if (sub.status != SubmissionStatus.Committed) return false;
         if (sub.auditor != msg.sender) return false;
 
-        Project storage p = projects[sub.projectId];
+        Project storage p = _projects[sub.projectId];
         if (p.mode == CompetitionMode.MULTI && p.commitDeadline > 0) {
             return block.timestamp > p.commitDeadline;
         }

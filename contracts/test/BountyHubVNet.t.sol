@@ -35,8 +35,7 @@ contract BountyHubVNetTest is Test {
             rules
         );
 
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatus, , , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatus), uint8(BountyHub.VnetStatus.Pending), "VNet status should be Pending");
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Pending), "VNet status should be Pending");
     }
 
     // ============ SET PROJECT VNET TESTS ============
@@ -82,11 +81,11 @@ contract BountyHubVNetTest is Test {
         vm.prank(FORWARDER);
         hub.setProjectVnet(projectId, vnetRpcUrl, baseSnapshotId);
 
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatus, string memory storedRpcUrl, bytes32 storedSnapshotId, ) = hub.projects(projectId);
+        BountyHub.Project memory p = hub.projects(projectId);
 
-        assertEq(uint8(vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet status should be Active");
-        assertEq(storedRpcUrl, vnetRpcUrl, "RPC URL should match");
-        assertEq(storedSnapshotId, baseSnapshotId, "Snapshot ID should match");
+        assertEq(uint8(p.vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet status should be Active");
+        assertEq(p.vnetRpcUrl, vnetRpcUrl, "RPC URL should match");
+        assertEq(p.baseSnapshotId, baseSnapshotId, "Snapshot ID should match");
     }
 
     function test_setProjectVnet_emitsEvent() public {
@@ -180,8 +179,7 @@ contract BountyHubVNetTest is Test {
         vm.prank(FORWARDER);
         hub.markVnetFailed(projectId, reason);
 
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatus, , , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatus), uint8(BountyHub.VnetStatus.Failed), "VNet status should be Failed");
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Failed), "VNet status should be Failed");
     }
 
     function test_markVnetFailed_emitsEvent() public {

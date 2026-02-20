@@ -38,6 +38,65 @@ contract BountyHubTest is Test {
         assertEq(hub.nextProjectId(), 1);
     }
 
+    function test_registerProjectV3() public {
+        // Setup scopes
+        BountyHub.ContractScope[] memory scopes = new BountyHub.ContractScope[](2);
+        scopes[0] = BountyHub.ContractScope({
+            contractAddress: address(0x1),
+            name: "MainContract",
+            ipfsCid: "QmTest1",
+            verified: true
+        });
+        scopes[1] = BountyHub.ContractScope({
+            contractAddress: address(0x2),
+            name: "HelperContract",
+            ipfsCid: "QmTest2",
+            verified: true
+        });
+
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        // Register project
+        uint256 projectId = hub.registerProjectV3{value: 1 ether}(
+            "https://github.com/test/repo",
+            scopes,
+            TARGET,
+            0.5 ether,  // maxPayout
+            0,          // forkBlock
+            BountyHub.CompetitionMode.UNIQUE,
+            0, 0, 3600, // deadlines and dispute window
+            rules
+        );
+
+        // Verify
+        assertEq(projectId, 0, "First project should have ID 0");
+
+        // Check project stored correctly
+        BountyHub.Project memory project = hub.projects(projectId);
+
+        assertEq(project.owner, address(this), "Owner should be caller");
+        assertEq(project.bountyPool, 1 ether, "Bounty pool should be 1 ether");
+        assertEq(project.repoUrl, "https://github.com/test/repo", "Repo URL should match");
+
+        // Verify scopes via the mapping getter (returns individual fields as tuple)
+        (
+            address scope0Addr,
+            string memory scope0Name,
+            ,
+        ) = hub.projectScopes(projectId, 0);
+        assertEq(scope0Addr, address(0x1), "Scope 0 address should match");
+        assertEq(scope0Name, "MainContract", "Scope 0 name should match");
+
+        (
+            address scope1Addr,
+            string memory scope1Name,
+            ,
+        ) = hub.projectScopes(projectId, 1);
+        assertEq(scope1Addr, address(0x2), "Scope 1 address should match");
+        assertEq(scope1Name, "HelperContract", "Scope 1 name should match");
+    }
+
     function test_commitPoC() public {
         hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
         bytes32 salt = keccak256("salt");
@@ -313,7 +372,7 @@ contract BountyHubTest is Test {
         bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"; // 64 bytes
 
         // Get project before update
-        (, , , , , , , , , , , bytes memory initialKey, , , , ) = hub.projects(projectId);
+        bytes memory initialKey = hub.projects(projectId).projectPublicKey;
         assertEq(initialKey.length, 0, "Initial key should be empty");
 
         // Update key
@@ -321,7 +380,7 @@ contract BountyHubTest is Test {
         hub.updateProjectPublicKey(projectId, publicKey);
 
         // Verify key is stored
-        (, , , , , , , , , , , bytes memory storedKey, , , , ) = hub.projects(projectId);
+        bytes memory storedKey = hub.projects(projectId).projectPublicKey;
         assertEq(storedKey, publicKey, "Public key should be stored correctly");
     }
 
@@ -339,7 +398,7 @@ contract BountyHubTest is Test {
         hub.updateProjectPublicKey(projectId, publicKey);
 
         // Verify key is stored
-        (, , , , , , , , , , , bytes memory storedKey, , , , ) = hub.projects(projectId);
+        bytes memory storedKey = hub.projects(projectId).projectPublicKey;
         assertEq(storedKey, publicKey, "Public key should be stored");
 
         // 3. Commit PoC
@@ -371,5 +430,65 @@ contract BountyHubTest is Test {
         assertEq(sub.salt, salt, "Salt should be set");
         assertGt(sub.revealTimestamp, 0, "Reveal timestamp should be set");
         assertGt(sub.revealTimestamp, sub.commitTimestamp, "Reveal should be after commit");
+    }
+
+    // ═══════════════════ V3 Integration Tests ═══════════════════
+
+    function test_registerProjectV3_ManyScopes() public {
+        // Create 10 scopes to test multi-contract support
+        BountyHub.ContractScope[] memory scopes = new BountyHub.ContractScope[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            scopes[i] = BountyHub.ContractScope({
+                contractAddress: address(uint160(i + 1)),
+                name: string(abi.encodePacked("Contract", i)),
+                ipfsCid: string(abi.encodePacked("QmTest", i)),
+                verified: i % 2 == 0
+            });
+        }
+
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV3{value: 10 ether}(
+            "https://github.com/test/multi-contract",
+            scopes,
+            TARGET,
+            1 ether,
+            12345,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 7 days,
+            block.timestamp + 14 days,
+            3 days,
+            rules
+        );
+
+        assertEq(projectId, 0);
+        
+        for (uint256 i = 0; i < 10; i++) {
+            (address addr,,, bool verified) = hub.projectScopes(projectId, i);
+            assertEq(addr, address(uint160(i + 1)));
+            assertEq(verified, i % 2 == 0);
+        }
+    }
+
+    function test_registerProjectV3_ZeroScopes() public {
+        BountyHub.ContractScope[] memory scopes = new BountyHub.ContractScope[](0);
+
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV3{value: 1 ether}(
+            "https://github.com/test/empty",
+            scopes,
+            TARGET,
+            0.5 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0, 0, 3600,
+            rules
+        );
+
+        assertEq(projectId, 0);
+        assertEq(hub.projects(projectId).repoUrl, "https://github.com/test/empty");
     }
 }

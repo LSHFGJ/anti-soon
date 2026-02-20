@@ -37,8 +37,7 @@ contract VNetFlowTest is Test {
         );
 
         // Verify vnetStatus == Pending after registration
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatus, , , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatus), uint8(BountyHub.VnetStatus.Pending), "VNet status should be Pending after registration");
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Pending), "VNet status should be Pending after registration");
     }
 
     function test_fullFlow_setProjectVnet() public {
@@ -57,10 +56,10 @@ contract VNetFlowTest is Test {
         );
 
         // Verify initial state
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatusBefore, string memory rpcUrlBefore, bytes32 snapshotBefore, ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatusBefore), uint8(BountyHub.VnetStatus.Pending), "Initial VNet status should be Pending");
-        assertEq(rpcUrlBefore, "", "Initial RPC URL should be empty");
-        assertEq(snapshotBefore, bytes32(0), "Initial snapshot ID should be zero");
+        BountyHub.Project memory pBefore = hub.projects(projectId);
+        assertEq(uint8(pBefore.vnetStatus), uint8(BountyHub.VnetStatus.Pending), "Initial VNet status should be Pending");
+        assertEq(pBefore.vnetRpcUrl, "", "Initial RPC URL should be empty");
+        assertEq(pBefore.baseSnapshotId, bytes32(0), "Initial snapshot ID should be zero");
 
         // Set VNet via forwarder
         string memory vnetRpcUrl = "https://rpc.tenderly.co/vnet/123";
@@ -70,11 +69,11 @@ contract VNetFlowTest is Test {
         hub.setProjectVnet(projectId, vnetRpcUrl, baseSnapshotId);
 
         // Verify vnetStatus == Active and fields are stored
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatusAfter, string memory rpcUrlAfter, bytes32 snapshotAfter, uint256 vnetCreatedAt) = hub.projects(projectId);
-        assertEq(uint8(vnetStatusAfter), uint8(BountyHub.VnetStatus.Active), "VNet status should be Active");
-        assertEq(rpcUrlAfter, vnetRpcUrl, "RPC URL should be stored");
-        assertEq(snapshotAfter, baseSnapshotId, "Snapshot ID should be stored");
-        assertGt(vnetCreatedAt, 0, "VNet creation timestamp should be set");
+        BountyHub.Project memory pAfter = hub.projects(projectId);
+        assertEq(uint8(pAfter.vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet status should be Active");
+        assertEq(pAfter.vnetRpcUrl, vnetRpcUrl, "RPC URL should be stored");
+        assertEq(pAfter.baseSnapshotId, baseSnapshotId, "Snapshot ID should be stored");
+        assertGt(pAfter.vnetCreatedAt, 0, "VNet creation timestamp should be set");
     }
 
     function test_fullFlow_verifyPoCWithVnet() public {
@@ -100,8 +99,8 @@ contract VNetFlowTest is Test {
         hub.setProjectVnet(projectId, vnetRpcUrl, baseSnapshotId);
 
         // Verify VNet is active
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatus, string memory rpcUrl, , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet should be active");
+        BountyHub.Project memory proj = hub.projects(projectId);
+        assertEq(uint8(proj.vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet should be active");
 
         // Submit PoC (commit + reveal)
         bytes32 salt = keccak256("salt");
@@ -148,8 +147,7 @@ contract VNetFlowTest is Test {
         );
 
         // Verify initial status is Pending
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatusBefore, , , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatusBefore), uint8(BountyHub.VnetStatus.Pending), "Initial status should be Pending");
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Pending), "Initial status should be Pending");
 
         // Mark VNet as failed via forwarder
         string memory failureReason = "Failed to create Tenderly fork: insufficient quota";
@@ -158,8 +156,7 @@ contract VNetFlowTest is Test {
         hub.markVnetFailed(projectId, failureReason);
 
         // Verify vnetStatus == Failed
-        (, , , , , , , , , , , , BountyHub.VnetStatus vnetStatusAfter, , , ) = hub.projects(projectId);
-        assertEq(uint8(vnetStatusAfter), uint8(BountyHub.VnetStatus.Failed), "VNet status should be Failed");
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Failed), "VNet status should be Failed");
     }
 
     function test_concurrentPoCVerification() public {
