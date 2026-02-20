@@ -463,11 +463,3 @@ export const DUMMYVAULT_POC_TEMPLATES = {
     }
   }
 }
-
-// GitHub OAuth Configuration
-// Client secret is never exposed to frontend - used only in backend/middleware
-export const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || ''
-export const GITHUB_REDIRECT_URI = import.meta.env.VITE_GITHUB_REDIRECT_URI || (typeof window !== 'undefined' ? `${window.location.origin}/callback` : 'http://localhost:5173/callback')
-export const GITHUB_SCOPE = 'public_repo'
-export const GITHUB_API_URL = 'https://api.github.com'
-export const GITHUB_OAUTH_URL = 'https://github.com/login/oauth/authorize'
