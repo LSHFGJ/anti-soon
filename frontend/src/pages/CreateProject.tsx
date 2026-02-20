@@ -9,11 +9,8 @@ import { useWallet } from '../hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { GitHubConnect } from '@/components/GitHubConnect'
-import { RepoPicker } from '@/components/RepoPicker'
 import { ScriptPicker } from '@/components/ScriptPicker'
 import { ScopeEditor } from '@/components/ScopeEditor'
-import type { GitHubRepo } from '@/lib/github'
 import type { DeployScript, ContractScope } from '@/types'
 import {
   Select,
@@ -144,17 +141,16 @@ const defaultValues: FormData = {
   lowThreshold: '0.5',
 }
 
-const STEPS = ['GITHUB', 'REPO', 'SCRIPT', 'SCOPE', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW'] as const
+const STEPS = ['REPOSITORY', 'SCRIPT', 'SCOPE', 'BOUNTY', 'RULES', 'THRESHOLDS', 'REVIEW'] as const
 
 const stepFields: Record<number, (keyof FormData)[]> = {
   0: [],
   1: [],
   2: [],
-  3: [],
-  4: ['bountyPool', 'maxPayout', 'mode', 'commitDeadlineHours', 'revealDeadlineHours'],
-  5: ['maxAttackerSeed', 'maxWarpSeconds', 'allowImpersonation', 'disputeWindowHours'],
-  6: ['criticalThreshold', 'highThreshold', 'mediumThreshold', 'lowThreshold'],
-  7: [],
+  3: ['bountyPool', 'maxPayout', 'mode', 'commitDeadlineHours', 'revealDeadlineHours'],
+  4: ['maxAttackerSeed', 'maxWarpSeconds', 'allowImpersonation', 'disputeWindowHours'],
+  5: ['criticalThreshold', 'highThreshold', 'mediumThreshold', 'lowThreshold'],
+  6: [],
 }
 
 export function CreateProject() {
@@ -166,12 +162,11 @@ export function CreateProject() {
   const [txHash, setTxHash] = useState<string | null>(null)
   const [txError, setTxError] = useState<string | null>(null)
 
-  const [githubToken, setGithubToken] = useState<string | null>(null)
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null)
-  const [scripts, setScripts] = useState<DeployScript[]>([])
-  const [selectedScript, setSelectedScript] = useState<DeployScript | null>(null)
+  const [repoUrl, setRepoUrl] = useState('')
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [scripts, setScripts] = useState<DeployScript[]>([])
+  const [selectedScript, setSelectedScript] = useState<DeployScript | null>(null)
   const [scopes, setScopes] = useState<ContractScope[]>([])
 
   const form = useForm<FormData>({
@@ -179,6 +174,89 @@ export function CreateProject() {
     defaultValues,
     mode: 'onChange',
   })
+
+  const parseRepoUrl = (url: string): { owner: string; repo: string } | null => {
+    const match = url.trim().match(/github\.com\/([^\/]+)\/([^\/\?]+)/i)
+    if (!match) return null
+    return { owner: match[1], repo: match[2].replace(/\.git$/i, '') }
+  }
+
+  const extractContractNames = (content: string): string[] => {
+    const contracts: string[] = []
+    const regex = /new\s+([A-Z][a-zA-Z0-9_]*)\s*\(/g
+    let match: RegExpExecArray | null
+    while ((match = regex.exec(content)) !== null) {
+      if (!contracts.includes(match[1])) {
+        contracts.push(match[1])
+      }
+    }
+    return contracts
+  }
+
+  const handleScanRepo = async () => {
+    setTxError(null)
+    setScanError(null)
+
+    const parsed = parseRepoUrl(repoUrl)
+    if (!parsed) {
+      setScanError('Invalid GitHub repository URL. Example: https://github.com/owner/repo')
+      setScripts([])
+      setSelectedScript(null)
+      setScopes([])
+      return
+    }
+
+    setIsScanning(true)
+    setSelectedScript(null)
+    setScopes([])
+
+    try {
+      const scriptDirResponse = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/script`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      })
+
+      if (!scriptDirResponse.ok) {
+        throw new Error(`Failed to fetch script directory (${scriptDirResponse.status})`)
+      }
+
+      const contents = await scriptDirResponse.json() as Array<{
+        name: string
+        path: string
+        type: 'file' | 'dir'
+        download_url: string | null
+      }>
+
+      const scriptFiles = contents.filter((item) => item.type === 'file' && item.name.endsWith('.s.sol'))
+
+      const scannedScripts: DeployScript[] = []
+      for (const file of scriptFiles) {
+        if (!file.download_url) continue
+
+        const fileResponse = await fetch(file.download_url)
+        if (!fileResponse.ok) continue
+
+        const content = await fileResponse.text()
+        scannedScripts.push({
+          name: file.name,
+          path: file.path,
+          contracts: extractContractNames(content),
+        })
+      }
+
+      setScripts(scannedScripts)
+      if (scannedScripts.length === 0) {
+        setScanError('No Foundry deployment scripts (*.s.sol) found in script/ directory')
+      }
+    } catch (err) {
+      setScripts([])
+      setScanError(err instanceof Error ? err.message : 'Failed to scan repository')
+    } finally {
+      setIsScanning(false)
+    }
+  }
 
   const validateStep = async (step: number): Promise<boolean> => {
     const fields = stepFields[step]
@@ -191,19 +269,15 @@ export function CreateProject() {
   }
 
   const handleNext = async () => {
-    if (activeStep === 0 && !githubToken) {
-      setTxError('Connect GitHub first')
+    if (activeStep === 0 && scripts.length === 0) {
+      setTxError('Paste a GitHub repository URL and scan scripts first')
       return
     }
-    if (activeStep === 1 && !selectedRepo) {
-      setTxError('Select a repository')
-      return
-    }
-    if (activeStep === 2 && !selectedScript) {
+    if (activeStep === 1 && !selectedScript) {
       setTxError('Select a deployment script')
       return
     }
-    if (activeStep === 3 && scopes.length === 0) {
+    if (activeStep === 2 && scopes.length === 0) {
       setTxError('Select at least one contract in scope')
       return
     }
@@ -225,9 +299,9 @@ export function CreateProject() {
       return
     }
 
-    const step3Valid = await validateStep(3)
-    if (!step3Valid) {
-      setActiveStep(3)
+    const scopeStepValid = await validateStep(2)
+    if (!scopeStepValid) {
+      setActiveStep(2)
       return
     }
 
@@ -318,52 +392,38 @@ export function CreateProject() {
     </div>
   )
 
-  const renderGitHubStep = () => (
+  const renderRepositoryStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_01: CONNECT GITHUB
+        // STEP_01: REPOSITORY URL
       </h3>
       <p style={{ color: 'var(--color-text-dim)', marginBottom: '2rem' }}>
-        Connect your GitHub account to select a repository with your smart contracts.
+        Paste a public GitHub repository URL and scan for Foundry deployment scripts.
       </p>
-      <GitHubConnect 
-        onConnected={(token) => {
-          setGithubToken(token)
-          setTxError(null)
-        }}
-        onDisconnected={() => {
-          setGithubToken(null)
-          setSelectedRepo(null)
-          setSelectedScript(null)
-          setScripts([])
-          setScopes([])
-        }}
-      />
-      {githubToken && (
-        <p style={{ color: 'var(--color-primary)', marginTop: '1rem', fontSize: '0.875rem' }}>
-          ✓ GitHub connected. Click NEXT to continue.
-        </p>
-      )}
-    </div>
-  )
-
-  const renderRepoStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_02: SELECT REPOSITORY
-      </h3>
-      <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
-        Select the repository containing your smart contracts.
-      </p>
-      {githubToken && (
-        <RepoPicker
-          token={githubToken}
-          selectedRepo={selectedRepo}
-          onSelect={(repo) => {
-            setSelectedRepo(repo)
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <Input
+          placeholder="https://github.com/owner/repo"
+          value={repoUrl}
+          onChange={(e) => {
+            setRepoUrl(e.target.value)
+            setScanError(null)
             setTxError(null)
           }}
+          className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
         />
+        <Button type="button" onClick={handleScanRepo} disabled={isScanning || !repoUrl.trim()} className="btn-cyber">
+          {isScanning ? '[ SCANNING... ]' : '[ SCAN ]'}
+        </Button>
+      </div>
+      {scanError && (
+        <p style={{ color: 'var(--color-error)', marginTop: '1rem', fontSize: '0.875rem' }}>
+          ✗ {scanError}
+        </p>
+      )}
+      {scripts.length > 0 && (
+        <p style={{ color: 'var(--color-primary)', marginTop: '1rem', fontSize: '0.875rem' }}>
+          ✓ Found {scripts.length} deployment script{scripts.length === 1 ? '' : 's'}. Click NEXT to continue.
+        </p>
       )}
     </div>
   )
@@ -371,15 +431,15 @@ export function CreateProject() {
   const renderScriptStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_03: SELECT DEPLOY SCRIPT
+        // STEP_02: SELECT DEPLOY SCRIPT
       </h3>
       <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
         Select a Foundry deployment script to deploy your contracts.
       </p>
       <ScriptPicker
         scripts={scripts}
-        isLoading={isScanning}
-        error={scanError}
+        isLoading={false}
+        error={null}
         selectedScript={selectedScript}
         onSelect={(script) => {
           setSelectedScript(script)
@@ -398,8 +458,8 @@ export function CreateProject() {
 
     return (
       <div style={{ animation: 'fadeIn 0.3s ease' }}>
-        <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-          // STEP_04: DEFINE SCOPE
+      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
+          // STEP_03: DEFINE SCOPE
         </h3>
         <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
           Select which contracts should be included in the audit scope.
@@ -416,63 +476,10 @@ export function CreateProject() {
     )
   }
 
-  const renderBasicsStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_01: BASICS
-      </h3>
-      
-      <FormField
-        control={form.control}
-        name="targetContract"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
-              TARGET CONTRACT ADDRESS *
-            </FormLabel>
-            <FormControl>
-              <Input 
-                placeholder="0x..." 
-                className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-                {...field} 
-              />
-            </FormControl>
-            <FormMessage className="text-[var(--color-error)]" />
-          </FormItem>
-        )}
-      />
-
-      <FormField
-        control={form.control}
-        name="forkBlock"
-        render={({ field }) => (
-          <FormItem className="mt-6">
-            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
-              FORK BLOCK (0 = LATEST)
-            </FormLabel>
-            <FormControl>
-              <Input 
-                type="number" 
-                placeholder="0" 
-                min="0"
-                className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-                {...field} 
-              />
-            </FormControl>
-            <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
-              Block number to fork from. Use 0 for the latest block.
-            </FormDescription>
-            <FormMessage className="text-[var(--color-error)]" />
-          </FormItem>
-        )}
-      />
-    </div>
-  )
-
   const renderBountyStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_02: BOUNTY CONFIG
+        // STEP_04: BOUNTY CONFIG
       </h3>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
@@ -606,7 +613,7 @@ export function CreateProject() {
   const renderRulesStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_03: VERIFICATION RULES
+        // STEP_05: VERIFICATION RULES
       </h3>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
@@ -728,7 +735,7 @@ export function CreateProject() {
   const renderThresholdsStep = () => (
     <div style={{ animation: 'fadeIn 0.3s ease' }}>
       <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_04: SEVERITY THRESHOLDS
+        // STEP_06: SEVERITY THRESHOLDS
       </h3>
       
       <p className="mb-6 text-sm" style={{ color: 'var(--color-text-dim)' }}>
@@ -869,7 +876,7 @@ export function CreateProject() {
     return (
       <div style={{ animation: 'fadeIn 0.3s ease' }}>
         <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-          // STEP_05: REVIEW & SUBMIT
+          // STEP_07: REVIEW & SUBMIT
         </h3>
 
         <div 
@@ -888,6 +895,10 @@ export function CreateProject() {
               <div>
                 <span style={{ color: 'var(--color-text-dim)' }}>FORK_BLOCK: </span>
                 <span>{formData.forkBlock || '0 (latest)'}</span>
+              </div>
+              <div className="mt-2">
+                <span style={{ color: 'var(--color-text-dim)' }}>REPO_URL: </span>
+                <span style={{ color: 'var(--color-text)' }}>{repoUrl || '—'}</span>
               </div>
             </div>
           </div>
@@ -1066,15 +1077,14 @@ export function CreateProject() {
   }
 
   const renderCurrentStep = () => {
-    switch (activeStep) {
-      case 0: return renderGitHubStep()
-      case 1: return renderRepoStep()
-      case 2: return renderScriptStep()
-      case 3: return renderScopeStep()
-      case 4: return renderBountyStep()
-      case 5: return renderRulesStep()
-      case 6: return renderThresholdsStep()
-      case 7: return renderReviewStep()
+      switch (activeStep) {
+      case 0: return renderRepositoryStep()
+      case 1: return renderScriptStep()
+      case 2: return renderScopeStep()
+      case 3: return renderBountyStep()
+      case 4: return renderRulesStep()
+      case 5: return renderThresholdsStep()
+      case 6: return renderReviewStep()
       default: return null
     }
   }

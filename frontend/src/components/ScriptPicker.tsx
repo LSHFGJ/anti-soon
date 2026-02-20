@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { DeployScript } from '../types'
 
 interface ScriptPickerProps {
