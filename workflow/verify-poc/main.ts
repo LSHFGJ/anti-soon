@@ -91,6 +91,33 @@ const BountyResultParamsV2 = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei"
 )
 
+const VNET_STATUS_ACTIVE = 2
+
+const ProjectStructAbi = parseAbiParameters(
+  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt"
+)
+
+type ProjectVnetInfo = {
+  vnetRpcUrl: string
+  baseSnapshotId: string
+  vnetStatus: number
+}
+
+function encodeProjectCall(projectId: bigint): string {
+  const selector = keccak256(toBytes("projects(uint256)")).slice(0, 10)
+  const encodedId = encodeAbiParameters(parseAbiParameters("uint256"), [projectId])
+  return selector + encodedId.slice(2)
+}
+
+function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
+  const decoded = decodeAbiParameters(ProjectStructAbi, hexResult as `0x${string}`)
+  return {
+    vnetRpcUrl: decoded[13] as string,
+    baseSnapshotId: decoded[14] as string,
+    vnetStatus: Number(decoded[12]),
+  }
+}
+
 // ═══════════════════ AES-GCM Decryption Helpers ═══════════════════
 
 /**
@@ -294,14 +321,13 @@ function verifyForkState(
 const verifyPoC = (
   nodeRuntime: NodeRuntime<Config>,
   submissionId: bigint,
-  pocHash: string,
+  projectId: bigint,
   cipherURI: string,
   projectKey: string,
   rules: ProjectRules,
-  tenderlyApiKey: string,
-  llmApiKey: string
 ): VerificationResult => {
   const httpClient = new HTTPClient()
+  const confidentialHttpClient = new ConfidentialHTTPClient()
   const config = nodeRuntime.config
 
   // ═══ HTTP 1: Fetch encrypted PoC from IPFS or HTTP ═══
@@ -345,53 +371,53 @@ const verifyPoC = (
   }
   nodeRuntime.log(`Setup validation passed`)
 
-  // ═══ HTTP 2: Create Tenderly Virtual TestNet ═══
+  // ═══ Read project VNet info from contract ═══
+  // The VNet is created once per project by vnet-init workflow, reused for all POCs
 
-  const confidentialHttpClient = new ConfidentialHTTPClient()
-
-  const createVnetResp = confidentialHttpClient.sendRequest(nodeRuntime, {
-    request: {
-      url: `https://api.tenderly.co/api/v1/account/${config.tenderlyAccountSlug}/project/${config.tenderlyProjectSlug}/vnets`,
-      method: "POST",
-      multiHeaders: {
-        "Content-Type": { values: ["application/json"] },
-        "X-Access-Key": { values: ["{{.TENDERLY_API_KEY}}"] },
-      },
-      bodyString: JSON.stringify({
-        slug: `antisoon-${submissionId}-${Date.now()}`,
-        display_name: `AntiSoon Verify #${submissionId}`,
-        fork_config: {
-          network_id: pocJson.target.chain,
-          block_number: pocJson.target.forkBlock,
-        },
-        virtual_network_config: {
-          chain_config: { chain_id: 73571 },
-        },
-        sync_state_config: { enabled: false },
-      }),
-    },
-    vaultDonSecrets: [
-      { key: "TENDERLY_API_KEY", owner: config.owner },
-      { key: "san_marino_aes_gcm_encryption_key" },
-    ],
-    encryptOutput: true,
+  const projectCallData = encodeProjectCall(projectId)
+  const projectCallResp = httpClient.sendRequest(nodeRuntime, {
+    url: `https://rpc.sepolia.org`,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{
+        to: config.bountyHubAddress,
+        data: projectCallData,
+      }, "latest"],
+      id: 1,
+    }),
+    cacheSettings: { maxAge: "0s" },
   }).result()
 
-  if (createVnetResp.statusCode !== 200 && createVnetResp.statusCode !== 201) {
-    nodeRuntime.log(`Tenderly VNet creation failed: status ${createVnetResp.statusCode}`)
+  if (projectCallResp.statusCode !== 200) {
+    nodeRuntime.log(`Failed to read project VNet info: status ${projectCallResp.statusCode}`)
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  const vnetData = JSON.parse(new TextDecoder().decode(createVnetResp.body))
-  const adminRpcUrl = vnetData.rpcs?.find((r: { name: string; url: string }) => r.name === "Admin RPC")?.url
-    || vnetData.rpcs?.[0]?.url
-
-  if (!adminRpcUrl) {
-    nodeRuntime.log("Failed to get Admin RPC URL from Tenderly response")
+  const projectCallResult = JSON.parse(new TextDecoder().decode(projectCallResp.body))
+  if (projectCallResult.error) {
+    nodeRuntime.log(`eth_call error: ${projectCallResult.error.message || projectCallResult.error}`)
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  nodeRuntime.log(`Tenderly VNet created: ${adminRpcUrl}`)
+  const { vnetRpcUrl, baseSnapshotId, vnetStatus } = decodeProjectVnetInfo(projectCallResult.result)
+
+  // Check VNet is active
+  if (vnetStatus !== VNET_STATUS_ACTIVE) {
+    nodeRuntime.log(`VNet not active (status=${vnetStatus}). POC verification skipped.`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  if (!vnetRpcUrl || vnetRpcUrl.length === 0) {
+    nodeRuntime.log("VNet RPC URL is empty. POC verification skipped.")
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  nodeRuntime.log(`Using project VNet: ${vnetRpcUrl}, snapshot: ${baseSnapshotId}`)
+
+  const adminRpcUrl = vnetRpcUrl
 
   // Fork state verification (optional HTTP 5)
   const forkBlock = BigInt(pocJson.target.forkBlock)
@@ -407,11 +433,28 @@ const verifyPoC = (
     nodeRuntime.log(`State verification failed, but continuing...`)
   }
 
-  // ═══ HTTP 3: Batch RPC — setup + execute + state diff ═══
+  // ═══ HTTP 3: Batch RPC — state isolation + setup + execute + state diff ═══
   const batchCalls: Array<{ jsonrpc: string; id: number; method: string; params: unknown[] }> = []
   let callId = 1
 
-  // 3a: Setup preconditions
+  // 3a: State isolation - revert to base snapshot, then create new snapshot
+  const revertId = callId++
+  batchCalls.push({
+    jsonrpc: "2.0",
+    id: revertId,
+    method: "evm_revert",
+    params: [baseSnapshotId],
+  })
+
+  const newSnapshotId = callId++
+  batchCalls.push({
+    jsonrpc: "2.0",
+    id: newSnapshotId,
+    method: "evm_snapshot",
+    params: [],
+  })
+
+  // 3b: Setup preconditions
   for (const step of pocJson.setup) {
     if (step.type === "setBalance" && step.address) {
       batchCalls.push({
@@ -430,7 +473,7 @@ const verifyPoC = (
     }
   }
 
-  // 3b: Get pre-attack balance
+  // 3c: Get pre-attack balance
   const preBalanceId = callId++
   batchCalls.push({
     jsonrpc: "2.0",
@@ -439,7 +482,7 @@ const verifyPoC = (
     params: [pocJson.target.contract, "latest"],
   })
 
-  // 3c: Execute attack transactions
+  // 3d: Execute attack transactions
   const txIds: number[] = []
   const attackerAddress = pocJson.setup.find(s => s.type === "setBalance")?.address || "0x0000000000000000000000000000000000000001"
 
@@ -460,7 +503,7 @@ const verifyPoC = (
     })
   }
 
-  // 3d: Get post-attack balance
+  // 3e: Get post-attack balance
   const postBalanceId = callId++
   batchCalls.push({
     jsonrpc: "2.0",
@@ -599,34 +642,28 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
   runtime.log(`PoC Revealed #${submissionId}`)
 
-  const tenderlyApiKey = runtime.getSecret({ id: "TENDERLY_API_KEY" }).result().value
-  const llmApiKey = runtime.getSecret({ id: "LLM_API_KEY" }).result().value
-
   const cipherURI = extractCipherURI(runtime, submissionId)
   const projectId = extractProjectId(runtime, submissionId)
 
-  // Get project private key from Vault DON
   const projectKey = runtime.getSecret({ id: `PROJECT_KEY_${projectId}` }).result().value
 
   const defaultRules: ProjectRules = {
-    maxAttackerSeedWei: 1000000000000000000000n, // 1000 ETH
-    maxWarpSeconds: 365n * 24n * 60n * 60n, // 1 year
+    maxAttackerSeedWei: 1000000000000000000000n,
+    maxWarpSeconds: 365n * 24n * 60n * 60n,
     allowImpersonation: true,
     thresholds: {
-      criticalDrainWei: 1000000000000000000000n, // 1000 ETH
-      highDrainWei: 100000000000000000000n, // 100 ETH
-      mediumDrainWei: 10000000000000000000n, // 10 ETH
-      lowDrainWei: 1000000000000000000n, // 1 ETH
+      criticalDrainWei: 1000000000000000000000n,
+      highDrainWei: 100000000000000000000n,
+      mediumDrainWei: 10000000000000000000n,
+      lowDrainWei: 1000000000000000000n,
     }
   }
-
-  const pocHash = "0x" // TODO: Extract from event or fetch from contract
 
   const verifyResult = runtime
     .runInNodeMode(
       verifyPoC,
       consensusIdenticalAggregation<VerificationResult>()
-    )(submissionId, pocHash, cipherURI, projectKey, defaultRules, tenderlyApiKey, llmApiKey)
+    )(submissionId, projectId, cipherURI, projectKey, defaultRules)
     .result()
 
   runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
