@@ -1,6 +1,6 @@
 {
   "chainSelectorName": "ethereum-testnet-sepolia",
-  "bountyHubAddress": "0x82c85B0A96633A887D9fD7Fb575fA2339fDb7582",
+  "bountyHubAddress": "0x8b12D6F28453be1eEf2D5ff151df3a2eE68d7f97",
   "gasLimit": "800000",
   "tenderlyAccountSlug": "LSHFGJ",
   "tenderlyProjectSlug": "anti-soon",
