@@ -313,7 +313,7 @@ contract BountyHubTest is Test {
         bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"; // 64 bytes
 
         // Get project before update
-        (, , , , , , , , , , , bytes memory initialKey) = hub.projects(projectId);
+        (, , , , , , , , , , , bytes memory initialKey, , , , ) = hub.projects(projectId);
         assertEq(initialKey.length, 0, "Initial key should be empty");
 
         // Update key
@@ -321,7 +321,7 @@ contract BountyHubTest is Test {
         hub.updateProjectPublicKey(projectId, publicKey);
 
         // Verify key is stored
-        (, , , , , , , , , , , bytes memory storedKey) = hub.projects(projectId);
+        (, , , , , , , , , , , bytes memory storedKey, , , , ) = hub.projects(projectId);
         assertEq(storedKey, publicKey, "Public key should be stored correctly");
     }
 
@@ -339,7 +339,7 @@ contract BountyHubTest is Test {
         hub.updateProjectPublicKey(projectId, publicKey);
 
         // Verify key is stored
-        (, , , , , , , , , , , bytes memory storedKey) = hub.projects(projectId);
+        (, , , , , , , , , , , bytes memory storedKey, , , , ) = hub.projects(projectId);
         assertEq(storedKey, publicKey, "Public key should be stored");
 
         // 3. Commit PoC
