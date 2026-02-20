@@ -1,6 +1,6 @@
 #!/bin/bash
 # E2E Test: VNet Flow on Sepolia
-# Tests: registerProjectV2 -> setProjectVnet -> verify VNet fields
+# Tests: registerProjectV2 -> verify vnetStatus=Pending (forwarder-only tests skipped)
 
 set -e
 
@@ -25,38 +25,14 @@ echo "Balance: $(cast to-unit $BALANCE ether) ETH"
 echo ""
 echo "=== Test 1: Register Project V2 ==="
 
-# Encode ProjectRules struct (empty for simplicity)
-# ProjectRules: maxAttackerSeedWei, maxWarpSeconds, allowImpersonation, thresholds
-RULES_DATA=$(cast abi-encode "ProjectRules(uint256,uint256,bool,(uint256,uint256,uint256,uint256))" \
-    1000000000000000000000 \
-    31536000 \
-    true \
-    1000000000000000000000 \
-    100000000000000000000 \
-    10000000000000000000 \
-    1000000000000000000)
-
-# Register project
+# Register project with simple parameters
 TX1=$(cast send $BOUNTY_HUB \
     "registerProjectV2(address,uint256,uint256,uint8,uint256,uint256,uint256,(uint256,uint256,bool,(uint256,uint256,uint256,uint256)))" \
-    $DEPLOYER \
-    1000000000000000000 \
-    0 \
-    0 \
-    0 \
-    0 \
-    0 \
-    1000000000000000000000 \
-    31536000 \
-    true \
-    1000000000000000000000 \
-    100000000000000000000 \
-    10000000000000000000 \
-    1000000000000000000 \
+    $DEPLOYER 1000000000000000000 0 0 0 0 0 \
+    "(1000000000000000000000,31536000,true,(1000000000000000000000,100000000000000000000,10000000000000000000,1000000000000000000))" \
     --rpc-url $RPC_URL \
     --private-key $CRE_ETH_PRIVATE_KEY \
-    --value 0.01ether \
-    --json | jq -r '.transactionHash')
+    --value 0.01ether)
 
 echo "Register tx: $TX1"
 
@@ -66,7 +42,11 @@ PROJECT_ID=$((PROJECT_ID - 1))
 echo "Project ID: $PROJECT_ID"
 
 # Check vnetStatus (should be 1 = Pending)
-VNET_STATUS=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID --rpc-url $RPC_URL | awk '{print $13}')
+PROJECT_DATA=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID --rpc-url $RPC_URL)
+
+# vnetStatus is at hex string positions 833-834 (including 0x prefix)
+VNET_STATUS_HEX=$(echo "$PROJECT_DATA" | cut -c 833-834)
+VNET_STATUS=$((16#$VNET_STATUS_HEX))
 echo "VNet Status: $VNET_STATUS (1=Pending)"
 
 if [ "$VNET_STATUS" != "1" ]; then
@@ -74,81 +54,16 @@ if [ "$VNET_STATUS" != "1" ]; then
     exit 1
 fi
 
-# ═══════════════════ Test 2: Set Project VNet ═══════════════════
+# ═══════════════════ Test 2: Forwarder-Only Functions (Skipped) ═══════════════════
 echo ""
-echo "=== Test 2: Set Project VNet ==="
-
-VNET_RPC="https://virtual.tenderly.co/test-vnet/0x1234"
-SNAPSHOT_ID="0x0000000000000000000000000000000000000000000000000000000000000001"
-
-TX2=$(cast send $BOUNTY_HUB \
-    "setProjectVnet(uint256,string,bytes32)" \
-    $PROJECT_ID \
-    "$VNET_RPC" \
-    $SNAPSHOT_ID \
-    --rpc-url $RPC_URL \
-    --private-key $CRE_ETH_PRIVATE_KEY \
-    --json | jq -r '.transactionHash')
-
-echo "Set VNet tx: $TX2"
-
-# Verify vnetStatus is now 2 (Active)
-VNET_STATUS_AFTER=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID --rpc-url $RPC_URL | awk '{print $13}')
-echo "VNet Status: $VNET_STATUS_AFTER (2=Active)"
-
-if [ "$VNET_STATUS_AFTER" != "2" ]; then
-    echo "FAIL: Expected vnetStatus=2 (Active), got $VNET_STATUS_AFTER"
-    exit 1
-fi
-
-# ═══════════════════ Test 3: Mark VNet Failed ═══════════════════
+echo "=== Test 2: Forwarder-Only Functions (Skipped) ==="
+echo "Note: setProjectVnet() and markVnetFailed() are forwarder-only functions."
+echo "These are tested in Foundry integration tests:"
+echo "  - contracts/test/BountyHubVNet.t.sol (8 VNet tests)"
+echo "  - contracts/test/integration/VNetFlow.t.sol (5 integration tests)"
 echo ""
-echo "=== Test 3: Mark VNet Failed (on another project) ===
-
-# Register another project
-cast send $BOUNTY_HUB \
-    "registerProjectV2(address,uint256,uint256,uint8,uint256,uint256,uint256,(uint256,uint256,bool,(uint256,uint256,uint256,uint256)))" \
-    $DEPLOYER \
-    1000000000000000000 \
-    0 \
-    0 \
-    0 \
-    0 \
-    0 \
-    1000000000000000000000 \
-    31536000 \
-    true \
-    1000000000000000000000 \
-    100000000000000000000 \
-    10000000000000000000 \
-    1000000000000000000 \
-    --rpc-url $RPC_URL \
-    --private-key $CRE_ETH_PRIVATE_KEY \
-    --value 0.01ether > /dev/null
-
-PROJECT_ID_2=$(cast call $BOUNTY_HUB "nextProjectId()" --rpc-url $RPC_URL)
-PROJECT_ID_2=$((PROJECT_ID_2 - 1))
-echo "Project ID 2: $PROJECT_ID_2"
-
-# Mark as failed
-TX3=$(cast send $BOUNTY_HUB \
-    "markVnetFailed(uint256,string)" \
-    $PROJECT_ID_2 \
-    "Test failure" \
-    --rpc-url $RPC_URL \
-    --private-key $CRE_ETH_PRIVATE_KEY \
-    --json | jq -r '.transactionHash')
-
-echo "Mark failed tx: $TX3"
-
-# Verify vnetStatus is 3 (Failed)
-VNET_STATUS_FAILED=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID_2 --rpc-url $RPC_URL | awk '{print $13}')
-echo "VNet Status: $VNET_STATUS_FAILED (3=Failed)"
-
-if [ "$VNET_STATUS_FAILED" != "3" ]; then
-    echo "FAIL: Expected vnetStatus=3 (Failed), got $VNET_STATUS_FAILED"
-    exit 1
-fi
+echo "On live Sepolia, only the CRE Forwarder ($FORWARDER) can call these functions."
+echo "Direct calls from other addresses will revert with 'OnlyForwarder' error."
 
 echo ""
 echo "=== All E2E Tests Passed! ==="
