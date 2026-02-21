@@ -1,6 +1,6 @@
 {
   "chainSelectorName": "ethereum-testnet-sepolia",
-  "bountyHubAddress": "0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9",
+  "bountyHubAddress": "0x8b12D6F28453be1eEf2D5ff151df3a2eE68d7f97",
   "forwarderAddress": "0x...",
   "gasLimit": "500000"
 }
