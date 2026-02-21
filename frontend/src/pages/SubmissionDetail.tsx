@@ -5,11 +5,16 @@ import { createPublicClient, http } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { Timeline, getSubmissionTimeline } from '../components/shared/Timeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
-import { MetaRow, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
+import { MetaRow, NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { useWallet } from '../hooks/useWallet'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  buildPreviewProject,
+  buildPreviewSubmission,
+  formatPreviewFallbackMessage,
+  shouldUsePreviewFallback,
+} from '@/lib/previewFallback'
 import type { Submission, Project } from '../types'
 
 type SubmissionTuple = readonly [
@@ -66,11 +71,11 @@ export function SubmissionDetail() {
     if (!id) return
 
     const fetchData = async () => {
+      const submissionId = BigInt(id)
+
       try {
         setIsLoading(true)
         setError(null)
-
-        const submissionId = BigInt(id)
 
         const subData = await publicClient.readContract({
           address: BOUNTY_HUB_ADDRESS,
@@ -124,6 +129,14 @@ export function SubmissionDetail() {
         setProject(fetchedProject)
       } catch (err) {
         console.error('Failed to fetch submission:', err)
+        if (shouldUsePreviewFallback()) {
+          const fallbackSubmission = buildPreviewSubmission(submissionId, 0n)
+          setSubmission(fallbackSubmission)
+          setProject(buildPreviewProject(fallbackSubmission.projectId))
+          setError(formatPreviewFallbackMessage('Failed to load submission from blockchain'))
+          return
+        }
+
         setError('Failed to load submission from blockchain')
       } finally {
         setIsLoading(false)
@@ -237,10 +250,10 @@ export function SubmissionDetail() {
     }
   }
 
-  const isProjectOwner = project && address && project.owner.toLowerCase() === address.toLowerCase()
-  const canChallenge = submission && submission.status === 2 && !submission.challenged && isConnected
-  const canResolve = submission && submission.challenged && isProjectOwner && submission.status === 3
-  const canFinalize = submission && (submission.status === 2 || submission.status === 3) && !submission.challenged
+  const isProjectOwner = Boolean(project && address && project.owner.toLowerCase() === address.toLowerCase())
+  const canChallenge = Boolean(submission?.status === 2 && !submission.challenged && isConnected)
+  const canResolve = Boolean(submission?.challenged && isProjectOwner && submission.status === 3)
+  const canFinalize = Boolean(submission && (submission.status === 2 || submission.status === 3) && !submission.challenged)
 
   const getStatusBadgeVariant = (): 'success' | 'error' | 'warning' | 'info' => {
     if (submission?.status === 5) return 'error'
@@ -264,7 +277,7 @@ export function SubmissionDetail() {
     )
   }
 
-  if (error || !submission) {
+  if (!submission) {
     return (
       <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
         <div className="container flex-1 flex flex-col min-h-0">
@@ -304,6 +317,14 @@ export function SubmissionDetail() {
           suffix={<Badge variant={getStatusBadgeVariant()}>[{STATUS_LABELS[submission.status]}]</Badge>}
         />
 
+        {error && (
+          <StatusBanner
+            variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+            className="mb-4"
+            message={error}
+          />
+        )}
+
         <section className="mb-6 flex-shrink-0">
           <h2 className="font-mono text-sm text-[var(--color-text)] mb-4 tracking-wider">
             SUBMISSION_PROGRESS
@@ -313,13 +334,11 @@ export function SubmissionDetail() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
           <div className="flex flex-col gap-6">
-            <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
-                  POC_METADATA
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 font-mono text-sm">
+            <NeonPanel className="border-[var(--color-bg-light)]" contentClassName="space-y-4 font-mono text-sm p-4">
+              <h2 className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
+                POC_METADATA
+              </h2>
+              <div className="space-y-4">
                 <MetaRow label="COMMIT_HASH" value={submission.commitHash} valueClassName="text-[var(--color-secondary)] break-all" />
                 <MetaRow label="AUDITOR" value={submission.auditor} />
                 <MetaRow
@@ -333,16 +352,14 @@ export function SubmissionDetail() {
                     valueClassName="text-[var(--color-secondary)] text-xs"
                   />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </NeonPanel>
 
-            <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
-                  TIMESTAMPS
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 font-mono text-sm">
+            <NeonPanel className="border-[var(--color-bg-light)]" contentClassName="space-y-3 font-mono text-sm p-4">
+              <h2 className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
+                TIMESTAMPS
+              </h2>
+              <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-[var(--color-text-dim)]">COMMITTED</span>
                   <span className="text-[var(--color-text)]">
@@ -363,18 +380,15 @@ export function SubmissionDetail() {
                     </span>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </NeonPanel>
           </div>
 
           <div className="flex flex-col gap-6">
-            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.status >= 2 ? 'border-[var(--color-primary)]' : 'border-[var(--color-bg-light)]'}`}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-mono text-[var(--color-primary)] tracking-wider">
-                  VERIFICATION_RESULT
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+            <NeonPanel tone={submission.status >= 2 ? 'primary' : 'default'} contentClassName="p-4">
+              <h2 className="text-sm font-mono text-[var(--color-primary)] tracking-wider mb-3">
+                VERIFICATION_RESULT
+              </h2>
                 {submission.status < 2 ? (
                   <StatusBanner
                     variant="info"
@@ -415,16 +429,12 @@ export function SubmissionDetail() {
                     />
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </NeonPanel>
 
-            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.challenged ? 'border-[var(--color-error)] bg-[rgba(244,63,94,0.03)]' : 'border-[var(--color-bg-light)]'}`}>
-              <CardHeader className="pb-2">
-                <CardTitle className={`text-sm font-mono tracking-wider ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
-                  {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+            <NeonPanel tone={submission.challenged ? 'error' : 'default'} contentClassName="p-4">
+              <h2 className={`text-sm font-mono tracking-wider mb-3 ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
+                {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
+              </h2>
                 {submission.status === 4 ? (
                   <div className="text-center py-4 text-[var(--color-text-dim)] font-mono">
                     <p className="text-[var(--color-primary)]">[ FINALIZED ]</p>
@@ -516,8 +526,7 @@ export function SubmissionDetail() {
                     {!isConnected && ' (Connect wallet to challenge)'}
                   </p>
                 )}
-              </CardContent>
-            </Card>
+            </NeonPanel>
           </div>
         </div>
 

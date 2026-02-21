@@ -19,6 +19,7 @@ import { useWallet } from '../hooks/useWallet'
 import { STATUS_LABELS } from '../types'
 import type { Submission } from '../types'
 import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
+import { buildPreviewSubmission, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 
 type SubmissionTuple = readonly [
   auditor: Address,
@@ -75,7 +76,13 @@ export function Dashboard() {
         toBlock: 'latest'
       })
 
-      const submissionIds = Array.from(new Set(logs.map(log => log.args.submissionId!)))
+      const submissionIds = Array.from(
+        new Set(
+          logs
+            .map((log) => log.args.submissionId)
+            .filter((submissionId): submissionId is bigint => submissionId !== undefined)
+        )
+      )
 
       if (submissionIds.length === 0) {
         setSubmissions([])
@@ -117,6 +124,15 @@ export function Dashboard() {
 
     } catch (err) {
       console.error('Failed to fetch submissions:', err)
+      if (shouldUsePreviewFallback()) {
+        setSubmissions([
+          buildPreviewSubmission(1001n, 0n, userAddress, { status: 2, severity: 3 }),
+          buildPreviewSubmission(1002n, 1n, userAddress, { status: 4, severity: 4, payoutAmount: 1_000_000_000_000_000_000n }),
+        ])
+        setError(formatPreviewFallbackMessage('Failed to load your submissions from blockchain'))
+        return
+      }
+
       setError('Failed to load your submissions from blockchain')
     } finally {
       setIsLoading(false)
@@ -157,6 +173,7 @@ export function Dashboard() {
               <CardContent className="p-8 text-center relative z-10">
                 <div className="w-20 h-20 mx-auto mb-6 border-2 border-[var(--color-primary)] rounded-full flex items-center justify-center bg-[var(--color-primary-dim)] shadow-[0_0_30px_var(--color-primary-dim)]">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2">
+                    <title>Wallet lock icon</title>
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                   </svg>
@@ -172,9 +189,10 @@ export function Dashboard() {
                 </p>
 
                 <button
+                  type="button"
                   onClick={connect}
                   disabled={isConnecting}
-                  className="bg-[var(--color-primary-dim)] text-[var(--color-primary)] border border-[var(--color-primary)] px-12 py-4 font-mono text-sm tracking-[0.1em] cursor-pointer shadow-[0_0_20px_var(--color-primary-dim)] hover:shadow-[0_0_30px_var(--color-primary-glow)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:-translate-y-0.5 transition-all duration-300 disabled:opacity-70 disabled:cursor-wait uppercase font-bold"
+              className="bg-[var(--color-primary-dim)] text-[var(--color-primary)] border border-[var(--color-primary)] px-12 py-4 font-mono text-sm tracking-[0.1em] cursor-pointer shadow-[0_0_20px_var(--color-primary-dim)] hover:shadow-[0_0_30px_var(--color-primary-glow)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:-translate-y-0.5 transition-all duration-200 ease-linear disabled:opacity-70 disabled:cursor-wait uppercase font-bold"
                 >
                   {isConnecting ? 'CONNECTING...' : 'CONNECT WALLET'}
                 </button>
@@ -200,7 +218,11 @@ export function Dashboard() {
         />
 
         {error && (
-          <StatusBanner variant="error" className="mb-4" message={error} />
+          <StatusBanner
+            variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+            className="mb-4"
+            message={error}
+          />
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 flex-shrink-0">
@@ -260,6 +282,7 @@ export function Dashboard() {
             <Card className="border-dashed border-[var(--color-text-dim)] bg-[rgba(0,0,0,0.2)] flex-1 flex items-center justify-center">
               <CardContent className="text-center p-8">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mx-auto mb-4 opacity-50">
+                  <title>No submissions</title>
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                   <polyline points="14 2 14 8 20 8"/>
                   <line x1="12" y1="18" x2="12" y2="12"/>

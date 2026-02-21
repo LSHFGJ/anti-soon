@@ -5,10 +5,18 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { StatCard } from '../components/shared/StatCard'
 import { CountdownTimer } from '../components/shared/CountdownTimer'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
+import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { STATUS_LABELS, type Project, type Submission, type ProjectRules } from '../types'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  buildPreviewProject,
+  buildPreviewProjectRules,
+  buildPreviewSubmission,
+  formatPreviewFallbackMessage,
+  shouldUsePreviewFallback,
+} from '@/lib/previewFallback'
 
 type ProjectTuple = readonly [
   owner: Address,
@@ -63,8 +71,8 @@ const publicClient = createPublicClient({
 
 function ProjectDetailSkeleton() {
   return (
-    <div className="py-8">
-      <div className="container max-w-6xl mx-auto px-4">
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4">
         <Skeleton className="h-4 w-32 mb-4" />
         <div className="flex items-center gap-4 mb-2">
           <Skeleton className="h-8 w-48" />
@@ -204,6 +212,17 @@ export function ProjectDetail() {
       
     } catch (err) {
       console.error('Failed to fetch project:', err)
+      if (shouldUsePreviewFallback()) {
+        setProject(buildPreviewProject(projectId))
+        setRules(buildPreviewProjectRules())
+        setSubmissions([
+          buildPreviewSubmission(3001n, projectId, undefined, { status: 2, severity: 3 }),
+          buildPreviewSubmission(3002n, projectId, undefined, { status: 4, severity: 4, payoutAmount: 900_000_000_000_000_000n }),
+        ])
+        setError(formatPreviewFallbackMessage('Failed to load project from blockchain'))
+        return
+      }
+
       setError('Failed to load project from blockchain')
     } finally {
       setIsLoading(false)
@@ -223,7 +242,13 @@ export function ProjectDetail() {
         toBlock: 'latest'
       })
 
-      const submissionIds = Array.from(new Set(logs.map(log => log.args.submissionId!)))
+      const submissionIds = Array.from(
+        new Set(
+          logs
+            .map((log) => log.args.submissionId)
+            .filter((submissionId): submissionId is bigint => submissionId !== undefined)
+        )
+      )
       
       if (submissionIds.length === 0) {
         setSubmissions([])
@@ -317,23 +342,21 @@ export function ProjectDetail() {
     return <ProjectDetailSkeleton />
   }
 
-  if (error || !project) {
+  if (!project) {
     return (
-      <div className="py-8">
-        <div className="container max-w-6xl mx-auto px-4">
-          <Card className="bg-[var(--color-error)]/10 border-[var(--color-error)]/50 text-[var(--color-error)]">
-            <CardContent className="p-8 text-center">
-              <p className="font-mono text-lg mb-4">
-                ERROR: {error || 'Project not found'}
-              </p>
-              <Link 
-                to="/explorer" 
-                className="text-[var(--color-primary)] hover:text-[var(--color-primary)]/80 font-mono transition-colors"
-              >
-                [← Back to Explorer]
-              </Link>
-            </CardContent>
-          </Card>
+      <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+        <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4">
+          <StatusBanner
+            variant="error"
+            className="max-w-2xl"
+            message={`ERROR: ${error ?? 'Project not found'}`}
+          />
+          <Link
+            to="/explorer"
+            className="btn-cyber inline-flex mt-4"
+          >
+            [← Back to Explorer]
+          </Link>
         </div>
       </div>
     )
@@ -342,36 +365,31 @@ export function ProjectDetail() {
   const deadlineStatus = getDeadlineStatus()
 
   return (
-    <div className="py-8">
-      <div className="container max-w-6xl mx-auto px-4">
-        <header className="mb-8">
-          <Link 
-            to="/explorer" 
-            className="inline-flex items-center gap-2 text-[var(--color-text-dim)] hover:text-[var(--color-primary)] font-mono text-xs uppercase tracking-wider transition-colors mb-4"
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4 overflow-y-auto">
+        <div className="mb-8">
+          <Link
+            to="/explorer"
+            className="btn-cyber inline-flex mb-4"
           >
-            <span>←</span> Back to Explorer
+            [← Back to Explorer]
           </Link>
-          
-          <div className="flex items-center gap-4 mb-2">
-            <h1 className="text-2xl font-mono font-bold uppercase tracking-widest text-[var(--color-primary)]">
-              PROJECT #{project.id.toString()}
-            </h1>
-            <Badge variant={project.mode === 0 ? 'unique' : 'multi'}>
-              {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
-            </Badge>
-          </div>
-          
-          <div className="h-[2px] w-48 bg-gradient-to-r from-[var(--color-primary)] to-transparent mb-4" />
-          
-          <div className="flex items-center gap-6 font-mono text-sm">
-            <Badge variant={deadlineStatus.variant}>
-              {deadlineStatus.text}
-            </Badge>
-            <span className="text-[var(--color-text-dim)]">
-              TARGET: <span className="text-[var(--color-secondary)]">{formatAddress(project.targetContract)}</span>
-            </span>
-          </div>
-        </header>
+
+          <PageHeader
+            title={`PROJECT #${project.id.toString()}`}
+            subtitle={`> TARGET: ${formatAddress(project.targetContract)}`}
+            suffix={<Badge variant={project.mode === 0 ? 'unique' : 'multi'}>{project.mode === 0 ? 'UNIQUE' : 'MULTI'}</Badge>}
+            rightSlot={<Badge variant={deadlineStatus.variant}>{deadlineStatus.text}</Badge>}
+          />
+
+          {error && (
+            <StatusBanner
+              variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+              className="mt-4"
+              message={error}
+            />
+          )}
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <StatCard 
@@ -396,13 +414,8 @@ export function ProjectDetail() {
           />
         </div>
 
-        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-mono tracking-wide">
-              DEADLINES
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+        <NeonPanel className="mb-8" contentClassName="p-6">
+          <h2 className="text-lg font-mono tracking-wide mb-4">DEADLINES</h2>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <p className="text-[var(--color-text-dim)] font-mono text-xs uppercase">Commit Deadline</p>
@@ -415,19 +428,13 @@ export function ProjectDetail() {
                 <CountdownTimer deadline={project.revealDeadline} />
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </NeonPanel>
 
         {rules && (
-          <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-mono tracking-wide">
-                RULES & THRESHOLDS
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
+          <NeonPanel className="mb-8" contentClassName="p-6 space-y-6">
+              <h2 className="text-lg font-mono tracking-wide">RULES & THRESHOLDS</h2>
               <div>
-                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">// EXECUTION_RULES</p>
+                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">{'// EXECUTION_RULES'}</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
                   <div>
                     <span className="text-[var(--color-text-dim)]">MAX_ATTACKER_SEED: </span>
@@ -451,7 +458,7 @@ export function ProjectDetail() {
               </div>
               
               <div>
-                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">// SEVERITY_THRESHOLDS</p>
+                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">{'// SEVERITY_THRESHOLDS'}</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <Card className="bg-[var(--color-error)]/10 border-l-[var(--color-error)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
                     <CardContent className="p-3">
@@ -479,8 +486,7 @@ export function ProjectDetail() {
                   </Card>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+          </NeonPanel>
         )}
 
         {project.active && (
@@ -495,13 +501,8 @@ export function ProjectDetail() {
           </div>
         )}
 
-        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-mono tracking-wide">
-              SUBMISSIONS [{submissions.length}]
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+        <NeonPanel className="mb-8" contentClassName="p-6">
+            <h2 className="text-lg font-mono tracking-wide mb-4">SUBMISSIONS [{submissions.length}]</h2>
             {submissions.length === 0 ? (
               <div className="py-12 border border-dashed border-[var(--color-bg-light)] text-center">
                 <p className="font-mono text-[var(--color-text-dim)] text-sm mb-2">&gt; No submissions yet</p>
@@ -568,11 +569,9 @@ export function ProjectDetail() {
                 </table>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </NeonPanel>
 
-        <Card className="bg-[var(--color-bg-panel)]/50 border-[var(--color-bg-light)]">
-          <CardContent className="p-4">
+        <NeonPanel contentClassName="p-4">
             <div className="grid md:grid-cols-3 gap-4 font-mono text-sm">
               <div>
                 <span className="text-[var(--color-text-dim)]">OWNER: </span>
@@ -587,8 +586,7 @@ export function ProjectDetail() {
                 <span className="break-all">{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </NeonPanel>
       </div>
     </div>
   )

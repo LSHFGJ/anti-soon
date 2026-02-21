@@ -36,7 +36,7 @@ test.describe('Task 13 shared primitives consistency', () => {
     await expect(statusSurface).toBeVisible()
 
     const variant = await statusSurface.getAttribute('data-status-variant')
-    expect(['info', 'success', 'error']).toContain(variant)
+    expect(['info', 'success', 'warning', 'error']).toContain(variant)
 
     await page.screenshot({ path: screenshotPath, fullPage: true })
   })

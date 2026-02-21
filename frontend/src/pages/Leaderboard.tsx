@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 import { StatCard } from '@/components/shared/StatCard'
 import { aggregateLeaderboardEntries } from '../lib/dashboardLeaderboardCompute'
+import { formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 
 interface LeaderboardEntry {
   rank: number
@@ -105,7 +106,13 @@ export function Leaderboard() {
         return
       }
 
-      const submissionIds = [...new Set(payoutLogs.map(log => log.args.submissionId!))]
+      const submissionIds = [
+        ...new Set(
+          payoutLogs
+            .map((log) => log.args.submissionId)
+            .filter((submissionId): submissionId is bigint => submissionId !== undefined)
+        )
+      ]
       
       const submissionContracts = submissionIds.map((id) => ({
         address: BOUNTY_HUB_ADDRESS,
@@ -124,11 +131,22 @@ export function Leaderboard() {
         severityMap.set(submissionIds[index], sub[10])
       })
 
-      const payoutRows = payoutLogs.map((log) => ({
-        auditor: log.args.auditor!,
-        amount: log.args.amount!,
-        submissionId: log.args.submissionId!
-      }))
+      const payoutRows = payoutLogs
+        .map((log) => {
+          const auditor = log.args.auditor
+          const amount = log.args.amount
+          const submissionId = log.args.submissionId
+          if (!auditor || amount === undefined || submissionId === undefined) {
+            return null
+          }
+
+          return {
+            auditor,
+            amount,
+            submissionId,
+          }
+        })
+        .filter((row): row is { auditor: Address; amount: bigint; submissionId: bigint } => row !== null)
 
       const sortedLeaderboard = aggregateLeaderboardEntries(
         payoutRows,
@@ -140,6 +158,29 @@ export function Leaderboard() {
       setLeaderboard(sortedLeaderboard)
     } catch (err) {
       console.error('Failed to fetch leaderboard:', err)
+      if (shouldUsePreviewFallback()) {
+        setLeaderboard([
+          {
+            rank: 1,
+            address: '0x3333333333333333333333333333333333333333' as Address,
+            validCount: 6,
+            totalEarned: 3_200_000_000_000_000_000n,
+            highCount: 4,
+            criticalCount: 2,
+          },
+          {
+            rank: 2,
+            address: '0x4444444444444444444444444444444444444444' as Address,
+            validCount: 4,
+            totalEarned: 1_900_000_000_000_000_000n,
+            highCount: 3,
+            criticalCount: 1,
+          },
+        ])
+        setError(formatPreviewFallbackMessage('Failed to load leaderboard data'))
+        return
+      }
+
       setError('Failed to load leaderboard data')
     } finally {
       setIsLoading(false)
@@ -192,7 +233,11 @@ export function Leaderboard() {
         )}
 
         {error && (
-          <StatusBanner variant="error" className="mb-4" message={error} />
+          <StatusBanner
+            variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+            className="mb-4"
+            message={error}
+          />
         )}
 
         {!isLoading && !error && leaderboard.length === 0 && (
@@ -237,7 +282,7 @@ export function Leaderboard() {
                     <TableRow
                       key={entry.address}
                       className={`
-                        border-b border-white/5 transition-all duration-300
+                        border-b border-white/5 transition-all duration-200 ease-linear
                         ${isYou ? 'bg-[var(--color-secondary-dim)] border-l-4 border-l-[var(--color-secondary)]' : ''}
                         hover:bg-neutral-800
                       `}

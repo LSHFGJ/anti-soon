@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
+import { buildPreviewProject, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 
 interface Project {
   id: bigint
@@ -135,6 +136,12 @@ export function Explorer() {
       setProjects(fetchedProjects)
     } catch (err) {
       console.error('Failed to fetch projects:', err)
+      if (shouldUsePreviewFallback()) {
+        setProjects([buildPreviewProject(0n), buildPreviewProject(1n), buildPreviewProject(2n)])
+        setError(formatPreviewFallbackMessage('Failed to load projects from blockchain'))
+        return
+      }
+
       setError('Failed to load projects from blockchain')
     } finally {
       setIsLoading(false)
@@ -209,7 +216,11 @@ export function Explorer() {
         </div>
 
         {error && (
-          <StatusBanner variant="error" className="mb-4" message={error} />
+          <StatusBanner
+            variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+            className="mb-4"
+            message={error}
+          />
         )}
 
         {isLoading && (
@@ -234,10 +245,10 @@ export function Explorer() {
                     className="block group"
                   >
                     <NeonPanel className="hover:border-[var(--color-primary-dim)] hover:shadow-[0_10px_30px_-10px_var(--color-primary-dim)] h-full relative group" contentClassName="p-0">
-                      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--color-primary-dim)] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--color-primary-dim)] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 ease-linear" />
                       <div className="p-6 pb-2">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-mono tracking-wide text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors duration-300">
+                  <h3 className="text-base font-mono tracking-wide text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors duration-200 ease-linear">
                             PROJECT_#{project.id.toString()}
                           </h3>
                           <Badge variant={project.mode === 0 ? 'unique' : 'multi'} className="text-[0.65rem] px-2 py-0.5">
