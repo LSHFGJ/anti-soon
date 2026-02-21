@@ -57,7 +57,7 @@ export const HowItWorks: React.FC = () => {
               <div className="hidden lg:block absolute top-1/2 -right-3 w-6 h-px bg-gradient-to-r from-[var(--color-primary)] to-transparent opacity-40 z-10" />
             )}
 
-            <Card className="relative overflow-hidden bg-[var(--color-bg-panel)] border-[var(--color-text-dim)]/20 hover:border-[var(--color-primary)]/30 transition-all duration-300 h-full">
+          <Card className="relative overflow-hidden bg-[var(--color-bg-panel)] border-[var(--color-text-dim)]/20 hover:border-[var(--color-primary)]/30 transition-all duration-200 ease-linear h-full">
               <div className="absolute inset-0 bg-gradient-to-br from-[var(--color-primary)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
               <div className="absolute top-4 right-4 text-[10px] font-mono text-[var(--color-text-dim)]/50">

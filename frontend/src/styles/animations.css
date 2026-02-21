@@ -228,6 +228,15 @@
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .loading-dots {
   display: inline-flex;
   gap: 4px;
@@ -406,11 +415,11 @@
 }
 
 .animate-item-enter {
-  animation: item-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: item-enter 0.3s linear forwards;
 }
 
 .animate-item-exit {
-  animation: item-exit 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: item-exit 0.25s linear forwards;
 }
 
 /* ============================================
@@ -439,9 +448,9 @@
 }
 
 .animate-accordion-down {
-  animation: accordion-down 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: accordion-down 0.3s linear forwards;
 }
 
 .animate-accordion-up {
-  animation: accordion-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: accordion-up 0.25s linear forwards;
 }

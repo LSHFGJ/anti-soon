@@ -4,7 +4,7 @@ import type { Variants } from 'motion/react'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
 import { usePoCSubmission } from '../../hooks/usePoCSubmission'
 import { useWallet } from '../../hooks/useWallet'
-import { DEMO_PROJECTS, H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
+import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import type { PoCData } from '../../types/poc'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -15,8 +15,10 @@ import { TransactionsStep } from './Steps/TransactionsStep'
 import { ImpactStep } from './Steps/ImpactStep'
 import { ReviewStep } from './Steps/ReviewStep'
 
+type DemoProject = (typeof import('../../config').DEMO_PROJECTS)[number]
+
 interface PoCBuilderProps {
-  selectedProject?: typeof DEMO_PROJECTS[0] | null
+  selectedProject?: DemoProject | null
   submissionProjectId: bigint | null
 }
 
@@ -86,11 +88,11 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
 
   useEffect(() => {
     if (selectedProject) {
-      loadTemplate({
-        target: selectedProject.targetContract,
-        chain: selectedProject.chain,
-        forkBlock: parseInt(selectedProject.forkBlock) || 0
-      })
+        loadTemplate({
+          target: selectedProject.targetContract,
+          chain: selectedProject.chain,
+          forkBlock: parseInt(selectedProject.forkBlock, 10) || 0
+        })
       // Don't reset to step 1 automatically if user has moved on, 
       // but for initial load it's fine. 
       // Actually, let's only reset if we are on step 1 to avoid annoying jumps
@@ -179,7 +181,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
               size="sm"
               onClick={() => handleStepSelect(step)}
               className={cn(
-                "relative min-w-[100px] font-mono text-xs tracking-wider transition-all duration-300",
+                "relative min-w-[100px] font-mono text-xs tracking-wider transition-all duration-200 ease-linear",
                 "border rounded-sm",
                 isActive && "bg-[var(--color-primary)] text-[var(--color-bg)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 hover:text-[var(--color-bg)]",
                 isCompleted && !isActive && "border-[var(--color-secondary)] text-[var(--color-secondary)] hover:bg-[var(--color-secondary)]/10",

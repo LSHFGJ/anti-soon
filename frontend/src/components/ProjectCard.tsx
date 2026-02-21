@@ -73,7 +73,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           'relative overflow-hidden cursor-pointer h-full',
           'bg-[var(--color-bg-panel)] border-[var(--color-text-dim)]/20',
           'hover:border-[var(--color-primary)]/50',
-          'transition-colors duration-300',
+          'transition-colors duration-200 ease-linear',
           className
         )}
         onClick={onClick}

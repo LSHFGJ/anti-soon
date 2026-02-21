@@ -61,7 +61,7 @@ export function NeonPanel({ children, tone = 'default', className, contentClassN
   return (
     <Card
       className={cn(
-        'bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800 shadow-[0_0_40px_rgba(124,58,237,0.4)] transition-all duration-300 hover:border-neutral-800',
+        'bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800 shadow-[0_0_40px_rgba(124,58,237,0.4)] transition-all duration-200 ease-linear hover:border-neutral-800',
         panelToneStyles[tone],
         className
       )}
@@ -121,9 +121,9 @@ export function MetaRow({
 
   return (
     <div className={className}>
-      <label className={cn('text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider', labelClassName)}>
+      <span className={cn('text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider', labelClassName)}>
         {label}
-      </label>
+      </span>
       <span className={cn('text-[var(--color-text)]', valueClassName)}>{value}</span>
     </div>
   )

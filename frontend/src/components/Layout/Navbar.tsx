@@ -23,10 +23,10 @@ export function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-auto md:h-[70px] flex items-center justify-between md:justify-between gap-2 px-3 sm:px-4 md:px-8 py-2 md:py-0 flex-wrap md:flex-nowrap bg-[var(--color-bg-panel)] backdrop-blur-md border-b border-neutral-800 shadow-[0_0_40px_rgba(124,58,237,0.4)]">
       <Link to="/" className="order-1 flex items-baseline gap-2 no-underline group flex-shrink-0">
-        <span className="font-['Syncopate',sans-serif] text-base sm:text-lg md:text-xl font-bold text-[var(--color-primary)] transition-all duration-300 group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]">
+        <span className="font-mono text-base sm:text-lg md:text-xl font-bold text-[var(--color-primary)] transition-all duration-200 ease-linear group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]">
           ANTI-SOON
         </span>
-        <span className="hidden sm:inline font-['JetBrains_Mono',monospace] text-[0.7rem] text-[var(--color-text-dim)]">
+        <span className="hidden sm:inline font-mono text-[0.7rem] text-[var(--color-text-dim)]">
           v2.0
         </span>
       </Link>
@@ -68,11 +68,11 @@ export function Navbar() {
               variant="outline"
               size="sm"
               className={cn(
-                "hidden sm:inline-flex font-['JetBrains_Mono',monospace] text-[0.75rem]",
+                "hidden sm:inline-flex font-mono text-[0.75rem]",
                 "text-[var(--color-secondary)] border-[var(--color-secondary)]/50",
                 "bg-[var(--color-secondary-dim)] hover:bg-[var(--color-secondary)] hover:text-[var(--color-bg)]",
                 "hover:border-[var(--color-secondary)] hover:shadow-[0_0_15px_var(--color-secondary-glow)]",
-                "transition-all duration-300"
+                "transition-all duration-200 ease-linear"
               )}
             >
               + CREATE
@@ -85,11 +85,11 @@ export function Navbar() {
           variant="outline"
           size="sm"
           className={cn(
-            "font-['JetBrains_Mono',monospace] text-[0.8rem]",
+            "font-mono text-[0.8rem]",
             isConnected
               ? "text-[var(--color-primary)] border-[var(--color-primary)]/50 bg-[var(--color-primary-dim)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:shadow-[0_0_15px_var(--color-primary-glow)]"
               : "text-[var(--color-text)] border-white/20 hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] hover:shadow-[0_0_15px_var(--color-primary-dim)]",
-            "transition-all duration-300"
+            "transition-all duration-200 ease-linear"
           )}
         >
           {isConnected 

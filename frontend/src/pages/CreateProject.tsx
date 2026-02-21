@@ -1037,8 +1037,8 @@ export function CreateProject() {
   }
 
   return (
-    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
-      <div className="container flex-1 flex flex-col overflow-hidden">
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0">
         <PageHeader title="CREATE PROJECT" subtitle="> Register a new bounty project on-chain" className="mb-4" />
 
         <div className="shrink-0 mb-4">
@@ -1046,7 +1046,7 @@ export function CreateProject() {
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 overflow-hidden">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 min-h-0">
             <NeonPanel className="flex-1 overflow-auto" contentClassName="p-4">
               {renderCurrentStep()}
             </NeonPanel>

@@ -130,7 +130,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
         "relative overflow-hidden",
         "border border-[var(--color-text-dim)]",
         "bg-[var(--color-bg)]",
-        "transition-all duration-300",
+        "transition-all duration-200 ease-linear",
         "hover:border-[var(--color-primary)]",
         "hover:shadow-[0_0_15px_var(--color-primary-dim)]"
       )}
@@ -187,12 +187,12 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
         >
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className={cn(
+              <p className={cn(
                 "block text-sm",
                 "text-[var(--color-text)]"
               )}>
                 To Address
-              </label>
+              </p>
               <input 
                 value={draft.to} 
                 onChange={e => handleChange('to', e.target.value)}
@@ -210,12 +210,12 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
               />
             </div>
             <div className="space-y-2">
-              <label className={cn(
+              <p className={cn(
                 "block text-sm",
                 "text-[var(--color-text)]"
               )}>
                 Value (ETH in wei)
-              </label>
+              </p>
               <input 
                 value={draft.value} 
                 onChange={e => handleChange('value', e.target.value)}

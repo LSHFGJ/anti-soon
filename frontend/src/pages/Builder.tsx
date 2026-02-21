@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
+import { NeonPanel, PageHeader } from '../components/shared/ui-primitives'
 import { DEMO_PROJECTS } from '../config'
 
 type BuilderLocationState = {
@@ -54,28 +55,27 @@ export function Builder() {
   return (
     <main
       data-builder-shell="root"
-      className="min-h-full flex flex-col"
+      className="min-h-[calc(100vh-142px)] py-6"
     >
-      <div className="bg-[var(--color-bg)] py-4 border-b border-[var(--color-bg-light)] shrink-0">
-        <div className="container">
-          <h1 className="font-mono text-[1.2rem] text-[var(--color-primary)] mb-1">
-            POC_BUILDER_V1.0
-          </h1>
-          <p className="font-mono text-xs text-[var(--color-text-dim)]">
-            Craft, encrypt, and submit your vulnerability proof-of-concept
-          </p>
-          {explicitProjectId !== null && (
-            <p
-              data-testid="builder-project-context"
-              className="font-mono text-xs text-[var(--color-secondary)] mt-1.5"
-            >
-              CONTEXT_PROJECT_ID: #{explicitProjectId.toString()}
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 flex">
-        <PoCBuilder selectedProject={selectedProject} submissionProjectId={explicitProjectId} />
+      <div className="container flex h-full min-h-0 flex-col">
+        <PageHeader
+          title="POC_BUILDER_V1.0"
+          subtitle="> Craft, encrypt, and submit your vulnerability proof-of-concept"
+          rightSlot={
+            explicitProjectId !== null ? (
+              <span
+                data-testid="builder-project-context"
+                className="font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--color-secondary)]"
+              >
+                CONTEXT_PROJECT_ID: #{explicitProjectId.toString()}
+              </span>
+            ) : undefined
+          }
+        />
+
+        <NeonPanel className="flex-1 min-h-0 overflow-hidden" contentClassName="flex h-full min-h-0 p-0">
+          <PoCBuilder selectedProject={selectedProject} submissionProjectId={explicitProjectId} />
+        </NeonPanel>
       </div>
     </main>
   )

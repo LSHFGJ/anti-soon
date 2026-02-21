@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-all duration-200 ease-linear focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -19,7 +19,7 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         cyber:
-          "bg-[rgba(124,58,237,0.05)] border border-[var(--color-primary)] text-[var(--color-primary)] font-bold uppercase transition-all duration-300 hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:shadow-[0_0_20px_var(--color-primary-glow)] hover:-translate-y-0.5",
+          "bg-[rgba(124,58,237,0.05)] border border-[var(--color-primary)] text-[var(--color-primary)] font-bold uppercase transition-all duration-200 ease-linear hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:shadow-[0_0_20px_var(--color-primary-glow)] hover:-translate-y-0.5",
       },
       size: {
         default: "h-10 px-4 py-2",
