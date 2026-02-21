@@ -8,7 +8,7 @@ export function Timeline({ steps }: TimelineProps) {
   return (
     <div className="timeline">
       {steps.map((step, index) => (
-        <div key={step.label} className="timeline-step-container" style={{ display: 'contents' }}>
+        <div key={step.label} className="timeline-step-container contents">
           <div className={`timeline-step ${step.completed ? 'completed' : ''} ${step.active ? 'active' : ''}`}>
             <div className="timeline-dot">
               {step.completed ? '✓' : index + 1}

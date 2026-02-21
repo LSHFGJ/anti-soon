@@ -38,9 +38,9 @@ export function CountdownTimer({ deadline, onComplete }: CountdownTimerProps) {
     return () => clearInterval(timer)
   }, [deadline])
 
-  if (!timeLeft) return <span style={{ color: 'var(--color-text-dim)' }}>N/A</span>
+  if (!timeLeft) return <span className="text-[var(--color-text-dim)]">N/A</span>
   
-  if (timeLeft.expired) return <span style={{ color: 'var(--color-error)' }}>EXPIRED</span>
+  if (timeLeft.expired) return <span className="text-error">EXPIRED</span>
 
   const isWarning = timeLeft.days === 0 && timeLeft.hours < 1
 

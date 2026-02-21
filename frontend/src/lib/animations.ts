@@ -29,14 +29,14 @@ export const fadeIn: Variants = {
     opacity: 1,
     transition: {
       duration: 0.4,
-      ease: 'easeOut',
+      ease: 'linear',
     },
   },
   exit: {
     opacity: 0,
     transition: {
       duration: 0.2,
-      ease: 'easeIn',
+      ease: 'linear',
     },
   },
 }
@@ -54,7 +54,7 @@ export const slideUp: Variants = {
     y: 0,
     transition: {
       duration: 0.5,
-      ease: [0.25, 0.46, 0.45, 0.94], // ease-out-cubic
+      ease: 'linear', // ease-out-cubic
     },
   },
   exit: {
@@ -62,7 +62,7 @@ export const slideUp: Variants = {
     y: -10,
     transition: {
       duration: 0.2,
-      ease: 'easeIn',
+      ease: 'linear',
     },
   },
 }
@@ -111,31 +111,31 @@ export const glitch: Variants = {
  */
 export const glow: Variants = {
   initial: {
-    boxShadow: '0 0 0px rgba(0, 255, 157, 0)',
+    boxShadow: '0 0 0px rgba(124, 58, 237, 0)',
   },
   hover: {
-    boxShadow: '0 0 20px rgba(0, 255, 157, 0.5), 0 0 40px rgba(0, 255, 157, 0.3)',
+    boxShadow: '0 0 20px rgba(124, 58, 237, 0.5), 0 0 40px rgba(124, 58, 237, 0.3)',
     transition: {
       duration: 0.3,
-      ease: 'easeOut',
+      ease: 'linear',
     },
   },
   tap: {
-    boxShadow: '0 0 10px rgba(0, 255, 157, 0.3)',
+    boxShadow: '0 0 10px rgba(124, 58, 237, 0.3)',
     transition: {
       duration: 0.1,
     },
   },
   active: {
     boxShadow: [
-      '0 0 10px rgba(0, 255, 157, 0.3)',
-      '0 0 20px rgba(0, 255, 157, 0.5)',
-      '0 0 10px rgba(0, 255, 157, 0.3)',
+      '0 0 10px rgba(124, 58, 237, 0.3)',
+      '0 0 20px rgba(124, 58, 237, 0.5)',
+      '0 0 10px rgba(124, 58, 237, 0.3)',
     ],
     transition: {
       duration: 2,
       repeat: Infinity,
-      ease: 'easeInOut',
+      ease: 'linear',
     },
   },
 }
@@ -179,7 +179,7 @@ export const staggerChild: Variants = {
     scale: 1,
     transition: {
       duration: 0.4,
-      ease: [0.25, 0.46, 0.45, 0.94],
+      ease: 'linear',
     },
   },
   exit: {
@@ -206,9 +206,8 @@ export const scalePop: Variants = {
     scale: 1,
     y: 0,
     transition: {
-      type: 'spring',
-      stiffness: 300,
-      damping: 25,
+      duration: 0.2,
+      ease: 'linear',
     },
   },
   exit: {
@@ -216,7 +215,7 @@ export const scalePop: Variants = {
     scale: 0.95,
     transition: {
       duration: 0.15,
-      ease: 'easeIn',
+      ease: 'linear',
     },
   },
 }
@@ -233,9 +232,8 @@ export const slideFromLeft: Variants = {
     x: 0,
     opacity: 1,
     transition: {
-      type: 'spring',
-      stiffness: 300,
-      damping: 30,
+      duration: 0.2,
+      ease: 'linear',
     },
   },
   exit: {
@@ -243,7 +241,7 @@ export const slideFromLeft: Variants = {
     opacity: 0,
     transition: {
       duration: 0.2,
-      ease: 'easeIn',
+      ease: 'linear',
     },
   },
 }
@@ -257,9 +255,8 @@ export const slideFromRight: Variants = {
     x: 0,
     opacity: 1,
     transition: {
-      type: 'spring',
-      stiffness: 300,
-      damping: 30,
+      duration: 0.2,
+      ease: 'linear',
     },
   },
   exit: {
@@ -267,7 +264,7 @@ export const slideFromRight: Variants = {
     opacity: 0,
     transition: {
       duration: 0.2,
-      ease: 'easeIn',
+      ease: 'linear',
     },
   },
 }
@@ -303,7 +300,7 @@ export const pageTransition: Variants = {
     y: 0,
     transition: {
       duration: 0.4,
-      ease: [0.25, 0.46, 0.45, 0.94],
+      ease: 'linear',
       when: 'beforeChildren',
       staggerChildren: 0.1,
     },
@@ -317,24 +314,24 @@ export const pageTransition: Variants = {
 }
 
 /**
- * Spring config presets
+ * Linear config presets (formerly spring)
  */
-export const springConfigs = {
+export const motionConfigs = {
   // Snappy, quick response
-  snappy: { type: 'spring' as const, stiffness: 400, damping: 30 },
+  snappy: { duration: 0.1, ease: 'linear' as const },
   // Smooth, gentle
-  smooth: { type: 'spring' as const, stiffness: 200, damping: 25 },
-  // Bouncy, playful
-  bouncy: { type: 'spring' as const, stiffness: 300, damping: 15 },
+  smooth: { duration: 0.3, ease: 'linear' as const },
+  // Bouncy, playful (now linear)
+  bouncy: { duration: 0.2, ease: 'linear' as const },
   // Stiff, precise
-  stiff: { type: 'spring' as const, stiffness: 500, damping: 40 },
+  stiff: { duration: 0.15, ease: 'linear' as const },
 }
 
 /**
  * Common transition presets
  */
 export const transitions = {
-  fast: { duration: 0.15, ease: 'easeOut' as const },
-  normal: { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] },
-  slow: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] },
+  fast: { duration: 0.15, ease: 'linear' as const },
+  normal: { duration: 0.3, ease: 'linear' },
+  slow: { duration: 0.5, ease: 'linear' },
 }

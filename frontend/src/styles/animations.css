@@ -7,7 +7,7 @@
  * Usage:
  * ```css
  * .my-element {
- *   animation: neon-pulse 2s ease-in-out infinite;
+ *   animation: neon-pulse 2s linear infinite;
  * }
  * ```
  */
@@ -18,15 +18,15 @@
 @keyframes neon-pulse {
   0%, 100% {
     box-shadow: 
-      0 0 5px rgba(0, 255, 157, 0.3),
-      0 0 10px rgba(0, 255, 157, 0.2),
-      0 0 20px rgba(0, 255, 157, 0.1);
+      0 0 5px rgba(124, 58, 237, 0.3),
+      0 0 10px rgba(124, 58, 237, 0.2),
+      0 0 20px rgba(124, 58, 237, 0.1);
   }
   50% {
     box-shadow: 
-      0 0 10px rgba(0, 255, 157, 0.5),
-      0 0 20px rgba(0, 255, 157, 0.3),
-      0 0 40px rgba(0, 255, 157, 0.2);
+      0 0 10px rgba(124, 58, 237, 0.5),
+      0 0 20px rgba(124, 58, 237, 0.3),
+      0 0 40px rgba(124, 58, 237, 0.2);
   }
 }
 
@@ -48,15 +48,15 @@
 @keyframes neon-pulse-red {
   0%, 100% {
     box-shadow: 
-      0 0 5px rgba(255, 0, 60, 0.3),
-      0 0 10px rgba(255, 0, 60, 0.2),
-      0 0 20px rgba(255, 0, 60, 0.1);
+      0 0 5px rgba(244, 63, 94, 0.3),
+      0 0 10px rgba(244, 63, 94, 0.2),
+      0 0 20px rgba(244, 63, 94, 0.1);
   }
   50% {
     box-shadow: 
-      0 0 10px rgba(255, 0, 60, 0.5),
-      0 0 20px rgba(255, 0, 60, 0.3),
-      0 0 40px rgba(255, 0, 60, 0.2);
+      0 0 10px rgba(244, 63, 94, 0.5),
+      0 0 20px rgba(244, 63, 94, 0.3),
+      0 0 40px rgba(244, 63, 94, 0.2);
   }
 }
 
@@ -181,10 +181,10 @@
    ============================================ */
 @keyframes border-glow {
   0%, 100% {
-    border-color: rgba(0, 255, 157, 0.3);
+    border-color: rgba(124, 58, 237, 0.3);
   }
   50% {
-    border-color: rgba(0, 255, 157, 0.8);
+    border-color: rgba(124, 58, 237, 0.8);
   }
 }
 
@@ -238,7 +238,7 @@
   height: 8px;
   background: var(--color-primary);
   border-radius: 50%;
-  animation: loading-dot 1.4s ease-in-out infinite;
+  animation: loading-dot 1.4s linear infinite;
 }
 
 .loading-dots span:nth-child(1) {
@@ -320,25 +320,31 @@
 
 .cyber-grid-bg {
   background-image: 
-    linear-gradient(rgba(0, 255, 157, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 157, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(124, 58, 237, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 58, 237, 0.03) 1px, transparent 1px);
   background-size: 50px 50px;
   animation: cyber-grid-move 20s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cyber-grid-bg {
+    animation: none;
+  }
 }
 
 /* ============================================
    UTILITY CLASSES
    ============================================ */
 .animate-neon-pulse {
-  animation: neon-pulse 2s ease-in-out infinite;
+  animation: neon-pulse 2s linear infinite;
 }
 
 .animate-neon-pulse-cyan {
-  animation: neon-pulse-cyan 2s ease-in-out infinite;
+  animation: neon-pulse-cyan 2s linear infinite;
 }
 
 .animate-neon-pulse-red {
-  animation: neon-pulse-red 2s ease-in-out infinite;
+  animation: neon-pulse-red 2s linear infinite;
 }
 
 .animate-crt-flicker {
@@ -346,19 +352,19 @@
 }
 
 .animate-border-glow {
-  animation: border-glow 2s ease-in-out infinite;
+  animation: border-glow 2s linear infinite;
 }
 
 .animate-text-glow {
-  animation: text-glow 2s ease-in-out infinite;
+  animation: text-glow 2s linear infinite;
 }
 
 .animate-shake {
-  animation: shake 0.5s ease-in-out;
+  animation: shake 0.5s linear;
 }
 
 .animate-float {
-  animation: float 3s ease-in-out infinite;
+  animation: float 3s linear infinite;
 }
 
 .animate-rotate-slow {
@@ -367,11 +373,11 @@
 
 /* Hover-triggered animations */
 .hover-glow:hover {
-  animation: neon-pulse 1s ease-in-out infinite;
+  animation: neon-pulse 1s linear infinite;
 }
 
 .hover-shake:hover {
-  animation: shake 0.5s ease-in-out;
+  animation: shake 0.5s linear;
 }
 
 /* ============================================

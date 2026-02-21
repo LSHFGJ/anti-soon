@@ -3,7 +3,7 @@ import { StatCardSkeleton } from "./StatCardSkeleton"
 
 export function ProjectCardSkeleton() {
   return (
-    <div className="border border-[var(--color-bg-light)] p-4 transition-all hover:border-[var(--color-primary)] hover:shadow-[0_0_20px_rgba(0,255,157,0.1)]">
+    <div className="border border-[var(--color-bg-light)] p-4 transition-all hover:border-[var(--color-primary)] hover:shadow-[0_0_20px_rgba(124,58,237,0.1)]">
       <div className="flex items-center justify-between mb-3">
         <Skeleton className="h-5 w-32" />
         <Skeleton className="h-5 w-16 rounded" />

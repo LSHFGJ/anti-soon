@@ -13,29 +13,35 @@ export function AnimatedStatCard({
   label,
   value,
   subValue,
-  color = '#00ff9d',
+  color = 'var(--color-primary)',
   delay = 0
 }: AnimatedStatCardProps) {
+  const colorClass = color === 'var(--color-primary)' ? 'text-primary' :
+                     color === 'var(--color-secondary)' ? 'text-secondary' :
+                     color === 'var(--color-warning)' ? 'text-[var(--color-warning)]' :
+                     color === 'var(--color-error)' ? 'text-error' :
+                     color === 'var(--color-text)' ? 'text-[var(--color-text)]' :
+                     'text-primary';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.4,
+        duration: 0.2,
         delay,
-        ease: [0.4, 0, 0.2, 1]
+        ease: 'linear'
       }}
     >
       <Card
-        className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] transition-colors duration-200"
+        className="bg-gradient-to-br from-[var(--color-bg-panel)] to-[var(--color-bg)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] transition-colors duration-200"
       >
         <div className="text-center p-6">
           <div className="font-mono text-xs uppercase tracking-wider text-[var(--color-text-dim)] mb-2">
             {label}
           </div>
           <div
-            className="font-display text-3xl font-bold"
-            style={{ color }}
+            className={`font-mono text-3xl font-bold ${colorClass}`}
           >
             {value}
           </div>

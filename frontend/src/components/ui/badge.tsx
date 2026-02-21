@@ -4,43 +4,43 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-mono font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-sm border px-2.5 py-0.5 text-xs font-mono font-semibold transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 uppercase tracking-wider",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
+          "border-transparent bg-primary/10 text-primary shadow-[0_0_10px_var(--color-primary-dim)] hover:bg-primary/20",
         secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "border-transparent bg-secondary/10 text-secondary shadow-[0_0_10px_var(--color-secondary-dim)] hover:bg-secondary/20",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
-        outline: "text-foreground",
+          "border-transparent bg-destructive/10 text-destructive shadow-[0_0_10px_var(--color-error-dim)] hover:bg-destructive/20",
+        outline: "text-foreground border-neutral-800 hover:border-violet-500/30",
         success:
-          "border-transparent bg-[#00ff9d]/20 text-[#00ff9d] border-[#00ff9d]/30",
+          "border-transparent bg-[var(--color-primary-dim)] text-[var(--color-primary)] border-[var(--color-primary)]/30 shadow-[0_0_10px_var(--color-primary-dim)]",
         warning:
-          "border-transparent bg-[#ff8800]/20 text-[#ff8800] border-[#ff8800]/30",
+          "border-transparent bg-[var(--color-warning-dim)] text-[var(--color-warning)] border-[var(--color-warning)]/30 shadow-[0_0_10px_var(--color-warning-dim)]",
         error:
-          "border-transparent bg-[#ff003c]/20 text-[#ff003c] border-[#ff003c]/30",
+          "border-transparent bg-[var(--color-error-dim)] text-[var(--color-error)] border-[var(--color-error)]/30 shadow-[0_0_10px_var(--color-error-dim)]",
         info:
-          "border-transparent bg-[#00f0ff]/20 text-[#00f0ff] border-[#00f0ff]/30",
+          "border-transparent bg-[var(--color-info-dim)] text-[var(--color-info)] border-[var(--color-info)]/30 shadow-[0_0_10px_var(--color-info-dim)]",
         critical:
-          "border-transparent bg-[#ff003c]/20 text-[#ff003c] border-[#ff003c]/30",
+          "border-transparent bg-[var(--color-error-dim)] text-[var(--color-error)] border-[var(--color-error)]/30 shadow-[0_0_10px_var(--color-error-dim)]",
         high:
-          "border-transparent bg-[#ff8800]/20 text-[#ff8800] border-[#ff8800]/30",
+          "border-transparent bg-[var(--color-warning-dim)] text-[var(--color-warning)] border-[var(--color-warning)]/30 shadow-[0_0_10px_var(--color-warning-dim)]",
         medium:
-          "border-transparent bg-[#ffff00]/20 text-[#ffff00] border-[#ffff00]/30",
+          "border-transparent bg-[var(--color-gold)]/10 text-[var(--color-gold)] border-[var(--color-gold)]/30 shadow-[0_0_10px_rgba(245,158,11,0.15)]",
         low:
-          "border-transparent bg-[#88ff88]/20 text-[#88ff88] border-[#88ff88]/30",
+          "border-transparent bg-[var(--color-primary-dim)] text-[var(--color-primary)] border-[var(--color-primary)]/30 shadow-[0_0_10px_var(--color-primary-dim)]",
         unique:
-          "border-transparent bg-[#00ff9d] text-[#0a0a0a]",
+          "border-transparent bg-[var(--color-primary)] text-[var(--color-bg)] shadow-[0_0_15px_var(--color-primary-glow)]",
         multi:
-          "border-transparent bg-[#00f0ff] text-[#0a0a0a]",
+          "border-transparent bg-[var(--color-secondary)] text-[var(--color-bg)] shadow-[0_0_15px_var(--color-secondary-glow)]",
         open:
-          "border-[#00ff9d]/50 bg-[#00ff9d]/10 text-[#00ff9d]",
+          "border-[var(--color-primary)]/50 bg-[var(--color-primary-dim)] text-[var(--color-primary)] shadow-[0_0_10px_var(--color-primary-dim)]",
         reveal:
-          "border-[#00f0ff]/50 bg-[#00f0ff]/10 text-[#00f0ff]",
+          "border-[var(--color-secondary)]/50 bg-[var(--color-secondary-dim)] text-[var(--color-secondary)] shadow-[0_0_10px_var(--color-secondary-dim)]",
         closed:
-          "border-[#ff003c]/50 bg-[#ff003c]/10 text-[#ff003c]",
+          "border-[var(--color-error)]/50 bg-[var(--color-error-dim)] text-[var(--color-error)] shadow-[0_0_10px_var(--color-error-dim)]",
       },
     },
     defaultVariants: {

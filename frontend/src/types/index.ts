@@ -6,11 +6,11 @@ export const STATUS_LABELS: SubmissionStatus[] = ['Committed', 'Revealed', 'Veri
 export type Severity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export const SEVERITY_LABELS: Severity[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 export const SEVERITY_COLORS: Record<Severity, string> = {
-  NONE: '#888888',
-  LOW: '#88ff88',
-  MEDIUM: '#ffff00',
-  HIGH: '#ff8800',
-  CRITICAL: '#ff003c'
+  NONE: 'var(--color-text-dim)',
+  LOW: 'var(--color-primary)',
+  MEDIUM: 'var(--color-gold)',
+  HIGH: 'var(--color-warning)',
+  CRITICAL: 'var(--color-error)'
 }
 
 export type CompetitionMode = 'UNIQUE' | 'MULTI'

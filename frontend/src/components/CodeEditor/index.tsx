@@ -1,5 +1,22 @@
-import React, { useCallback } from 'react'
-import Editor from '@monaco-editor/react'
+import React, { lazy, Suspense, useCallback } from 'react'
+
+const MonacoEditor = lazy(() => import('@monaco-editor/react'))
+
+const EDITOR_PALETTE = {
+  background: '#0a0a0a',
+  foreground: '#d4d4d4',
+  primary: '00FF88',
+  primaryHex: '#00FF88',
+  primaryDimHex: '#00FF8840',
+  warning: 'FFB000',
+  info: '79C0FF',
+  comment: '6A737D',
+  lineHighlight: '#151515',
+  lineNumber: '#505050',
+  selection: '#264F78',
+  inactiveSelection: '#3A3D41',
+  indentGuide: '#2A2A2A',
+}
 
 interface CodeEditorProps {
   value: string
@@ -39,22 +56,22 @@ export const CodeEditor: React.FC<CodeEditorProps> = React.memo(({
       base: 'vs-dark',
       inherit: true,
       rules: [
-        { token: 'comment', foreground: '6A737D' },
-        { token: 'keyword', foreground: '00FF88' },
-        { token: 'string', foreground: 'FFB000' },
-        { token: 'number', foreground: '79C0FF' },
-        { token: 'type', foreground: '00FF88' },
+        { token: 'comment', foreground: EDITOR_PALETTE.comment },
+        { token: 'keyword', foreground: EDITOR_PALETTE.primary },
+        { token: 'string', foreground: EDITOR_PALETTE.warning },
+        { token: 'number', foreground: EDITOR_PALETTE.info },
+        { token: 'type', foreground: EDITOR_PALETTE.primary },
       ],
       colors: {
-        'editor.background': '#0a0a0a',
-        'editor.foreground': '#d4d4d4',
-        'editor.lineHighlightBackground': '#151515',
-        'editorLineNumber.foreground': '#505050',
-        'editorCursor.foreground': '#00FF88',
-        'editor.selectionBackground': '#264F78',
-        'editor.inactiveSelectionBackground': '#3A3D41',
-        'editorIndentGuide.background': '#2A2A2A',
-        'editorIndentGuide.activeBackground': '#00FF8840',
+        'editor.background': EDITOR_PALETTE.background,
+        'editor.foreground': EDITOR_PALETTE.foreground,
+        'editor.lineHighlightBackground': EDITOR_PALETTE.lineHighlight,
+        'editorLineNumber.foreground': EDITOR_PALETTE.lineNumber,
+        'editorCursor.foreground': EDITOR_PALETTE.primaryHex,
+        'editor.selectionBackground': EDITOR_PALETTE.selection,
+        'editor.inactiveSelectionBackground': EDITOR_PALETTE.inactiveSelection,
+        'editorIndentGuide.background': EDITOR_PALETTE.indentGuide,
+        'editorIndentGuide.activeBackground': EDITOR_PALETTE.primaryDimHex,
       }
     })
     
@@ -62,73 +79,63 @@ export const CodeEditor: React.FC<CodeEditorProps> = React.memo(({
     editor.focus()
   }, [language])
 
+  const loadingView = (
+    <div 
+      className="code-editor-loading"
+      style={undefined}
+    >
+      Loading editor...
+    </div>
+  )
+
   return (
-    <div className="code-editor-wrapper" style={{ marginBottom: '1rem' }}>
+    <div className="code-editor-wrapper">
       {label && (
-        <label style={{ 
-          display: 'block', 
-          marginBottom: '0.5rem', 
-          color: 'var(--color-text-dim)',
-          fontSize: '0.85rem'
-        }}>
+        <label className="code-editor-label">
           {label}
         </label>
       )}
-      <div style={{
-        border: error ? '1px solid var(--color-error)' : '1px solid var(--color-text-dim)',
-        borderRadius: '2px',
-        overflow: 'hidden'
-      }}>
-        <Editor
-          height={height}
-          language={language}
-          value={value || placeholder || ''}
-          onChange={handleChange}
-          onMount={handleEditorMount}
-          options={{
-            readOnly,
-            minimap: { enabled: false },
-            lineNumbers: 'on',
-            glyphMargin: false,
-            folding: true,
-            lineDecorationsWidth: 10,
-            lineNumbersMinChars: 3,
-            renderLineHighlight: 'line',
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            tabSize: 2,
-            wordWrap: 'on',
-            fontSize: 13,
-            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-            scrollbar: {
-              vertical: 'auto',
-              horizontal: 'auto',
-              verticalScrollbarSize: 8,
-              horizontalScrollbarSize: 8
-            },
-            padding: { top: 8, bottom: 8 },
-            cursorBlinking: 'smooth',
-            cursorSmoothCaretAnimation: 'on',
-            smoothScrolling: true,
-            bracketPairColorization: { enabled: true }
-          }}
-          loading={
-            <div style={{ 
-              height, 
-              background: '#0a0a0a', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              color: 'var(--color-text-dim)',
-              fontFamily: 'var(--font-mono)'
-            }}>
-              Loading editor...
-            </div>
-          }
-        />
+      <div className={`code-editor-container ${error ? 'has-error' : ''}`}>
+        <Suspense fallback={loadingView}>
+          <MonacoEditor
+            height={height}
+            language={language}
+            value={value || placeholder || ''}
+            onChange={handleChange}
+            onMount={handleEditorMount}
+            options={{
+              readOnly,
+              minimap: { enabled: false },
+              lineNumbers: 'on',
+              glyphMargin: false,
+              folding: true,
+              lineDecorationsWidth: 10,
+              lineNumbersMinChars: 3,
+              renderLineHighlight: 'line',
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              tabSize: 2,
+              wordWrap: 'on',
+              fontSize: 13,
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              scrollbar: {
+                vertical: 'auto',
+                horizontal: 'auto',
+                verticalScrollbarSize: 8,
+                horizontalScrollbarSize: 8
+              },
+              padding: { top: 8, bottom: 8 },
+              cursorBlinking: 'smooth',
+              cursorSmoothCaretAnimation: 'on',
+              smoothScrolling: true,
+              bracketPairColorization: { enabled: true }
+            }}
+            loading={loadingView}
+          />
+        </Suspense>
       </div>
       {error && (
-        <span style={{ color: 'var(--color-error)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+        <span className="code-editor-error">
           {error}
         </span>
       )}
