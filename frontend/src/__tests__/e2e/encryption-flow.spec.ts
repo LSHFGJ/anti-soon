@@ -248,75 +248,12 @@ test.describe('Encryption Flow E2E', () => {
   test('should display commit/reveal flow UI elements', async ({ page }) => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
-    
-    const targetInput = page.locator('input').first()
-    if (await targetInput.isVisible()) {
-      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
-    }
-    
-    const chainSelect = page.locator('select').first()
-    if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
-    }
-    
-    const inputs = page.locator('input')
-    const forkBlockInput = inputs.nth(1)
-    if (await forkBlockInput.isVisible()) {
-      await forkBlockInput.fill('18000000')
-    }
-    
-    for (let i = 0; i < 4; i++) {
-      const nextButton = page.getByRole('button', { name: /next|continue/i })
-      if (await nextButton.isVisible()) {
-        await nextButton.click()
-        await page.waitForTimeout(500)
-      }
-    }
-    
-    await page.waitForTimeout(500)
-    
-    const vulnTypeSelects = page.locator('select')
-    for (let j = 0; j < await vulnTypeSelects.count(); j++) {
-      try {
-        await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
-        await page.waitForTimeout(200)
-      } catch {}
-    }
-    
-    await page.waitForTimeout(500)
-    
-    const allInputs = page.locator('input')
-    for (let j = 0; j < await allInputs.count(); j++) {
-      const input = allInputs.nth(j)
-      try {
-        const placeholder = await input.getAttribute('placeholder')
-        if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
-          await input.fill('1000000000000000000')
-          await page.waitForTimeout(200)
-        }
-      } catch {}
-    }
-    
-    await page.waitForTimeout(500)
-    
-    const textareas = page.locator('textarea')
-    if (await textareas.count() > 0) {
-      await textareas.first().fill('Test impact description')
-      await page.waitForTimeout(200)
-    }
-    
-    await page.waitForTimeout(500)
-    
-    const reviewButton = page.getByRole('button', { name: /review/i })
-    if (await reviewButton.isVisible()) {
-      await reviewButton.click()
-      await page.waitForTimeout(500)
-    }
-    
-    await page.waitForTimeout(1000)
-    
-    await expect(page.locator('body')).toContainText('COMMIT')
-    
+
+    await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
+    await expect(page.getByText('1. COMMIT')).toBeVisible()
+    await expect(page.getByText('2. REVEAL')).toBeVisible()
+    await expect(page.getByText('3. VERIFYING')).toBeVisible()
+
     await page.screenshot({ 
       path: 'test-results/06-commit-reveal-ui.png',
       fullPage: true 

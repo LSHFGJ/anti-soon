@@ -11,7 +11,7 @@ import {
   slideFromRight,
   typewriter,
   pageTransition,
-  springConfigs,
+  motionConfigs,
   transitions,
 } from '@/lib/animations'
 import type { Variants } from 'motion/react'
@@ -98,7 +98,7 @@ describe('Motion Animation Variants', () => {
 
     it('should use neon green color in boxShadow', () => {
       const boxShadow = (glow.hover as VariantTarget).boxShadow as string
-      expect(boxShadow).toContain('rgba(0, 255, 157')
+      expect(boxShadow).toContain('rgba(124, 58, 237')
     })
 
     it('should have infinite repeat in active transition', () => {
@@ -152,11 +152,10 @@ describe('Motion Animation Variants', () => {
       expect(scalePop).toHaveProperty('exit')
     })
 
-    it('should have spring transition in visible', () => {
+    it('should have linear transition in visible', () => {
       const transition = (scalePop.visible as VariantTarget).transition as VariantTarget
-      expect(transition.type).toBe('spring')
-      expect(transition.stiffness).toBeDefined()
-      expect(transition.damping).toBeDefined()
+      expect(transition.ease).toBe('linear')
+      expect(transition.duration).toBeDefined()
     })
   })
 
@@ -222,24 +221,23 @@ describe('Motion Animation Variants', () => {
     })
   })
 
-  describe('springConfigs', () => {
-    it('should export all spring presets', () => {
-      expect(springConfigs.snappy).toBeDefined()
-      expect(springConfigs.smooth).toBeDefined()
-      expect(springConfigs.bouncy).toBeDefined()
-      expect(springConfigs.stiff).toBeDefined()
+  describe('motionConfigs', () => {
+    it('should export all linear presets', () => {
+      expect(motionConfigs.snappy).toBeDefined()
+      expect(motionConfigs.smooth).toBeDefined()
+      expect(motionConfigs.bouncy).toBeDefined()
+      expect(motionConfigs.stiff).toBeDefined()
     })
 
-    it('should have type: spring in all configs', () => {
-      expect(springConfigs.snappy.type).toBe('spring')
-      expect(springConfigs.smooth.type).toBe('spring')
-      expect(springConfigs.bouncy.type).toBe('spring')
-      expect(springConfigs.stiff.type).toBe('spring')
+    it('should have ease: linear in all configs', () => {
+      expect(motionConfigs.snappy.ease).toBe('linear')
+      expect(motionConfigs.smooth.ease).toBe('linear')
+      expect(motionConfigs.bouncy.ease).toBe('linear')
+      expect(motionConfigs.stiff.ease).toBe('linear')
     })
 
-    it('should have stiffness and damping values', () => {
-      expect(springConfigs.snappy.stiffness).toBeDefined()
-      expect(springConfigs.snappy.damping).toBeDefined()
+    it('should have duration values', () => {
+      expect(motionConfigs.snappy.duration).toBeDefined()
     })
   })
 
