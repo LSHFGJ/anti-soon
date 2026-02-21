@@ -5,6 +5,7 @@ import {
   aesGcmEncrypt,
   aesGcmDecrypt
 } from '../utils/encryption'
+import { BOUNTY_HUB_ADDRESS } from '../config'
 
 describe('AES-GCM Encryption', () => {
   describe('generateAesKey', () => {
@@ -143,7 +144,7 @@ describe('AES-GCM Encryption', () => {
       const keyBytes = await exportPublicKey(key)
       
       const pocJson = JSON.stringify({
-        target: '0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9',
+        target: BOUNTY_HUB_ADDRESS,
         chain: 'Sepolia',
         forkBlock: 6500000,
         conditions: [
@@ -159,7 +160,7 @@ describe('AES-GCM Encryption', () => {
         ],
         transactions: [
           {
-            to: '0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9',
+            to: BOUNTY_HUB_ADDRESS,
             value: '0',
             data: '0xa9059cbb000000000000000000000000attacker0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000de0b6b3a7640000'
           }
@@ -183,7 +184,7 @@ describe('AES-GCM Encryption', () => {
       
       // Verify JSON structure is preserved
       const decryptedObj = JSON.parse(decrypted)
-      expect(decryptedObj.target).toBe('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+      expect(decryptedObj.target).toBe(BOUNTY_HUB_ADDRESS)
       expect(decryptedObj.conditions).toHaveLength(2)
       expect(decryptedObj.transactions).toHaveLength(1)
     })

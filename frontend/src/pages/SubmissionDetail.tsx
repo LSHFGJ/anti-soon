@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
-import { createPublicClient, http } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { Timeline, getSubmissionTimeline } from '../components/shared/Timeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
 import { MetaRow, NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { useWallet } from '../hooks/useWallet'
+import { publicClient } from '../lib/publicClient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,13 +48,12 @@ type ProjectTuple = readonly [
   revealDeadline: bigint,
   disputeWindow: bigint,
   rulesHash: `0x${string}`,
-  projectPublicKey: `0x${string}`
+  projectPublicKey: `0x${string}`,
+  vnetStatus: number,
+  vnetRpcUrl: string,
+  baseSnapshotId: `0x${string}`,
+  vnetCreatedAt: bigint
 ]
-
-const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: http()
-})
 
 const STATUS_LABELS = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
 

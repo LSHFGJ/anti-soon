@@ -1,7 +1,26 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import { BOUNTY_HUB_ADDRESS } from '../../config'
 
 const MOCK_WALLET_ADDRESS = '0x1234567890123456789012345678901234567890'
+
+async function selectFirstMatchingOption(page: Page, label: string) {
+  const matchingSelect = page
+    .locator('select')
+    .filter({ has: page.locator('option', { hasText: label }) })
+    .first()
+
+  if ((await matchingSelect.count()) === 0) return
+  await matchingSelect.selectOption({ label }, { timeout: 1000 })
+}
+
+async function fillVisibleAmountInputs(page: Page, value: string) {
+  const amountInputs = page.locator('input[placeholder*="wei"], input[placeholder*="ETH"]:visible')
+  const amountInputCount = await amountInputs.count()
+  for (let j = 0; j < amountInputCount; j++) {
+    await amountInputs.nth(j).fill(value, { timeout: 1000 })
+  }
+}
 
 async function mockWalletConnection(page: Page) {
   await page.addInitScript(() => {
@@ -39,7 +58,7 @@ async function mockWalletConnection(page: Page) {
 }
 
 async function mockContractCalls(page: Page) {
-  await page.route('**/0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9**', async (route) => {
+  await page.route(`**/${BOUNTY_HUB_ADDRESS}**`, async (route) => {
     const request = route.request()
     const postData = request.postDataJSON()
     
@@ -68,7 +87,7 @@ async function mockContractCalls(page: Page) {
           '0x000000000000000000000000000000000000000000000000002386f26fc10000',
           '0xDummyVault',
           '0x0000000000000000000000000000000000000000000000000000000000000000',
-          true ? '0x0000000000000000000000000000000000000000000000000000000000000001' : '0x0000000000000000000000000000000000000000000000000000000000000000',
+          '0x0000000000000000000000000000000000000000000000000000000000000001',
           '0x00',
           '0x0000000000000000000000000000000000000000000000000000000067b00000',
           '0x0000000000000000000000000000000000000000000000000000000067c00000',
@@ -195,7 +214,7 @@ test.describe('Encryption Flow E2E', () => {
     
     const targetInput = page.locator('input').first()
     if (await targetInput.isVisible()) {
-      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+      await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
     const chainSelect = page.locator('select').first()
@@ -215,7 +234,7 @@ test.describe('Encryption Flow E2E', () => {
     
     const targetInput = page.locator('input').first()
     if (await targetInput.isVisible()) {
-      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+      await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
     const chainSelect = page.locator('select').first()
@@ -266,7 +285,7 @@ test.describe('Encryption Flow E2E', () => {
     
     const targetInput = page.locator('input').first()
     if (await targetInput.isVisible()) {
-      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+      await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
     const chainSelect = page.locator('select').first()
@@ -289,32 +308,14 @@ test.describe('Encryption Flow E2E', () => {
         if (i === 3) {
           await page.waitForTimeout(300)
           
-          const vulnTypeSelects = page.locator('select')
-          for (let j = 0; j < await vulnTypeSelects.count(); j++) {
-            try {
-              await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
-            } catch {}
-          }
+          await selectFirstMatchingOption(page, 'Funds Drained')
           
           await page.waitForTimeout(300)
           
-          const allInputs = page.locator('input')
-          for (let j = 0; j < await allInputs.count(); j++) {
-            const input = allInputs.nth(j)
-            try {
-              const placeholder = await input.getAttribute('placeholder')
-              if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
-                await input.fill('1000000000000000000')
-              }
-            } catch {}
-          }
+          await fillVisibleAmountInputs(page, '1000000000000000000')
           
           await page.waitForTimeout(300)
           
-          const textareas = page.locator('textarea')
-          if (await textareas.count() > 0) {
-            await textareas.first().fill('Test impact description')
-          }
         }
       }
     }
@@ -340,7 +341,7 @@ test.describe('Encryption Flow E2E', () => {
     
     const targetInput = page.locator('input').first()
     if (await targetInput.isVisible()) {
-      await targetInput.fill('0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9')
+      await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
     const chainSelect = page.locator('select').first()
@@ -363,32 +364,14 @@ test.describe('Encryption Flow E2E', () => {
         if (i === 3) {
           await page.waitForTimeout(300)
           
-          const vulnTypeSelects = page.locator('select')
-          for (let j = 0; j < await vulnTypeSelects.count(); j++) {
-            try {
-              await vulnTypeSelects.nth(j).selectOption({ label: 'Funds Drained' })
-            } catch {}
-          }
+          await selectFirstMatchingOption(page, 'Funds Drained')
           
           await page.waitForTimeout(300)
           
-          const allInputs = page.locator('input')
-          for (let j = 0; j < await allInputs.count(); j++) {
-            const input = allInputs.nth(j)
-            try {
-              const placeholder = await input.getAttribute('placeholder')
-              if (placeholder && (placeholder.includes('wei') || placeholder.includes('ETH'))) {
-                await input.fill('1000000000000000000')
-              }
-            } catch {}
-          }
+          await fillVisibleAmountInputs(page, '1000000000000000000')
           
           await page.waitForTimeout(300)
           
-          const textareas = page.locator('textarea')
-          if (await textareas.count() > 0) {
-            await textareas.first().fill('Test impact description')
-          }
         }
       }
     }

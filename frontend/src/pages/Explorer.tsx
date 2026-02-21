@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
-import { createPublicClient, http } from 'viem'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { publicClient } from '../lib/publicClient'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -42,13 +42,12 @@ type ProjectTuple = readonly [
   revealDeadline: bigint,
   disputeWindow: bigint,
   rulesHash: `0x${string}`,
-  projectPublicKey: `0x${string}`
+  projectPublicKey: `0x${string}`,
+  vnetStatus: number,
+  vnetRpcUrl: string,
+  baseSnapshotId: `0x${string}`,
+  vnetCreatedAt: bigint
 ]
-
-const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: http()
-})
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 type ModeFilter = 'all' | 'unique' | 'multi'

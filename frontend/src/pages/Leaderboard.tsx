@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { formatEther, createPublicClient, http, parseAbiItem, type Address } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
+import { formatEther, parseAbiItem, type Address } from 'viem'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { useWallet } from '../hooks/useWallet'
 import {
   Table,
@@ -14,6 +14,8 @@ import { Badge } from '@/components/ui/badge'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 import { StatCard } from '@/components/shared/StatCard'
 import { aggregateLeaderboardEntries } from '../lib/dashboardLeaderboardCompute'
+import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
+import { publicClient } from '../lib/publicClient'
 import { formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 
 interface LeaderboardEntry {
@@ -43,11 +45,6 @@ type SubmissionTuple = readonly [
   challenger: Address,
   challengeBond: bigint
 ]
-
-const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: http('https://1rpc.io/sepolia')
-})
 
 const SEVERITY_HIGH = 3
 const SEVERITY_CRITICAL = 4
@@ -92,13 +89,15 @@ export function Leaderboard() {
       setIsLoading(true)
       setError(null)
 
-      const fromBlock = 0n
-
-      const payoutLogs = await publicClient.getLogs({
-        address: BOUNTY_HUB_ADDRESS,
-        event: parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)'),
-        fromBlock,
-        toBlock: 'latest'
+      const payoutLogs = await getLogsWithRangeFallback({
+        fetchLogs: (range) => publicClient.getLogs({
+          address: BOUNTY_HUB_ADDRESS,
+          event: parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)'),
+          ...(range ?? {}),
+          toBlock: range?.toBlock ?? 'latest',
+        }),
+        getLatestBlock: () => publicClient.getBlockNumber(),
+        getStartBlock: async (latestBlock) => discoverDeploymentBlock(publicClient, BOUNTY_HUB_ADDRESS, latestBlock),
       })
 
       if (payoutLogs.length === 0) {

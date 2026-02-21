@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "contracts:sync": "node ./scripts/sync-bountyhub-address.mjs",
+    "contracts:check": "node ./scripts/sync-bountyhub-address.mjs --check",
+    "prebuild": "bun run contracts:check",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

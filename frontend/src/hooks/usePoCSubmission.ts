@@ -1,14 +1,15 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { decodeEventLog } from 'viem'
 import type { Address } from 'viem'
-import { useWallet } from './useWallet'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { resolveProjectPublicKey } from '../lib/projectPublicKey'
 import {
-  generateRandomSalt,
   aesGcmEncrypt,
   computeCommitHash,
+  generateRandomSalt,
   hashCiphertext
 } from '../utils/encryption'
+import { useWallet } from './useWallet'
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
@@ -62,14 +63,14 @@ export const usePoCSubmission = () => {
     setState(s => ({ ...s, phase: 'failed', error: message }))
   }, [])
 
-  const uploadToIPFS = async (ciphertext: `0x${string}`, iv: `0x${string}`): Promise<string> => {
+  const uploadToIPFS = useCallback(async (ciphertext: `0x${string}`, iv: `0x${string}`): Promise<string> => {
     await new Promise(resolve => setTimeout(resolve, 800))
     const payload = JSON.stringify({ ciphertext, iv })
     const payloadBytes = new TextEncoder().encode(payload)
     const digestBuffer = await crypto.subtle.digest('SHA-256', payloadBytes)
     const payloadHash = `0x${bytesToHex(new Uint8Array(digestBuffer))}` as `0x${string}`
     return `ipfs://Qm${payloadHash.slice(4, 50)}`
-  }
+  }, [])
 
   const submitPoC = useCallback(async (projectId: bigint, pocData: string): Promise<SubmitPoCResult | undefined> => {
 
@@ -81,10 +82,20 @@ export const usePoCSubmission = () => {
     try {
       setState(s => ({ ...s, phase: 'encrypting', error: undefined }))
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/project/${projectId}/public-key`)
-      if (!response.ok) throw new Error('Failed to fetch project public key')
-      const data = await response.json()
-      const publicKey = data.publicKey as `0x${string}`
+      const publicKey = await resolveProjectPublicKey({
+        projectId,
+        apiBaseUrl: import.meta.env.VITE_API_URL,
+        readProjectContract: async (id) => {
+          const projectData = await publicClient.readContract({
+            address: BOUNTY_HUB_ADDRESS,
+            abi: BOUNTY_HUB_V2_ABI,
+            functionName: 'projects',
+            args: [id],
+          })
+
+          return projectData as readonly unknown[]
+        },
+      })
 
       if (!publicKey) {
         setFailed('Project public key is unavailable. Ensure the project is registered with a public key before submitting.')
@@ -170,12 +181,13 @@ export const usePoCSubmission = () => {
         commitTxHash,
         revealTxHash
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Submission error:', err)
-      setFailed(`Submission failed: ${err.message || 'unknown error'}. Reset and try again.`)
+      const message = err instanceof Error ? err.message : 'unknown error'
+      setFailed(`Submission failed: ${message}. Reset and try again.`)
       return undefined
     }
-  }, [isConnected, walletClient, publicClient, address, setFailed])
+  }, [isConnected, walletClient, publicClient, address, setFailed, uploadToIPFS])
 
   const reset = useCallback(() => {
     setState({ phase: 'idle' })

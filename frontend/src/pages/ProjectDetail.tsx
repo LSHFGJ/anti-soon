@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { formatEther, createPublicClient, http, parseAbiItem, type Address } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
+import { formatEther, parseAbiItem, type Address } from 'viem'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { StatCard } from '../components/shared/StatCard'
 import { CountdownTimer } from '../components/shared/CountdownTimer'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
 import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
+import { publicClient } from '../lib/publicClient'
 import { STATUS_LABELS, type Project, type Submission, type ProjectRules } from '../types'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -30,7 +31,11 @@ type ProjectTuple = readonly [
   revealDeadline: bigint,
   disputeWindow: bigint,
   rulesHash: `0x${string}`,
-  projectPublicKey: `0x${string}`
+  projectPublicKey: `0x${string}`,
+  vnetStatus: number,
+  vnetRpcUrl: string,
+  baseSnapshotId: `0x${string}`,
+  vnetCreatedAt: bigint
 ]
 
 type SubmissionTuple = readonly [
@@ -63,11 +68,6 @@ type RulesTuple = readonly [
     lowDrainWei: bigint
   }
 ]
-
-const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: http()
-})
 
 function ProjectDetailSkeleton() {
   return (
@@ -459,31 +459,31 @@ export function ProjectDetail() {
               
               <div>
                 <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">{'// SEVERITY_THRESHOLDS'}</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card className="bg-[var(--color-error)]/10 border-l-[var(--color-error)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
-                    <CardContent className="p-3">
-                      <p className="font-mono text-xs text-[var(--color-error)] mb-1">CRITICAL</p>
-                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[var(--color-warning)]/10 border-l-[var(--color-warning)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
-                    <CardContent className="p-3">
-                      <p className="font-mono text-xs text-[var(--color-warning)] mb-1">HIGH</p>
-                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.highDrainWei)} ETH</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[var(--color-gold)]/10 border-l-[var(--color-gold)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
-                    <CardContent className="p-3">
-                      <p className="font-mono text-xs text-[var(--color-gold)] mb-1">MEDIUM</p>
-                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[var(--color-primary)]/10 border-l-[var(--color-primary)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
-                    <CardContent className="p-3">
-                      <p className="font-mono text-xs text-[var(--color-primary)] mb-1">LOW</p>
-                      <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.lowDrainWei)} ETH</p>
-                    </CardContent>
-                  </Card>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(11,11,15,0.75))] px-3 py-3">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-error)]" />
+                    <p className="font-mono text-[10px] text-[var(--color-error)] tracking-[0.1em] uppercase pl-2">[ SEV-CRITICAL ]</p>
+                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH</p>
+                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
+                  </div>
+                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(11,11,15,0.75))] px-3 py-3">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-warning)]" />
+                    <p className="font-mono text-[10px] text-[var(--color-warning)] tracking-[0.1em] uppercase pl-2">[ SEV-HIGH ]</p>
+                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.highDrainWei)} ETH</p>
+                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
+                  </div>
+                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(245,207,90,0.1),rgba(11,11,15,0.75))] px-3 py-3">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-gold)]" />
+                    <p className="font-mono text-[10px] text-[var(--color-gold)] tracking-[0.1em] uppercase pl-2">[ SEV-MEDIUM ]</p>
+                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH</p>
+                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
+                  </div>
+                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(124,58,237,0.12),rgba(11,11,15,0.75))] px-3 py-3">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-primary)]" />
+                    <p className="font-mono text-[10px] text-[var(--color-primary)] tracking-[0.1em] uppercase pl-2">[ SEV-LOW ]</p>
+                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.lowDrainWei)} ETH</p>
+                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
+                  </div>
                 </div>
               </div>
           </NeonPanel>

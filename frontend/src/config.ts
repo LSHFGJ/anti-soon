@@ -1,6 +1,12 @@
 import { sepolia } from 'viem/chains'
 
-export const BOUNTY_HUB_ADDRESS = "0x7f66d83C0c920CAFA3773fFCd2eE802340a84fb9" as const
+const DEFAULT_BOUNTY_HUB_ADDRESS = '0x8b12D6F28453be1eEf2D5ff151df3a2eE68d7f97'
+
+const ENV = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
+
+export const BOUNTY_HUB_ADDRESS = (
+  ENV.VITE_BOUNTY_HUB_ADDRESS?.trim() || DEFAULT_BOUNTY_HUB_ADDRESS
+) as `0x${string}`
 
 // V1 ABI - kept for backward compatibility
 export const BOUNTY_HUB_ABI = [
@@ -192,7 +198,11 @@ export const BOUNTY_HUB_V2_ABI = [
       { name: "revealDeadline", type: "uint256" },
       { name: "disputeWindow", type: "uint256" },
       { name: "rulesHash", type: "bytes32" },
-      { name: "projectPublicKey", type: "bytes" }
+      { name: "projectPublicKey", type: "bytes" },
+      { name: "vnetStatus", type: "uint8" },
+      { name: "vnetRpcUrl", type: "string" },
+      { name: "baseSnapshotId", type: "bytes32" },
+      { name: "vnetCreatedAt", type: "uint256" }
     ]
   },
   {

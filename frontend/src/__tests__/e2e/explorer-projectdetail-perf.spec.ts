@@ -44,6 +44,10 @@ const projectRows = [
     disputeWindow: 86_400n,
     rulesHash: `0x${'11'.repeat(32)}` as Hex,
     projectPublicKey: `0x${'22'.repeat(32)}` as Hex,
+    vnetStatus: 2,
+    vnetRpcUrl: 'https://rpc.tenderly.co/fork/alpha',
+    baseSnapshotId: `0x${'01'.repeat(32)}` as Hex,
+    vnetCreatedAt: baseTimestamp,
   },
   {
     id: 1n,
@@ -59,6 +63,10 @@ const projectRows = [
     disputeWindow: 172_800n,
     rulesHash: `0x${'33'.repeat(32)}` as Hex,
     projectPublicKey: `0x${'44'.repeat(32)}` as Hex,
+    vnetStatus: 2,
+    vnetRpcUrl: 'https://rpc.tenderly.co/fork/beta',
+    baseSnapshotId: `0x${'02'.repeat(32)}` as Hex,
+    vnetCreatedAt: baseTimestamp + 100n,
   },
   {
     id: 2n,
@@ -74,6 +82,10 @@ const projectRows = [
     disputeWindow: 86_400n,
     rulesHash: `0x${'55'.repeat(32)}` as Hex,
     projectPublicKey: `0x${'66'.repeat(32)}` as Hex,
+    vnetStatus: 3,
+    vnetRpcUrl: '',
+    baseSnapshotId: `0x${'00'.repeat(32)}` as Hex,
+    vnetCreatedAt: 0n,
   },
   {
     id: 3n,
@@ -89,6 +101,10 @@ const projectRows = [
     disputeWindow: 120_000n,
     rulesHash: `0x${'77'.repeat(32)}` as Hex,
     projectPublicKey: `0x${'88'.repeat(32)}` as Hex,
+    vnetStatus: 1,
+    vnetRpcUrl: '',
+    baseSnapshotId: `0x${'00'.repeat(32)}` as Hex,
+    vnetCreatedAt: 0n,
   },
 ] as const
 
@@ -238,6 +254,10 @@ function toProjectTuple(id: bigint) {
       0n,
       `0x${'00'.repeat(32)}` as Hex,
       '0x' as Hex,
+      0,
+      '',
+      `0x${'00'.repeat(32)}` as Hex,
+      0n,
     ] as const
   }
 
@@ -254,6 +274,10 @@ function toProjectTuple(id: bigint) {
     row.disputeWindow,
     row.rulesHash,
     row.projectPublicKey,
+    row.vnetStatus,
+    row.vnetRpcUrl,
+    row.baseSnapshotId,
+    row.vnetCreatedAt,
   ] as const
 }
 

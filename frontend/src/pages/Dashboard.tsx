@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { formatEther, createPublicClient, http, parseAbiItem } from 'viem'
+import { formatEther, parseAbiItem } from 'viem'
 import type { Address } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { Card, CardContent } from '../components/ui/card'
 import {
   Table,
@@ -19,6 +19,8 @@ import { useWallet } from '../hooks/useWallet'
 import { STATUS_LABELS } from '../types'
 import type { Submission } from '../types'
 import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
+import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
+import { publicClient } from '../lib/publicClient'
 import { buildPreviewSubmission, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 
 type SubmissionTuple = readonly [
@@ -39,11 +41,6 @@ type SubmissionTuple = readonly [
   challenger: Address,
   challengeBond: bigint
 ]
-
-const publicClient = createPublicClient({
-  chain: CHAIN,
-  transport: http('https://1rpc.io/sepolia')
-})
 
 export function Dashboard() {
   const { address, isConnected, isConnecting, connect } = useWallet()
@@ -66,14 +63,16 @@ export function Dashboard() {
       setIsLoading(true)
       setError(null)
 
-      const fromBlock = 0n
-
-      const logs = await publicClient.getLogs({
-        address: BOUNTY_HUB_ADDRESS,
-        event: parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)'),
-        args: { auditor: userAddress },
-        fromBlock,
-        toBlock: 'latest'
+      const logs = await getLogsWithRangeFallback({
+        fetchLogs: (range) => publicClient.getLogs({
+          address: BOUNTY_HUB_ADDRESS,
+          event: parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)'),
+          args: { auditor: userAddress },
+          ...(range ?? {}),
+          toBlock: range?.toBlock ?? 'latest',
+        }),
+        getLatestBlock: () => publicClient.getBlockNumber(),
+        getStartBlock: async (latestBlock) => discoverDeploymentBlock(publicClient, BOUNTY_HUB_ADDRESS, latestBlock),
       })
 
       const submissionIds = Array.from(
