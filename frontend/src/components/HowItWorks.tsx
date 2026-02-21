@@ -57,7 +57,7 @@ export const HowItWorks: React.FC = () => {
               <div className="hidden lg:block absolute top-1/2 -right-3 w-6 h-px bg-gradient-to-r from-[var(--color-primary)] to-transparent opacity-40 z-10" />
             )}
 
-            <Card className="relative overflow-hidden bg-[#0a0a0f] border-[var(--color-text-dim)]/20 hover:border-[var(--color-primary)]/30 transition-all duration-300 h-full">
+            <Card className="relative overflow-hidden bg-[var(--color-bg-panel)] border-[var(--color-text-dim)]/20 hover:border-[var(--color-primary)]/30 transition-all duration-300 h-full">
               <div className="absolute inset-0 bg-gradient-to-br from-[var(--color-primary)]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
               <div className="absolute top-4 right-4 text-[10px] font-mono text-[var(--color-text-dim)]/50">
@@ -66,10 +66,9 @@ export const HowItWorks: React.FC = () => {
 
               <CardContent className="p-6 flex flex-col items-center text-center">
                 <motion.div
-                  className="text-4xl mb-4 text-[var(--color-primary)]"
-                  style={{ textShadow: '0 0 20px var(--color-primary-dim)' }}
+                  className="how-it-works-icon text-4xl mb-4 text-[var(--color-primary)]"
                   whileHover={{ scale: 1.1 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                  transition={{ duration: 0.2, ease: 'linear' }}
                 >
                   {step.icon}
                 </motion.div>
@@ -103,9 +102,9 @@ export const HowItWorks: React.FC = () => {
       </motion.div>
 
       <div className="max-w-6xl mx-auto mt-16 flex justify-center gap-2">
-        {steps.map((_, idx) => (
+        {steps.map((step, idx) => (
           <motion.div
-            key={idx}
+            key={`dot-${step.step}`}
             initial={{ opacity: 0, scale: 0 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}

@@ -1,11 +1,11 @@
 import React, { useMemo, useEffect, useCallback, useState } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
+import type { Variants } from 'motion/react'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
 import { usePoCSubmission } from '../../hooks/usePoCSubmission'
 import { useWallet } from '../../hooks/useWallet'
 import { DEMO_PROJECTS, H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import type { PoCData } from '../../types/poc'
-import { fadeIn } from '../../lib/animations'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
 
@@ -17,9 +17,54 @@ import { ReviewStep } from './Steps/ReviewStep'
 
 interface PoCBuilderProps {
   selectedProject?: typeof DEMO_PROJECTS[0] | null
+  submissionProjectId: bigint | null
 }
 
-export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
+const stepLabels = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW'] as const
+
+const stepSurfaceVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 8,
+    transition: {
+      duration: 0.2,
+      ease: 'linear'
+    }
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.2,
+      ease: 'linear'
+    }
+  }
+}
+
+const StepSurface: React.FC<{
+  step: number
+  activeStep: number
+  children: React.ReactNode
+}> = React.memo(({ step, activeStep, children }) => {
+  const isActive = activeStep === step
+
+  return (
+    <motion.div
+      data-builder-step-surface={step}
+      initial={false}
+      variants={stepSurfaceVariants}
+      animate={isActive ? 'visible' : 'hidden'}
+      className={isActive ? 'block pointer-events-auto' : 'hidden pointer-events-none'}
+      aria-hidden={!isActive}
+    >
+      {children}
+    </motion.div>
+  )
+})
+
+StepSurface.displayName = 'StepSurface'
+
+export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submissionProjectId }) => {
   const { 
     activeStep, 
     setActiveStep,
@@ -87,24 +132,24 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
 
   const pocJson = useMemo(() => generatePoCJSON(), [generatePoCJSON])
 
-  const handleNext = () => setActiveStep(prev => prev + 1)
-  const handleBack = () => setActiveStep(prev => prev - 1)
-  const handleSubmit = () => submitPoC(pocJson)
-
-  const stepLabels = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW']
+  const handleNext = useCallback(() => setActiveStep(prev => prev + 1), [setActiveStep])
+  const handleBack = useCallback(() => setActiveStep(prev => prev - 1), [setActiveStep])
+  const handleSubmit = useCallback(() => {
+    if (submissionProjectId === null) return undefined
+    return submitPoC(submissionProjectId, pocJson)
+  }, [submitPoC, submissionProjectId, pocJson])
+  const handleStepSelect = useCallback((step: number) => setActiveStep(step), [setActiveStep])
 
   return (
-    <section id="builder" className="container" style={{ padding: '1rem 2rem', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: '1px solid var(--color-text-dim)', marginLeft: '2rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexShrink: 0 }}>
-        <h2 className="text-primary" style={{ fontSize: '1rem' }}>// PoC_BUILDER_V1.0</h2>
+    <section
+      id="builder"
+      data-builder-shell="content"
+      className="container px-4 py-4 min-h-0 flex-1 flex flex-col border-l border-[var(--color-text-dim)]"
+    >
+      <div className="flex justify-between items-center mb-4 shrink-0">
+        <h2 className="text-[var(--color-primary)] text-base">{`// PoC_BUILDER_V1.0`}</h2>
         {selectedProject && (
-          <div style={{ 
-            border: '1px solid var(--color-secondary)', 
-            padding: '0.5rem 1rem', 
-            color: 'var(--color-secondary)', 
-            fontSize: '0.75rem',
-            background: 'rgba(0, 255, 136, 0.05)'
-          }}>
+          <div className="border border-[var(--color-secondary)] px-4 py-2 text-[var(--color-secondary)] text-xs bg-[rgba(124,58,237,0.05)]">
             PROJECT: {selectedProject.name.toUpperCase()}
           </div>
         )}
@@ -117,13 +162,13 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
             className="h-full bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)]"
             initial={false}
             animate={{ width: `${(activeStep / 5) * 100}%` }}
-            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            transition={{ duration: 0.2, ease: 'linear' }}
           />
         </div>
       </div>
 
       {/* Step Navigation */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', overflowX: 'auto', flexShrink: 0 }}>
+      <div className="flex gap-2 mb-4 overflow-x-auto shrink-0">
         {[1, 2, 3, 4, 5].map(step => {
           const isCompleted = activeStep > step
           const isActive = activeStep === step
@@ -132,7 +177,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
               key={step}
               variant="ghost"
               size="sm"
-              onClick={() => setActiveStep(step)}
+              onClick={() => handleStepSelect(step)}
               className={cn(
                 "relative min-w-[100px] font-mono text-xs tracking-wider transition-all duration-300",
                 "border rounded-sm",
@@ -158,183 +203,104 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject }) => {
         })}
       </div>
 
-      <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1rem', border: '1px solid var(--color-text-dim)', flex: 1, overflow: 'auto' }}>
+      <div
+        data-builder-scroll-owner="primary"
+        className="bg-[rgba(255,255,255,0.03)] p-4 border border-[var(--color-text-dim)] flex-1 min-h-0 overflow-auto"
+      >
         
-        <AnimatePresence mode="wait">
-          {activeStep === 1 && (
-            <motion.div
-              key="step-1"
-              variants={fadeIn}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-            >
-              <TargetStep 
-                config={targetConfig} 
-                onUpdate={updateTargetConfig} 
-                onNext={handleNext} 
-                onLoadExample={handleLoadExample}
-              />
-            </motion.div>
-          )}
+        <StepSurface step={1} activeStep={activeStep}>
+          <TargetStep 
+            config={targetConfig} 
+            onUpdate={updateTargetConfig} 
+            onNext={handleNext} 
+            onLoadExample={handleLoadExample}
+          />
+        </StepSurface>
 
-          {activeStep === 2 && (
-            <motion.div
-              key="step-2"
-              variants={fadeIn}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-            >
-              <ConditionsStep 
-                conditions={conditions} 
-                onAdd={addCondition} 
-                onRemove={removeCondition} 
-                onUpdate={updateCondition} 
-                onNext={handleNext}
-                onBack={handleBack}
-              />
-            </motion.div>
-          )}
+        <StepSurface step={2} activeStep={activeStep}>
+          <ConditionsStep 
+            conditions={conditions} 
+            onAdd={addCondition} 
+            onRemove={removeCondition} 
+            onUpdate={updateCondition} 
+            onNext={handleNext}
+            onBack={handleBack}
+          />
+        </StepSurface>
 
-          {activeStep === 3 && (
-            <motion.div
-              key="step-3"
-              variants={fadeIn}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-            >
-              <TransactionsStep 
-                transactions={transactions} 
-                onAdd={addTransaction} 
-                onRemove={removeTransaction} 
-                onUpdate={updateTransaction} 
-                onNext={handleNext}
-                onBack={handleBack}
-              />
-            </motion.div>
-          )}
+        <StepSurface step={3} activeStep={activeStep}>
+          <TransactionsStep 
+            transactions={transactions} 
+            onAdd={addTransaction} 
+            onRemove={removeTransaction} 
+            onUpdate={updateTransaction} 
+            onNext={handleNext}
+            onBack={handleBack}
+          />
+        </StepSurface>
 
-          {activeStep === 4 && (
-            <motion.div
-              key="step-4"
-              variants={fadeIn}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-            >
-              <ImpactStep 
-                config={impactConfig} 
-                onUpdate={updateImpactConfig} 
-                onNext={handleNext}
-                onBack={handleBack}
-              />
-            </motion.div>
-          )}
+        <StepSurface step={4} activeStep={activeStep}>
+          <ImpactStep 
+            config={impactConfig} 
+            onUpdate={updateImpactConfig} 
+            onNext={handleNext}
+            onBack={handleBack}
+          />
+        </StepSurface>
 
-          {activeStep === 5 && (
-            <motion.div
-              key="step-5"
-              variants={fadeIn}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-            >
-              <ReviewStep
-                pocJson={pocJson}
-                isConnected={isConnected}
-                isSubmitting={isSubmitting}
-                submissionHash={commitTxHash || revealTxHash || ''}
-                error={error || null}
-                onConnect={connect}
-                onSubmit={handleSubmit}
-                onBack={handleBack}
-                projectId={1n}
-                useV2={true}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <StepSurface step={5} activeStep={activeStep}>
+          <ReviewStep
+            pocJson={pocJson}
+            isConnected={isConnected}
+            isSubmitting={isSubmitting}
+            submissionHash={commitTxHash || revealTxHash || ''}
+            error={error || null}
+            onConnect={connect}
+            onSubmit={handleSubmit}
+            onBack={handleBack}
+            projectId={submissionProjectId}
+            useV2={true}
+          />
+        </StepSurface>
 
       </div>
 
       {/* Template Selection Modal for DummyVault */}
       {showTemplateModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.9)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            background: 'var(--color-bg)',
-            border: '1px solid var(--color-primary)',
-            padding: '2rem',
-            maxWidth: '600px',
-            width: '90%',
-            maxHeight: '80vh',
-            overflow: 'auto'
-          }}>
-            <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-mono)' }}>
-              // SELECT_POC_TEMPLATE
+        <div className="fixed inset-0 bg-[#0a0a0a]/90 flex items-center justify-center z-[1000]">
+          <div className="bg-[var(--color-bg)] border border-[var(--color-primary)] p-8 max-w-[600px] w-[90%] max-h-[80vh] overflow-auto">
+            <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+              {`// SELECT_POC_TEMPLATE`}
             </h3>
-            <div style={{ display: 'grid', gap: '1rem' }}>
+            <div className="grid gap-4">
               {Object.entries(DUMMYVAULT_POC_TEMPLATES).map(([key, template]) => (
                 <button
+                  type="button"
                   key={key}
                   onClick={() => handleTemplateSelect(key)}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--color-text-dim)',
-                    padding: '1rem',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--color-primary)'
-                    e.currentTarget.style.background = 'rgba(0, 255, 136, 0.05)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--color-text-dim)'
-                    e.currentTarget.style.background = 'transparent'
-                  }}
+                  className="bg-transparent border border-[var(--color-text-dim)] p-4 text-left cursor-pointer transition-all duration-200 hover:border-[var(--color-primary)] hover:bg-[rgba(124,58,237,0.05)]"
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{template.name}</span>
-                    <span style={{
-                      color: template.severity === 'HIGH' ? 'var(--color-error)' : 'var(--color-text)',
-                      fontSize: '0.8rem',
-                      border: `1px solid ${template.severity === 'HIGH' ? 'var(--color-error)' : 'var(--color-text-dim)'}`,
-                      padding: '0.1rem 0.5rem'
-                    }}>
+                  <div className="flex justify-between mb-2">
+                    <span className="text-[var(--color-primary)] font-bold">{template.name}</span>
+                    <span className={cn(
+                      "text-[0.8rem] px-2 py-[0.1rem] border",
+                      template.severity === 'HIGH' 
+                        ? "text-[var(--color-error)] border-[var(--color-error)]" 
+                        : "text-[var(--color-text)] border-[var(--color-text-dim)]"
+                    )}>
                       {template.severity}
                     </span>
                   </div>
-                  <p style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem', margin: 0 }}>
+                  <p className="text-[var(--color-text-dim)] text-sm m-0">
                     {template.description}
                   </p>
                 </button>
               ))}
             </div>
             <button
+              type="button"
               onClick={() => setShowTemplateModal(false)}
-              style={{
-                marginTop: '1.5rem',
-                background: 'transparent',
-                border: '1px solid var(--color-text-dim)',
-                color: 'var(--color-text)',
-                padding: '0.5rem 1rem',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-mono)'
-              }}
+              className="mt-6 bg-transparent border border-[var(--color-text-dim)] text-[var(--color-text)] px-4 py-2 cursor-pointer font-mono hover:border-[var(--color-text)]"
             >
               [ CANCEL ]
             </button>

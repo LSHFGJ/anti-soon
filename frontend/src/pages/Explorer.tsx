@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { createPublicClient, http } from 'viem'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 
 interface Project {
   id: bigint
@@ -54,22 +54,22 @@ type ModeFilter = 'all' | 'unique' | 'multi'
 
 function ProjectCardSkeleton() {
   return (
-    <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] overflow-hidden">
-      <CardHeader className="pb-2">
+    <NeonPanel className="overflow-hidden" contentClassName="p-0">
+      <div className="p-6 pb-2">
         <div className="flex items-center justify-between">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-6 w-32 bg-neutral-800" />
+          <Skeleton className="h-5 w-16 bg-neutral-800" />
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      </div>
+      <div className="p-6 pt-2 space-y-3">
         {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="flex justify-between items-center">
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-20 bg-neutral-800" />
+            <Skeleton className="h-4 w-24 bg-neutral-800" />
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </NeonPanel>
   )
 }
 
@@ -91,19 +91,32 @@ export function Explorer() {
         functionName: 'nextProjectId'
       }) as bigint
 
-      const projectPromises = []
-      for (let i = 0n; i < nextId; i++) {
-        projectPromises.push(
-          publicClient.readContract({
-            address: BOUNTY_HUB_ADDRESS,
-            abi: BOUNTY_HUB_V2_ABI,
-            functionName: 'projects',
-            args: [i]
-          })
-        )
+      if (nextId === 0n) {
+        setProjects([])
+        return
       }
 
-      const results = await Promise.all(projectPromises) as ProjectTuple[]
+      const contracts = [] as Array<{
+        address: typeof BOUNTY_HUB_ADDRESS
+        abi: typeof BOUNTY_HUB_V2_ABI
+        functionName: 'projects'
+        args: [bigint]
+      }>
+
+      for (let i = 0n; i < nextId; i++) {
+        contracts.push({
+          address: BOUNTY_HUB_ADDRESS,
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'projects',
+          args: [i]
+        })
+      }
+
+      const results = await publicClient.multicall({
+        contracts,
+        allowFailure: false
+      }) as ProjectTuple[]
+
       const fetchedProjects: Project[] = results.map((data, index) => ({
         id: BigInt(index),
         owner: data[0],
@@ -153,61 +166,50 @@ export function Explorer() {
   })
 
   return (
-    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
-      <div className="container flex-1 flex flex-col overflow-hidden">
-        <header className="mb-6 flex-shrink-0">
-          <div className="flex items-baseline gap-4 mb-1">
-            <h1 className="text-2xl font-[var(--font-display)] uppercase tracking-widest text-[var(--color-primary)]">
-              EXPLORER
-            </h1>
-            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)]">
-              [{filteredProjects.length} {statusFilter.toUpperCase()}]
-            </span>
-          </div>
-          <div className="h-0.5 w-36 bg-gradient-to-r from-[var(--color-primary)] to-transparent" />
-          <p className="text-[var(--color-text-dim)] mt-2 font-[var(--font-mono)] text-xs">
-            &gt; Browse bounty projects
-          </p>
-        </header>
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0">
+        <PageHeader 
+          title="EXPLORER" 
+          subtitle="> Browse bounty projects" 
+          suffix={<span className="text-[var(--color-text-dim)] text-xs font-mono">[{filteredProjects.length} {statusFilter.toUpperCase()}]</span>} 
+        />
 
         <div className="flex gap-4 mb-6 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)] uppercase">
+            <span className="text-[var(--color-text-dim)] text-xs font-mono uppercase">
               Status:
             </span>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-              <SelectTrigger className="w-32 h-9 bg-[var(--color-bg-light)] border-[var(--color-bg-light)] text-[var(--color-text)] font-[var(--font-mono)] text-xs">
+              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[var(--color-bg-light)] border-[var(--color-bg-light)]">
-                <SelectItem value="active" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Active</SelectItem>
-                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">All</SelectItem>
-                <SelectItem value="inactive" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Inactive</SelectItem>
+              <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
+                <SelectItem value="active" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Active</SelectItem>
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">All</SelectItem>
+                <SelectItem value="inactive" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Inactive</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[var(--color-text-dim)] text-xs font-[var(--font-mono)] uppercase">
+            <span className="text-[var(--color-text-dim)] text-xs font-mono uppercase">
               Mode:
             </span>
             <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as ModeFilter)}>
-              <SelectTrigger className="w-32 h-9 bg-[var(--color-bg-light)] border-[var(--color-bg-light)] text-[var(--color-text)] font-[var(--font-mono)] text-xs">
+              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[var(--color-bg-light)] border-[var(--color-bg-light)]">
-                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">All</SelectItem>
-                <SelectItem value="unique" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Unique</SelectItem>
-                <SelectItem value="multi" className="text-[var(--color-text)] text-xs font-[var(--font-mono)]">Multi</SelectItem>
+              <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">All</SelectItem>
+                <SelectItem value="unique" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Unique</SelectItem>
+                <SelectItem value="multi" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Multi</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
         {error && (
-          <div className="p-4 border border-[var(--color-error)] text-[var(--color-error)] bg-[rgba(255,0,60,0.1)] mb-4 flex-shrink-0">
-            {error}
-          </div>
+          <StatusBanner variant="error" className="mb-4" message={error} />
         )}
 
         {isLoading && (
@@ -231,21 +233,22 @@ export function Explorer() {
                     to={`/project/${project.id.toString()}`}
                     className="block group"
                   >
-                    <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)] hover:border-[var(--color-primary)] hover:shadow-[0_0_20px_rgba(0,255,157,0.1)] transition-all duration-200 overflow-hidden h-full">
-                      <CardHeader className="pb-2">
+                    <NeonPanel className="hover:border-[var(--color-primary-dim)] hover:shadow-[0_10px_30px_-10px_var(--color-primary-dim)] h-full relative group" contentClassName="p-0">
+                      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[var(--color-primary-dim)] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                      <div className="p-6 pb-2">
                         <div className="flex items-center justify-between">
-                          <CardTitle className="text-base font-[var(--font-display)] tracking-wide text-[var(--color-text)]">
+                          <h3 className="text-base font-mono tracking-wide text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors duration-300">
                             PROJECT_#{project.id.toString()}
-                          </CardTitle>
+                          </h3>
                           <Badge variant={project.mode === 0 ? 'unique' : 'multi'} className="text-[0.65rem] px-2 py-0.5">
                             {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
                           </Badge>
                         </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2 font-[var(--font-mono)] text-xs">
+                      </div>
+                      <div className="p-6 pt-2 space-y-2 font-mono text-xs">
                         <div className="flex justify-between">
                           <span className="text-[var(--color-text-dim)]">BOUNTY</span>
-                          <span className="text-[var(--color-primary)] font-bold">
+                          <span className="text-[var(--color-primary)] font-bold text-shadow-[0_0_10px_var(--color-primary-dim)]">
                             {formatEther(project.bountyPool)} ETH
                           </span>
                         </div>
@@ -267,14 +270,14 @@ export function Explorer() {
                           <span className="text-[var(--color-text)]">{project.forkBlock.toString()}</span>
                         </div>
 
-                        <div className="flex justify-between pt-2 border-t border-[var(--color-bg-light)]">
+                        <div className="flex justify-between pt-2 border-t border-white/5">
                           <span className="text-[var(--color-text-dim)]">STATUS</span>
                           <Badge variant={deadlineStatus} className="text-[0.65rem] px-2 py-0.5">
                             {deadlineStatus.toUpperCase()}
                           </Badge>
                         </div>
-                      </CardContent>
-                    </Card>
+                      </div>
+                    </NeonPanel>
                   </Link>
                 )
               })}
@@ -282,7 +285,7 @@ export function Explorer() {
 
             {filteredProjects.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-[var(--color-text-dim)] border border-dashed border-[var(--color-text-dim)]">
-                <p className="font-[var(--font-mono)]">
+                <p className="font-mono">
                   &gt; No projects found
                 </p>
                 <p className="text-xs mt-2">

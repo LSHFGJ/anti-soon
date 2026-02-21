@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { formatEther, createPublicClient, http, parseAbiItem, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { useWallet } from '../hooks/useWallet'
@@ -11,6 +11,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
+import { StatCard } from '@/components/shared/StatCard'
+import { aggregateLeaderboardEntries } from '../lib/dashboardLeaderboardCompute'
 
 interface LeaderboardEntry {
   rank: number
@@ -51,21 +54,21 @@ const SEVERITY_CRITICAL = 4
 function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) {
     return (
-      <span className="text-xl" style={{ color: 'var(--color-gold)' }}>
+      <span className="text-xl text-[var(--color-gold)]">
         🥇
       </span>
     )
   }
   if (rank === 2) {
     return (
-      <span className="text-xl" style={{ color: 'var(--color-silver)' }}>
+      <span className="text-xl text-[var(--color-silver)]">
         🥈
       </span>
     )
   }
   if (rank === 3) {
     return (
-      <span className="text-xl" style={{ color: 'var(--color-bronze)' }}>
+      <span className="text-xl text-[var(--color-bronze)]">
         🥉
       </span>
     )
@@ -88,8 +91,7 @@ export function Leaderboard() {
       setIsLoading(true)
       setError(null)
 
-      const latestBlock = await publicClient.getBlockNumber()
-      const fromBlock = latestBlock > 10000n ? latestBlock - 10000n : 0n
+      const fromBlock = 0n
 
       const payoutLogs = await publicClient.getLogs({
         address: BOUNTY_HUB_ADDRESS,
@@ -105,53 +107,35 @@ export function Leaderboard() {
 
       const submissionIds = [...new Set(payoutLogs.map(log => log.args.submissionId!))]
       
-      const submissionPromises = submissionIds.map(id =>
-        publicClient.readContract({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'submissions',
-          args: [id]
-        })
-      )
+      const submissionContracts = submissionIds.map((id) => ({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'submissions' as const,
+        args: [id] as const
+      }))
 
-      const submissions = await Promise.all(submissionPromises) as SubmissionTuple[]
+      const submissions = await publicClient.multicall({
+        contracts: submissionContracts,
+        allowFailure: false
+      }) as SubmissionTuple[]
       
       const severityMap = new Map<bigint, number>()
       submissions.forEach((sub, index) => {
         severityMap.set(submissionIds[index], sub[10])
       })
 
-      const auditorStats = new Map<Address, { validCount: number; totalEarned: bigint; highCount: number; criticalCount: number }>()
+      const payoutRows = payoutLogs.map((log) => ({
+        auditor: log.args.auditor!,
+        amount: log.args.amount!,
+        submissionId: log.args.submissionId!
+      }))
 
-      payoutLogs.forEach(log => {
-        const auditor = log.args.auditor!
-        const amount = log.args.amount!
-        const submissionId = log.args.submissionId!
-        const severity = severityMap.get(submissionId) || 0
-
-        const existing = auditorStats.get(auditor) || { 
-          validCount: 0, 
-          totalEarned: 0n, 
-          highCount: 0, 
-          criticalCount: 0 
-        }
-
-        auditorStats.set(auditor, {
-          validCount: existing.validCount + 1,
-          totalEarned: existing.totalEarned + amount,
-          highCount: existing.highCount + (severity === SEVERITY_HIGH ? 1 : 0),
-          criticalCount: existing.criticalCount + (severity === SEVERITY_CRITICAL ? 1 : 0)
-        })
-      })
-
-      const sortedLeaderboard: LeaderboardEntry[] = Array.from(auditorStats.entries())
-        .map(([address, stats]) => ({
-          address,
-          rank: 0,
-          ...stats
-        }))
-        .sort((a, b) => (b.totalEarned > a.totalEarned ? 1 : b.totalEarned < a.totalEarned ? -1 : 0))
-        .map((entry, index) => ({ ...entry, rank: index + 1 }))
+      const sortedLeaderboard = aggregateLeaderboardEntries(
+        payoutRows,
+        severityMap,
+        SEVERITY_HIGH,
+        SEVERITY_CRITICAL
+      )
 
       setLeaderboard(sortedLeaderboard)
     } catch (err) {
@@ -169,44 +153,37 @@ export function Leaderboard() {
   const truncateAddress = (addr: Address) => 
     `${addr.slice(0, 6)}...${addr.slice(-4)}`
 
-  const isCurrentUser = (address: Address) => 
-    connectedAddress && connectedAddress.toLowerCase() === address.toLowerCase()
+  const connectedAddressLower = useMemo(
+    () => connectedAddress?.toLowerCase() ?? null,
+    [connectedAddress]
+  )
+
+  const summaryStats = useMemo(() => {
+    return leaderboard.reduce(
+      (acc, entry) => {
+        acc.totalEarned += entry.totalEarned
+        acc.totalCritical += entry.criticalCount
+        acc.totalHigh += entry.highCount
+        return acc
+      },
+      { totalEarned: 0n, totalCritical: 0, totalHigh: 0 }
+    )
+  }, [leaderboard])
+
+  const isCurrentUser = (address: Address) =>
+    connectedAddressLower !== null && connectedAddressLower === address.toLowerCase()
 
   return (
-    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
-      <div className="container flex-1 flex flex-col overflow-hidden">
-        <header className="mb-6 flex-shrink-0">
-          <div className="flex items-baseline gap-4 mb-1">
-            <h1 
-              className="text-2xl uppercase tracking-widest"
-              style={{ 
-                fontFamily: 'var(--font-display)',
-                color: 'var(--color-primary)'
-              }}
-            >
-              LEADERBOARD
-            </h1>
-            <span 
-              className="text-xs font-mono"
-              style={{ color: 'var(--color-text-dim)' }}
-            >
-              [{leaderboard.length} HUNTERS]
-            </span>
-          </div>
-          <div 
-            className="h-0.5 w-36"
-            style={{ background: 'linear-gradient(90deg, var(--color-primary), transparent)' }}
-          />
-          <p 
-            className="mt-2 text-xs font-mono"
-            style={{ color: 'var(--color-text-dim)' }}
-          >
-            &gt; Top vulnerability hunters ranked by total earnings
-          </p>
-        </header>
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0">
+        <PageHeader 
+          title="LEADERBOARD" 
+          subtitle="> Top vulnerability hunters ranked by total earnings" 
+          suffix={<span className="text-xs font-mono text-[var(--color-text-dim)]">[{leaderboard.length} HUNTERS]</span>} 
+        />
 
         {isLoading && (
-          <div className="flex-1 flex items-center justify-center text-center p-8" style={{ color: 'var(--color-text-dim)' }}>
+          <div className="flex-1 flex items-center justify-center text-center p-8 text-[var(--color-text-dim)]">
             <div>
               <div className="spinner w-8 h-8 mx-auto mb-4" />
               <p>Aggregating bounty data...</p>
@@ -215,26 +192,11 @@ export function Leaderboard() {
         )}
 
         {error && (
-          <div 
-            className="p-4 mb-4 flex-shrink-0 border"
-            style={{ 
-              borderColor: 'var(--color-error)',
-              color: 'var(--color-error)',
-              background: 'rgba(255, 0, 60, 0.1)'
-            }}
-          >
-            {error}
-          </div>
+          <StatusBanner variant="error" className="mb-4" message={error} />
         )}
 
         {!isLoading && !error && leaderboard.length === 0 && (
-          <div 
-            className="text-center p-16 mt-8 border border-dashed"
-            style={{ 
-              color: 'var(--color-text-dim)',
-              borderColor: 'var(--color-text-dim)'
-            }}
-          >
+          <div className="text-center p-16 mt-8 border border-dashed border-[var(--color-text-dim)] text-[var(--color-text-dim)]">
             <p className="font-mono">&gt; No bounty payouts recorded yet</p>
             <p className="text-sm mt-2">
               Leaderboard will populate as PoCs are verified and paid
@@ -243,53 +205,26 @@ export function Leaderboard() {
         )}
 
         {!isLoading && !error && leaderboard.length > 0 && (
-          <div 
-            className="overflow-hidden border rounded-sm"
-            style={{ 
-              background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-              borderColor: 'var(--color-bg-light)'
-            }}
-          >
+          <NeonPanel className="overflow-hidden" contentClassName="p-0">
             <Table>
               <TableHeader>
-                <TableRow 
-                  className="border-b hover:bg-transparent"
-                  style={{ borderColor: 'var(--color-bg-light)' }}
-                >
-                  <TableHead 
-                    className="w-20 text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                <TableRow className="border-b border-white/5 hover:bg-transparent">
+                  <TableHead className="w-20 text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     Rank
                   </TableHead>
-                  <TableHead 
-                    className="text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                  <TableHead className="text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     Auditor
                   </TableHead>
-                  <TableHead 
-                    className="text-center text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                  <TableHead className="text-center text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     Valid
                   </TableHead>
-                  <TableHead 
-                    className="text-center text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                  <TableHead className="text-center text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     High
                   </TableHead>
-                  <TableHead 
-                    className="text-center text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                  <TableHead className="text-center text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     Critical
                   </TableHead>
-                  <TableHead 
-                    className="text-right text-xs font-mono uppercase tracking-wider"
-                    style={{ color: 'var(--color-text-dim)' }}
-                  >
+                  <TableHead className="text-right text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     Earnings
                   </TableHead>
                 </TableRow>
@@ -302,16 +237,10 @@ export function Leaderboard() {
                     <TableRow
                       key={entry.address}
                       className={`
-                        border-b transition-colors
-                        ${isYou ? 'bg-[rgba(0,240,255,0.08)]' : ''}
-                        hover:bg-[rgba(255,255,255,0.02)]
+                        border-b border-white/5 transition-all duration-300
+                        ${isYou ? 'bg-[var(--color-secondary-dim)] border-l-4 border-l-[var(--color-secondary)]' : ''}
+                        hover:bg-neutral-800
                       `}
-                      style={{ 
-                        borderColor: 'var(--color-bg-light)',
-                        borderLeftWidth: isYou ? '3px' : undefined,
-                        borderLeftColor: isYou ? 'var(--color-secondary)' : undefined,
-                        borderLeftStyle: isYou ? 'solid' : undefined
-                      }}
                     >
                       <TableCell className="font-medium">
                         <RankBadge rank={entry.rank} />
@@ -320,10 +249,7 @@ export function Leaderboard() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <span 
-                            className="font-mono text-sm"
-                            style={{ 
-                              color: isYou ? 'var(--color-secondary)' : 'var(--color-text)' 
-                            }}
+                            className={`font-mono text-sm ${isYou ? 'text-[var(--color-secondary)]' : 'text-[var(--color-text)]'}`}
                           >
                             {truncateAddress(entry.address)}
                           </span>
@@ -339,10 +265,7 @@ export function Leaderboard() {
                       </TableCell>
 
                       <TableCell className="text-center">
-                        <span 
-                          className="font-bold font-mono"
-                          style={{ color: 'var(--color-primary)' }}
-                        >
+                        <span className="font-bold font-mono text-[var(--color-primary)]">
                           {entry.validCount}
                         </span>
                       </TableCell>
@@ -353,7 +276,7 @@ export function Leaderboard() {
                             {entry.highCount}
                           </Badge>
                         ) : (
-                          <span style={{ color: 'var(--color-text-dim)' }}>0</span>
+                          <span className="text-[var(--color-text-dim)]">0</span>
                         )}
                       </TableCell>
 
@@ -363,15 +286,12 @@ export function Leaderboard() {
                             {entry.criticalCount}
                           </Badge>
                         ) : (
-                          <span style={{ color: 'var(--color-text-dim)' }}>0</span>
+                          <span className="text-[var(--color-text-dim)]">0</span>
                         )}
                       </TableCell>
 
                       <TableCell className="text-right">
-                        <span 
-                          className="font-bold font-mono"
-                          style={{ color: 'var(--color-primary)' }}
-                        >
+                        <span className="font-bold font-mono text-[var(--color-primary)]">
                           {formatEther(entry.totalEarned)} ETH
                         </span>
                       </TableCell>
@@ -380,40 +300,15 @@ export function Leaderboard() {
                 })}
               </TableBody>
             </Table>
-          </div>
+          </NeonPanel>
         )}
 
         {!isLoading && !error && leaderboard.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-            <div className="stat-card">
-              <div className="stat-label">Total Hunters</div>
-              <div className="stat-value">{leaderboard.length}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Total Payouts</div>
-              <div className="stat-value">
-                {formatEther(leaderboard.reduce((sum, e) => sum + e.totalEarned, 0n)).slice(0, 8)}
-              </div>
-              <div className="stat-sub">ETH</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Critical Bugs</div>
-              <div 
-                className="stat-value"
-                style={{ color: 'var(--color-error)' }}
-              >
-                {leaderboard.reduce((sum, e) => sum + e.criticalCount, 0)}
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">High Severity</div>
-              <div 
-                className="stat-value"
-                style={{ color: '#ff8800' }}
-              >
-                {leaderboard.reduce((sum, e) => sum + e.highCount, 0)}
-              </div>
-            </div>
+            <StatCard label="Total Hunters" value={leaderboard.length} />
+            <StatCard label="Total Payouts" value={formatEther(summaryStats.totalEarned).slice(0, 8)} subValue="ETH" />
+            <StatCard label="Critical Bugs" value={summaryStats.totalCritical} color="var(--color-error)" />
+            <StatCard label="High Severity" value={summaryStats.totalHigh} color="var(--color-warning)" />
           </div>
         )}
       </div>

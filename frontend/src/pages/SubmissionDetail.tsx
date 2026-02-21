@@ -5,6 +5,7 @@ import { createPublicClient, http } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { Timeline, getSubmissionTimeline } from '../components/shared/Timeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
+import { MetaRow, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { useWallet } from '../hooks/useWallet'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -265,20 +266,23 @@ export function SubmissionDetail() {
 
   if (error || !submission) {
     return (
-      <div className="min-h-[calc(100vh-142px)] flex items-center justify-center pt-[50px]">
-        <div className="container">
-          <Card className="border-[var(--color-error)] bg-[rgba(255,0,60,0.05)] max-w-md mx-auto">
-            <CardContent className="p-6 text-center">
-              <p className="font-mono text-[var(--color-error)] mb-4">
-                &gt; ERROR: {error || 'Submission not found'}
-              </p>
-              <Link to="/explorer">
-                <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)]">
-                  [ BACK TO EXPLORER ]
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+      <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+        <div className="container flex-1 flex flex-col min-h-0">
+          <PageHeader
+            title={`SUBMISSION_#${id ?? 'UNKNOWN'}`}
+            subtitle="> View submission details and dispute status"
+            suffix={<Badge variant="error">[ERROR]</Badge>}
+          />
+
+          <StatusBanner variant="error" className="max-w-md mx-auto w-full" message={`> ERROR: ${error || 'Submission not found'}`} />
+
+          <div className="mt-8 text-center">
+            <Link to="/explorer">
+              <Button variant="outline" className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)]">
+                [ BACK TO EXPLORER ]
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -292,25 +296,16 @@ export function SubmissionDetail() {
   )
 
   return (
-    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
-      <div className="container flex-1 flex flex-col overflow-auto py-6">
-        <header className="mb-6 flex-shrink-0">
-          <div className="flex items-baseline gap-4 mb-2">
-            <h1 className="text-2xl font-[var(--font-display)] uppercase tracking-wider text-[var(--color-primary)]">
-              SUBMISSION_#{id}
-            </h1>
-            <Badge variant={getStatusBadgeVariant()}>
-              [{STATUS_LABELS[submission.status]}]
-            </Badge>
-          </div>
-          <div className="h-0.5 bg-gradient-to-r from-[var(--color-primary)] to-transparent w-40" />
-          <p className="text-[var(--color-text-dim)] mt-2 font-mono text-sm">
-            &gt; View submission details and dispute status
-          </p>
-        </header>
+    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
+      <div className="container flex-1 flex flex-col min-h-0 overflow-y-auto">
+        <PageHeader
+          title={`SUBMISSION_#${id}`}
+          subtitle="> View submission details and dispute status"
+          suffix={<Badge variant={getStatusBadgeVariant()}>[{STATUS_LABELS[submission.status]}]</Badge>}
+        />
 
         <section className="mb-6 flex-shrink-0">
-          <h2 className="font-[var(--font-display)] text-sm text-[var(--color-text)] mb-4 tracking-wider">
+          <h2 className="font-mono text-sm text-[var(--color-text)] mb-4 tracking-wider">
             SUBMISSION_PROGRESS
           </h2>
           <Timeline steps={timelineSteps} />
@@ -320,51 +315,30 @@ export function SubmissionDetail() {
           <div className="flex flex-col gap-6">
             <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-secondary)] tracking-wider">
+                <CardTitle className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
                   POC_METADATA
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 font-mono text-sm">
-                <div>
-                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
-                    COMMIT_HASH
-                  </label>
-                  <span className="text-[var(--color-secondary)] break-all">
-                    {submission.commitHash}
-                  </span>
-                </div>
-                <div>
-                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
-                    AUDITOR
-                  </label>
-                  <span className="text-[var(--color-text)]">
-                    {submission.auditor}
-                  </span>
-                </div>
-                <div>
-                  <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
-                    PROJECT_ID
-                  </label>
-                  <Link to="/explorer" className="text-[var(--color-primary)] hover:underline">
-                    #{submission.projectId.toString()}
-                  </Link>
-                </div>
+                <MetaRow label="COMMIT_HASH" value={submission.commitHash} valueClassName="text-[var(--color-secondary)] break-all" />
+                <MetaRow label="AUDITOR" value={submission.auditor} />
+                <MetaRow
+                  label="PROJECT_ID"
+                  value={<Link to="/explorer" className="text-[var(--color-primary)] hover:underline">#{submission.projectId.toString()}</Link>}
+                />
                 {project && (
-                  <div>
-                    <label className="text-[var(--color-text-dim)] block mb-1 text-xs uppercase tracking-wider">
-                      TARGET_CONTRACT
-                    </label>
-                    <span className="text-[var(--color-secondary)] text-xs">
-                      {project.targetContract}
-                    </span>
-                  </div>
+                  <MetaRow
+                    label="TARGET_CONTRACT"
+                    value={project.targetContract}
+                    valueClassName="text-[var(--color-secondary)] text-xs"
+                  />
                 )}
               </CardContent>
             </Card>
 
             <Card className="bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] border-[var(--color-bg-light)]">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-secondary)] tracking-wider">
+                <CardTitle className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
                   TIMESTAMPS
                 </CardTitle>
               </CardHeader>
@@ -396,31 +370,32 @@ export function SubmissionDetail() {
           <div className="flex flex-col gap-6">
             <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.status >= 2 ? 'border-[var(--color-primary)]' : 'border-[var(--color-bg-light)]'}`}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-[var(--font-display)] text-[var(--color-primary)] tracking-wider">
+                <CardTitle className="text-sm font-mono text-[var(--color-primary)] tracking-wider">
                   VERIFICATION_RESULT
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {submission.status < 2 ? (
-                  <div className="text-center py-8 text-[var(--color-text-dim)] font-mono">
-                    <p>&gt; Pending verification...</p>
-                    <p className="text-xs mt-2">
-                      Results will appear after CRE workflow execution
-                    </p>
-                  </div>
+                  <StatusBanner
+                    variant="info"
+                    className="mt-4"
+                    message={
+                      <div className="text-center py-4 text-[var(--color-text-dim)] font-mono">
+                        <p>&gt; Pending verification...</p>
+                        <p className="text-xs mt-2">Results will appear after CRE workflow execution</p>
+                      </div>
+                    }
+                  />
                 ) : (
                   <div className="space-y-4 font-mono text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[var(--color-text-dim)]">SEVERITY</span>
-                      <SeverityBadge severity={submission.severity} />
-                    </div>
+                    <MetaRow label="SEVERITY" value={<SeverityBadge severity={submission.severity} />} inline />
 
-                    <div className="flex justify-between">
-                      <span className="text-[var(--color-text-dim)]">DRAIN_AMOUNT</span>
-                      <span className="text-[var(--color-secondary)]">
-                        {formatEther(submission.drainAmountWei)} ETH
-                      </span>
-                    </div>
+                    <MetaRow
+                      label="DRAIN_AMOUNT"
+                      value={`${formatEther(submission.drainAmountWei)} ETH`}
+                      inline
+                      valueClassName="text-[var(--color-secondary)]"
+                    />
 
                     <div className="flex justify-between pt-4 border-t border-[var(--color-bg-light)]">
                       <span className="text-[var(--color-text-dim)]">PAYOUT</span>
@@ -429,31 +404,23 @@ export function SubmissionDetail() {
                       </span>
                     </div>
 
-                    <div className={`mt-4 p-3 text-center border ${
-                      submission.status === 5 
-                        ? 'bg-[rgba(255,0,60,0.1)] border-[var(--color-error)]'
-                        : submission.challenged 
-                          ? 'bg-[rgba(255,0,60,0.1)] border-[var(--color-error)]'
-                          : 'bg-[rgba(0,255,157,0.1)] border-[var(--color-primary)]'
-                    }`}>
-                      <span className={`font-bold tracking-wider ${
-                        submission.status === 5 
-                          ? 'text-[var(--color-error)]'
-                          : submission.challenged 
-                            ? 'text-[var(--color-error)]'
-                            : 'text-[var(--color-primary)]'
-                      }`}>
-                        {submission.status === 5 ? '[ INVALID ]' : submission.challenged ? '[ DISPUTED ]' : '[ VALID ]'}
-                      </span>
-                    </div>
+                    <StatusBanner
+                      className="mt-4"
+                      variant={submission.status === 5 || submission.challenged ? 'error' : 'success'}
+                      message={
+                        <span className="font-bold tracking-wider">
+                          {submission.status === 5 ? '[ INVALID ]' : submission.challenged ? '[ DISPUTED ]' : '[ VALID ]'}
+                        </span>
+                      }
+                    />
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.challenged ? 'border-[var(--color-error)] bg-[rgba(255,0,60,0.03)]' : 'border-[var(--color-bg-light)]'}`}>
+            <Card className={`bg-gradient-to-br from-[rgba(17,17,17,0.9)] to-[rgba(10,10,10,0.95)] ${submission.challenged ? 'border-[var(--color-error)] bg-[rgba(244,63,94,0.03)]' : 'border-[var(--color-bg-light)]'}`}>
               <CardHeader className="pb-2">
-                <CardTitle className={`text-sm font-[var(--font-display)] tracking-wider ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
+                <CardTitle className={`text-sm font-mono tracking-wider ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
                   {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
                 </CardTitle>
               </CardHeader>

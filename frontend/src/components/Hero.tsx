@@ -1,16 +1,15 @@
-import { motion } from 'motion/react'
+import { motion, useReducedMotion } from 'motion/react'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { staggerContainer, staggerChild } from '@/lib/animations'
 
 export const Hero: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion()
+
   return (
     <section className="container relative min-h-[80vh] flex flex-col justify-center items-start py-20 overflow-hidden">
       <div 
-        className="absolute inset-0 -z-10 opacity-10 pointer-events-none"
-        style={{
-          backgroundImage: 'linear-gradient(var(--color-primary) 1px, transparent 1px), linear-gradient(90deg, var(--color-primary) 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
-        }}
+        className="hero-grid-bg absolute inset-0 -z-10 opacity-10 pointer-events-none"
       />
 
       <motion.div
@@ -21,12 +20,7 @@ export const Hero: React.FC = () => {
       >
         <motion.div variants={staggerChild} className="mb-8">
           <motion.h1
-            className="text-[clamp(2.5rem,10vw,5rem)] font-bold leading-none mb-4"
-            style={{ 
-              fontFamily: 'var(--font-display)',
-              color: 'var(--color-primary)',
-              letterSpacing: '0.1em',
-            }}
+            className="font-mono text-primary tracking-[0.1em] text-[clamp(2.5rem,10vw,5rem)] font-bold leading-none mb-4"
             initial="hidden"
             animate="visible"
             variants={{
@@ -39,55 +33,47 @@ export const Hero: React.FC = () => {
           >
             <motion.span
               className="relative inline-block"
-              animate={{
-                x: [0, -1, 1, 0],
-              }}
-              transition={{
-                duration: 0.15,
-                times: [0, 0.33, 0.66, 1],
-                repeat: Infinity,
-                repeatDelay: 5,
-              }}
+              animate={shouldReduceMotion ? undefined : { x: [0, -1, 1, 0] }}
+              transition={
+                shouldReduceMotion
+                  ? undefined
+                  : {
+                      duration: 0.15,
+                      times: [0, 0.33, 0.66, 1],
+                      repeat: Infinity,
+                      repeatDelay: 5,
+                    }
+              }
             >
               ANTI-SOON
             </motion.span>
           </motion.h1>
           <motion.div 
-            className="h-0.5 w-24"
-            style={{ background: 'var(--color-secondary)' }}
+            className="bg-secondary h-0.5 w-24"
             initial={{ scaleX: 0, originX: 0 }}
             animate={{ scaleX: 1 }}
-            transition={{ delay: 0.3, duration: 0.5, ease: 'easeOut' }}
+            transition={{ delay: 0.3, duration: 0.2, ease: 'linear' }}
           />
         </motion.div>
 
         <motion.h2
           variants={staggerChild}
-          className="text-xl md:text-2xl mb-6"
-          style={{ 
-            fontFamily: 'var(--font-mono)',
-            color: 'var(--color-text)',
-          }}
+          className="font-mono text-[var(--color-text)] text-xl md:text-2xl mb-6"
         >
           No more soon.{' '}
-          <span style={{ color: 'var(--color-secondary)' }}>Verify now.</span>{' '}
-          <span style={{ color: 'var(--color-primary)' }}>Get paid now.</span>
+          <span className="text-secondary">Verify now.</span>{' '}
+          <span className="text-primary">Get paid now.</span>
         </motion.h2>
 
         <motion.p
           variants={staggerChild}
-          className="max-w-xl mb-8 leading-relaxed"
-          style={{ 
-            color: 'var(--color-text-dim)',
-            fontFamily: 'var(--font-mono)',
-          }}
+          className="font-mono text-[var(--color-text-dim)] max-w-xl mb-8 leading-relaxed"
         >
           Decentralized vulnerability verification powered by Chainlink CRE. 
           Submit a PoC, get it verified by decentralized nodes, receive bounty instantly.
           <br />
           <span 
-            className="inline-block mt-2"
-            style={{ color: 'var(--color-secondary)' }}
+            className="text-secondary inline-block mt-2"
           >
             &gt; System Status: ONLINE
           </span>
@@ -98,23 +84,19 @@ export const Hero: React.FC = () => {
           className="flex flex-wrap gap-4"
         >
           <Button
+            asChild
             size="lg"
-            className="relative overflow-hidden border border-[var(--color-primary)] bg-transparent text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono uppercase tracking-wider px-8 transition-all duration-200"
-            style={{
-              fontFamily: 'var(--font-mono)',
-            }}
+            className="font-mono relative overflow-hidden border border-[var(--color-primary)] bg-transparent text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] uppercase tracking-wider px-8 transition-all duration-200"
           >
-            Submit PoC
+            <Link to="/builder">Submit PoC</Link>
           </Button>
           <Button
+            asChild
             variant="outline"
             size="lg"
-            className="border border-[var(--color-text-dim)] bg-transparent text-[var(--color-text-dim)] hover:border-[var(--color-secondary)] hover:text-[var(--color-secondary)] font-mono uppercase tracking-wider px-8 transition-all duration-200"
-            style={{
-              fontFamily: 'var(--font-mono)',
-            }}
+            className="font-mono border border-[var(--color-text-dim)] bg-transparent text-[var(--color-text-dim)] hover:border-[var(--color-secondary)] hover:text-[var(--color-secondary)] uppercase tracking-wider px-8 transition-all duration-200"
           >
-            View Bounties
+            <Link to="/explorer">View Bounties</Link>
           </Button>
         </motion.div>
       </motion.div>

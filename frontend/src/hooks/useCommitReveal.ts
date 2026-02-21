@@ -26,10 +26,20 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-type CommitPhase = 'idle' | 'encrypting' | 'uploading' | 'committing' | 'committed' | 'revealing' | 'revealed' | 'error' | 'no_public_key'
+export const SUBMISSION_LIFECYCLE_PHASES = [
+  'idle',
+  'encrypting',
+  'committing',
+  'committed',
+  'revealing',
+  'revealed',
+  'failed'
+] as const
+
+export type SubmissionLifecyclePhase = (typeof SUBMISSION_LIFECYCLE_PHASES)[number]
 
 interface CommitState {
-  phase: CommitPhase
+  phase: SubmissionLifecyclePhase
   submissionId?: bigint
   salt?: `0x${string}`
   iv?: `0x${string}`
@@ -41,7 +51,7 @@ interface CommitState {
   error?: string
 }
 
-export function useCommitReveal(projectId: bigint, pocJson: string) {
+export function useCommitReveal(projectId: bigint | null, pocJson: string) {
   const [state, setState] = useState<CommitState>({ phase: 'idle' })
   const { address, walletClient, publicClient, isConnected } = useWallet()
   const { publicKey, isLoading: isKeyLoading, error: keyError } = useProjectPublicKey(projectId)
@@ -53,28 +63,33 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
     return `ipfs://Qm${payloadHash.slice(4, 50)}`
   }
 
+  const setFailed = useCallback((message: string) => {
+    setState(s => ({ ...s, phase: 'failed', error: message }))
+  }, [])
+
   const commit = useCallback(async () => {
+    if (projectId === null) {
+      setFailed('Project context is missing. Open Builder from Explorer or a project detail page.')
+      return
+    }
+
     if (!isConnected || !walletClient || !publicClient || !address) {
-      setState(s => ({ ...s, phase: 'error', error: 'Wallet not connected' }))
+      setFailed('Wallet not connected. Connect your wallet and retry commit.')
       return
     }
 
     if (isKeyLoading) {
-      setState(s => ({ ...s, phase: 'error', error: 'Loading project public key...' }))
+      setFailed('Project public key still loading. Retry commit after key retrieval completes.')
       return
     }
 
     if (!publicKey) {
-      setState(s => ({ 
-        ...s, 
-        phase: 'no_public_key', 
-        error: 'Project public key not available. The project must be registered with a public key before submissions.' 
-      }))
+      setFailed('Project public key is unavailable. Ensure the project is registered with a public key before submitting.')
       return
     }
 
     if (keyError) {
-      setState(s => ({ ...s, phase: 'error', error: `Failed to load public key: ${keyError.message}` }))
+      setFailed(`Failed to load project public key: ${keyError.message}. Retry after the read succeeds.`)
       return
     }
 
@@ -91,7 +106,7 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
       const cipherHash = hashCiphertext(ciphertextHex)
       const commitHash = computeCommitHash(cipherHash, address as Address, salt)
 
-      setState(s => ({ ...s, phase: 'uploading' }))
+      setState(s => ({ ...s, phase: 'committing' }))
 
       const cipherURI = await uploadToIPFS(ciphertextHex, ivHex)
 
@@ -140,22 +155,18 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
 
     } catch (err: any) {
       console.error('Commit error:', err)
-      setState(s => ({
-        ...s,
-        phase: 'error',
-        error: err.message || 'Commit failed'
-      }))
+      setFailed(`Commit failed: ${err.message || 'unknown error'}. Reset and try again.`)
     }
-  }, [isConnected, walletClient, publicClient, address, projectId, pocJson, publicKey, isKeyLoading, keyError])
+  }, [isConnected, walletClient, publicClient, address, projectId, pocJson, publicKey, isKeyLoading, keyError, setFailed])
 
   const reveal = useCallback(async () => {
     if (!isConnected || !walletClient || !publicClient || !address) {
-      setState(s => ({ ...s, phase: 'error', error: 'Wallet not connected' }))
+      setFailed('Wallet not connected. Connect your wallet and retry reveal.')
       return
     }
 
     if (!state.submissionId || !state.salt) {
-      setState(s => ({ ...s, phase: 'error', error: 'No commit found' }))
+      setFailed('No committed submission found. Complete commit before reveal.')
       return
     }
 
@@ -184,13 +195,9 @@ export function useCommitReveal(projectId: bigint, pocJson: string) {
 
     } catch (err: any) {
       console.error('Reveal error:', err)
-      setState(s => ({
-        ...s,
-        phase: 'error',
-        error: err.message || 'Reveal failed'
-      }))
+      setFailed(`Reveal failed: ${err.message || 'unknown error'}. Reset and retry reveal.`)
     }
-  }, [isConnected, walletClient, publicClient, address, state.submissionId, state.salt])
+  }, [isConnected, walletClient, publicClient, address, state.submissionId, state.salt, setFailed])
 
   const reset = useCallback(() => {
     setState({ phase: 'idle' })

@@ -1,9 +1,10 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import type { Condition } from '../../../types/poc'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
 
 interface ConditionsStepProps {
   conditions: Condition[]
@@ -87,9 +88,37 @@ interface ConditionItemProps {
 }
 
 const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, index, onRemove, onUpdate }) => {
-  const handleChange = useCallback((field: keyof Condition, value: string) => {
+  type EditableConditionField = 'type' | 'value' | 'target' | 'slot'
+
+  const [draft, setDraft] = useState({
+    type: condition.type,
+    value: condition.value,
+    target: condition.target || '',
+    slot: condition.slot || ''
+  })
+
+  useEffect(() => {
+    setDraft({
+      type: condition.type,
+      value: condition.value,
+      target: condition.target || '',
+      slot: condition.slot || ''
+    })
+  }, [condition.type, condition.value, condition.target, condition.slot])
+
+  const { schedule, flush, flushAll } = useDeferredFieldUpdates<EditableConditionField>((field, value) => {
     onUpdate(condition.id, field, value)
-  }, [condition.id, onUpdate])
+  })
+
+  const handleChange = useCallback((field: EditableConditionField, value: string) => {
+    setDraft((prev) => ({ ...prev, [field]: value }))
+    schedule(field, value)
+  }, [schedule])
+
+  const handleRemove = useCallback(() => {
+    flushAll()
+    onRemove(condition.id)
+  }, [condition.id, flushAll, onRemove])
 
   return (
     <Card 
@@ -112,7 +141,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
             COND_{String(index + 1).padStart(2, '0')}
           </span>
           <Button
-            onClick={() => onRemove(condition.id)}
+            onClick={handleRemove}
             variant="ghost"
             size="sm"
             aria-label="Remove condition"
@@ -132,8 +161,9 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
       <CardContent className="pt-2 pb-4 px-4 space-y-3">
         <div className="grid grid-cols-[1fr_2fr] gap-3">
           <select 
-            value={condition.type} 
+            value={draft.type} 
             onChange={e => handleChange('type', e.target.value)}
+            onBlur={() => flush('type')}
             className={cn(
               "h-10 px-3 rounded-sm",
               "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -150,8 +180,9 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
           </select>
           <input 
             placeholder="Value (e.g. 1000000000000000000)" 
-            value={condition.value} 
+            value={draft.value} 
             onChange={e => handleChange('value', e.target.value)}
+            onBlur={() => flush('value')}
             className={cn(
               "h-10 px-3 rounded-sm",
               "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -164,11 +195,12 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
           />
         </div>
         
-        {condition.type === 'setBalance' && (
+        {draft.type === 'setBalance' && (
           <input 
             placeholder="Target Address" 
-            value={condition.target || ''} 
+            value={draft.target} 
             onChange={e => handleChange('target', e.target.value)}
+            onBlur={() => flush('target')}
             className={cn(
               "w-full h-10 px-3 rounded-sm",
               "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -181,12 +213,13 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
           />
         )}
         
-        {condition.type === 'setStorage' && (
+        {draft.type === 'setStorage' && (
           <div className="grid grid-cols-2 gap-3">
             <input 
               placeholder="Contract Address" 
-              value={condition.target || ''} 
+              value={draft.target} 
               onChange={e => handleChange('target', e.target.value)}
+              onBlur={() => flush('target')}
               className={cn(
                 "h-10 px-3 rounded-sm",
                 "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -199,8 +232,9 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
             />
             <input 
               placeholder="Slot (Hex)" 
-              value={condition.slot || ''} 
+              value={draft.slot} 
               onChange={e => handleChange('slot', e.target.value)}
+              onBlur={() => flush('slot')}
               className={cn(
                 "h-10 px-3 rounded-sm",
                 "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",

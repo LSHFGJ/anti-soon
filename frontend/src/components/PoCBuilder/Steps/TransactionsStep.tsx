@@ -1,10 +1,11 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import type { Transaction } from '../../../types/poc'
 import { CodeEditor } from '../../CodeEditor'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
 
 interface TransactionsStepProps {
   transactions: Transaction[]
@@ -88,15 +89,40 @@ interface TransactionItemProps {
 }
 
 const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transaction, index, onRemove, onUpdate }) => {
-  const [expanded, setExpanded] = useState(true)
-  
-  const handleChange = useCallback((field: keyof Transaction, value: string) => {
+  const [expanded, setExpanded] = useState(false)
+
+  type EditableTransactionField = 'to' | 'value' | 'data'
+  const [draft, setDraft] = useState({
+    to: transaction.to,
+    value: transaction.value,
+    data: transaction.data,
+  })
+
+  useEffect(() => {
+    setDraft({
+      to: transaction.to,
+      value: transaction.value,
+      data: transaction.data,
+    })
+  }, [transaction.to, transaction.value, transaction.data])
+
+  const { schedule, flush, flushAll } = useDeferredFieldUpdates<EditableTransactionField>((field, value) => {
     onUpdate(transaction.id, field, value)
-  }, [transaction.id, onUpdate])
+  })
+
+  const handleChange = useCallback((field: EditableTransactionField, value: string) => {
+    setDraft((prev) => ({ ...prev, [field]: value }))
+    schedule(field, value)
+  }, [schedule])
 
   const handleDataChange = useCallback((value: string) => {
-    onUpdate(transaction.id, 'data', value)
-  }, [transaction.id, onUpdate])
+    handleChange('data', value)
+  }, [handleChange])
+
+  const handleRemove = useCallback(() => {
+    flushAll()
+    onRemove(transaction.id)
+  }, [flushAll, onRemove, transaction.id])
 
   return (
     <Card 
@@ -105,7 +131,6 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
         "border border-[var(--color-text-dim)]",
         "bg-[var(--color-bg)]",
         "transition-all duration-300",
-        "animate-item-enter",
         "hover:border-[var(--color-primary)]",
         "hover:shadow-[0_0_15px_var(--color-primary-dim)]"
       )}
@@ -133,7 +158,10 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
             TX_{String(index + 1).padStart(2, '0')}
           </span>
           <Button
-            onClick={(e) => { e.stopPropagation(); onRemove(transaction.id) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleRemove()
+            }}
             variant="ghost"
             size="sm"
             aria-label="Remove transaction"
@@ -166,8 +194,9 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
                 To Address
               </label>
               <input 
-                value={transaction.to} 
+                value={draft.to} 
                 onChange={e => handleChange('to', e.target.value)}
+                onBlur={() => flush('to')}
                 placeholder="0x..."
                 className={cn(
                   "w-full h-10 px-3 rounded-sm",
@@ -188,8 +217,9 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
                 Value (ETH in wei)
               </label>
               <input 
-                value={transaction.value} 
+                value={draft.value} 
                 onChange={e => handleChange('value', e.target.value)}
+                onBlur={() => flush('value')}
                 placeholder="0"
                 className={cn(
                   "w-full h-10 px-3 rounded-sm",
@@ -206,7 +236,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
           
           <CodeEditor
             label="Calldata (Hex)"
-            value={transaction.data}
+            value={draft.data}
             onChange={handleDataChange}
             language="json"
             height={120}

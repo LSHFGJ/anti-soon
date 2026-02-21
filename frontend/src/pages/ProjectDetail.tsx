@@ -74,7 +74,7 @@ function ProjectDetailSkeleton() {
         
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map((i) => (
-            <Card key={i} className="bg-[#111]/80 border-[#1a1a1a]">
+            <Card key={i} className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)]">
               <CardContent className="p-4">
                 <Skeleton className="h-4 w-20 mb-2" />
                 <Skeleton className="h-6 w-28" />
@@ -83,7 +83,7 @@ function ProjectDetailSkeleton() {
           ))}
         </div>
         
-        <Card className="bg-[#111]/80 border-[#1a1a1a] mb-8">
+        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] mb-8">
           <CardHeader>
             <Skeleton className="h-6 w-32" />
           </CardHeader>
@@ -99,7 +99,7 @@ function ProjectDetailSkeleton() {
           </CardContent>
         </Card>
         
-        <Card className="bg-[#111]/80 border-[#1a1a1a]">
+        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)]">
           <CardHeader>
             <Skeleton className="h-6 w-40" />
           </CardHeader>
@@ -136,13 +136,47 @@ export function ProjectDetail() {
     try {
       setIsLoading(true)
       setError(null)
-      
-      const data = await publicClient.readContract({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'projects',
-        args: [projectId]
-      }) as ProjectTuple
+
+      const readProjectAndRules = async (): Promise<[ProjectTuple, RulesTuple]> => {
+        try {
+          return await publicClient.multicall({
+            contracts: [
+              {
+                address: BOUNTY_HUB_ADDRESS,
+                abi: BOUNTY_HUB_V2_ABI,
+                functionName: 'projects',
+                args: [projectId]
+              },
+              {
+                address: BOUNTY_HUB_ADDRESS,
+                abi: BOUNTY_HUB_V2_ABI,
+                functionName: 'projectRules',
+                args: [projectId]
+              }
+            ],
+            allowFailure: false
+          }) as [ProjectTuple, RulesTuple]
+        } catch {
+          const [projectData, rulesData] = await Promise.all([
+            publicClient.readContract({
+              address: BOUNTY_HUB_ADDRESS,
+              abi: BOUNTY_HUB_V2_ABI,
+              functionName: 'projects',
+              args: [projectId]
+            }),
+            publicClient.readContract({
+              address: BOUNTY_HUB_ADDRESS,
+              abi: BOUNTY_HUB_V2_ABI,
+              functionName: 'projectRules',
+              args: [projectId]
+            })
+          ])
+
+          return [projectData as ProjectTuple, rulesData as RulesTuple]
+        }
+      }
+
+      const [data, rulesData] = await readProjectAndRules()
 
       const fetchedProject: Project = {
         id: projectId,
@@ -160,14 +194,7 @@ export function ProjectDetail() {
       }
       
       setProject(fetchedProject)
-      
-      const rulesData = await publicClient.readContract({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'projectRules',
-        args: [projectId]
-      }) as RulesTuple
-      
+
       setRules({
         maxAttackerSeedWei: rulesData[0],
         maxWarpSeconds: rulesData[1],
@@ -196,23 +223,25 @@ export function ProjectDetail() {
         toBlock: 'latest'
       })
 
-      const submissionIds = logs.map(log => log.args.submissionId!).filter((v, i, a) => a.indexOf(v) === i)
+      const submissionIds = Array.from(new Set(logs.map(log => log.args.submissionId!)))
       
       if (submissionIds.length === 0) {
         setSubmissions([])
         return
       }
 
-      const submissionPromises = submissionIds.map(subId =>
-        publicClient.readContract({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'submissions',
-          args: [subId]
-        })
-      )
+      const submissionContracts = submissionIds.map((subId) => ({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'submissions' as const,
+        args: [subId] as const
+      }))
 
-      const results = await Promise.all(submissionPromises) as SubmissionTuple[]
+      const results = await publicClient.multicall({
+        contracts: submissionContracts,
+        allowFailure: false
+      }) as SubmissionTuple[]
+
       const fetchedSubmissions: Submission[] = results.map((data, index) => ({
         id: submissionIds[index],
         auditor: data[0],
@@ -292,14 +321,14 @@ export function ProjectDetail() {
     return (
       <div className="py-8">
         <div className="container max-w-6xl mx-auto px-4">
-          <Card className="bg-[#ff003c]/10 border-[#ff003c]/50 text-[#ff003c]">
+          <Card className="bg-[var(--color-error)]/10 border-[var(--color-error)]/50 text-[var(--color-error)]">
             <CardContent className="p-8 text-center">
               <p className="font-mono text-lg mb-4">
                 ERROR: {error || 'Project not found'}
               </p>
               <Link 
                 to="/explorer" 
-                className="text-[#00ff9d] hover:text-[#00ff9d]/80 font-mono transition-colors"
+                className="text-[var(--color-primary)] hover:text-[var(--color-primary)]/80 font-mono transition-colors"
               >
                 [← Back to Explorer]
               </Link>
@@ -318,13 +347,13 @@ export function ProjectDetail() {
         <header className="mb-8">
           <Link 
             to="/explorer" 
-            className="inline-flex items-center gap-2 text-[#888] hover:text-[#00ff9d] font-mono text-xs uppercase tracking-wider transition-colors mb-4"
+            className="inline-flex items-center gap-2 text-[var(--color-text-dim)] hover:text-[var(--color-primary)] font-mono text-xs uppercase tracking-wider transition-colors mb-4"
           >
             <span>←</span> Back to Explorer
           </Link>
           
           <div className="flex items-center gap-4 mb-2">
-            <h1 className="text-2xl font-display font-bold uppercase tracking-widest text-[#00ff9d]">
+            <h1 className="text-2xl font-mono font-bold uppercase tracking-widest text-[var(--color-primary)]">
               PROJECT #{project.id.toString()}
             </h1>
             <Badge variant={project.mode === 0 ? 'unique' : 'multi'}>
@@ -332,14 +361,14 @@ export function ProjectDetail() {
             </Badge>
           </div>
           
-          <div className="h-[2px] w-48 bg-gradient-to-r from-[#00ff9d] to-transparent mb-4" />
+          <div className="h-[2px] w-48 bg-gradient-to-r from-[var(--color-primary)] to-transparent mb-4" />
           
           <div className="flex items-center gap-6 font-mono text-sm">
             <Badge variant={deadlineStatus.variant}>
               {deadlineStatus.text}
             </Badge>
-            <span className="text-[#888]">
-              TARGET: <span className="text-[#00f0ff]">{formatAddress(project.targetContract)}</span>
+            <span className="text-[var(--color-text-dim)]">
+              TARGET: <span className="text-[var(--color-secondary)]">{formatAddress(project.targetContract)}</span>
             </span>
           </div>
         </header>
@@ -367,21 +396,21 @@ export function ProjectDetail() {
           />
         </div>
 
-        <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-display tracking-wide">
+            <CardTitle className="text-lg font-mono tracking-wide">
               DEADLINES
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <p className="text-[#888] font-mono text-xs uppercase">Commit Deadline</p>
+                <p className="text-[var(--color-text-dim)] font-mono text-xs uppercase">Commit Deadline</p>
                 <p className="font-mono text-sm">{formatTimestamp(project.commitDeadline)}</p>
                 <CountdownTimer deadline={project.commitDeadline} />
               </div>
               <div className="space-y-2">
-                <p className="text-[#888] font-mono text-xs uppercase">Reveal Deadline</p>
+                <p className="text-[var(--color-text-dim)] font-mono text-xs uppercase">Reveal Deadline</p>
                 <p className="font-mono text-sm">{formatTimestamp(project.revealDeadline)}</p>
                 <CountdownTimer deadline={project.revealDeadline} />
               </div>
@@ -390,61 +419,61 @@ export function ProjectDetail() {
         </Card>
 
         {rules && (
-          <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+          <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-display tracking-wide">
+              <CardTitle className="text-lg font-mono tracking-wide">
                 RULES & THRESHOLDS
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <p className="text-[#00f0ff] font-mono text-xs mb-3">// EXECUTION_RULES</p>
+                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">// EXECUTION_RULES</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
                   <div>
-                    <span className="text-[#888]">MAX_ATTACKER_SEED: </span>
+                    <span className="text-[var(--color-text-dim)]">MAX_ATTACKER_SEED: </span>
                     <span>{formatEther(rules.maxAttackerSeedWei)} ETH</span>
                   </div>
                   <div>
-                    <span className="text-[#888]">MAX_TIME_WARP: </span>
+                    <span className="text-[var(--color-text-dim)]">MAX_TIME_WARP: </span>
                     <span>{rules.maxWarpSeconds.toString()}s</span>
                   </div>
                   <div>
-                    <span className="text-[#888]">IMPERSONATION: </span>
+                    <span className="text-[var(--color-text-dim)]">IMPERSONATION: </span>
                     <Badge variant={rules.allowImpersonation ? 'success' : 'error'}>
                       {rules.allowImpersonation ? 'ALLOWED' : 'DISABLED'}
                     </Badge>
                   </div>
                   <div>
-                    <span className="text-[#888]">DISPUTE_WINDOW: </span>
+                    <span className="text-[var(--color-text-dim)]">DISPUTE_WINDOW: </span>
                     <span>{project.disputeWindow.toString()}s</span>
                   </div>
                 </div>
               </div>
               
               <div>
-                <p className="text-[#00f0ff] font-mono text-xs mb-3">// SEVERITY_THRESHOLDS</p>
+                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">// SEVERITY_THRESHOLDS</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card className="bg-[#ff003c]/10 border-l-[#ff003c] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                  <Card className="bg-[var(--color-error)]/10 border-l-[var(--color-error)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
                     <CardContent className="p-3">
-                      <p className="font-display text-xs text-[#ff003c] mb-1">CRITICAL</p>
+                      <p className="font-mono text-xs text-[var(--color-error)] mb-1">CRITICAL</p>
                       <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH</p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-[#ff8800]/10 border-l-[#ff8800] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                  <Card className="bg-[var(--color-warning)]/10 border-l-[var(--color-warning)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
                     <CardContent className="p-3">
-                      <p className="font-display text-xs text-[#ff8800] mb-1">HIGH</p>
+                      <p className="font-mono text-xs text-[var(--color-warning)] mb-1">HIGH</p>
                       <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.highDrainWei)} ETH</p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-[#ffff00]/10 border-l-[#ffff00] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                  <Card className="bg-[var(--color-gold)]/10 border-l-[var(--color-gold)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
                     <CardContent className="p-3">
-                      <p className="font-display text-xs text-[#ffff00] mb-1">MEDIUM</p>
+                      <p className="font-mono text-xs text-[var(--color-gold)] mb-1">MEDIUM</p>
                       <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH</p>
                     </CardContent>
                   </Card>
-                  <Card className="bg-[#88ff88]/10 border-l-[#88ff88] border-l-2 border-t-0 border-r-0 border-b-0 rounded-none">
+                  <Card className="bg-[var(--color-primary)]/10 border-l-[var(--color-primary)] border-l-2 border-t-0 border-r-0 border-b-0 rounded-xl">
                     <CardContent className="p-3">
-                      <p className="font-display text-xs text-[#88ff88] mb-1">LOW</p>
+                      <p className="font-mono text-xs text-[var(--color-primary)] mb-1">LOW</p>
                       <p className="font-mono text-sm">&gt; {formatEther(rules.thresholds.lowDrainWei)} ETH</p>
                     </CardContent>
                   </Card>
@@ -457,8 +486,8 @@ export function ProjectDetail() {
         {project.active && (
           <div className="mb-8">
             <Link 
-              to={`/?project=${project.id.toString()}`}
-              className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-[#00ff9d] to-[#00cc7d] text-[#0a0a0a] font-display font-bold uppercase tracking-widest text-sm transition-all hover:shadow-[0_0_30px_rgba(0,255,157,0.5)] hover:-translate-y-0.5"
+              to={`/builder?projectId=${project.id.toString()}&source=project-detail`}
+              className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-primary)]/80 text-[var(--color-bg)] font-mono font-bold uppercase tracking-widest text-sm transition-all hover:shadow-[0_0_30px_var(--color-primary)]/50 hover:-translate-y-0.5"
             >
               <span>SUBMIT POC</span>
               <span>→</span>
@@ -466,17 +495,17 @@ export function ProjectDetail() {
           </div>
         )}
 
-        <Card className="bg-[#111]/80 border-[#1a1a1a] backdrop-blur-sm mb-8">
+        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] backdrop-blur-sm mb-8">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-display tracking-wide">
+            <CardTitle className="text-lg font-mono tracking-wide">
               SUBMISSIONS [{submissions.length}]
             </CardTitle>
           </CardHeader>
           <CardContent>
             {submissions.length === 0 ? (
-              <div className="py-12 border border-dashed border-[#333] text-center">
-                <p className="font-mono text-[#888] text-sm mb-2">&gt; No submissions yet</p>
-                <p className="font-mono text-[#666] text-xs">
+              <div className="py-12 border border-dashed border-[var(--color-bg-light)] text-center">
+                <p className="font-mono text-[var(--color-text-dim)] text-sm mb-2">&gt; No submissions yet</p>
+                <p className="font-mono text-[var(--color-text-dim)]/80 text-xs">
                   Be the first to submit a PoC for this project
                 </p>
               </div>
@@ -484,26 +513,26 @@ export function ProjectDetail() {
               <div className="overflow-x-auto -mx-6">
                 <table className="w-full font-mono text-sm">
                   <thead>
-                    <tr className="border-b border-[#1a1a1a] text-left">
-                      <th className="px-6 py-3 text-[#888] font-normal">ID</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">AUDITOR</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">STATUS</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">SEVERITY</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">DRAIN</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">PAYOUT</th>
-                      <th className="px-6 py-3 text-[#888] font-normal">COMMITTED</th>
+                    <tr className="border-b border-[var(--color-bg-light)] text-left">
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">ID</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">AUDITOR</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">STATUS</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">SEVERITY</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">DRAIN</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">PAYOUT</th>
+                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">COMMITTED</th>
                     </tr>
                   </thead>
                   <tbody>
                     {submissions.map((sub) => (
                       <tr 
                         key={sub.id.toString()}
-                        className="border-b border-[#1a1a1a] hover:bg-[#00ff9d]/5 transition-colors"
+                        className="border-b border-[var(--color-bg-light)] hover:bg-[var(--color-primary)]/5 transition-colors"
                       >
-                        <td className="px-6 py-3 text-[#888]">
+                        <td className="px-6 py-3 text-[var(--color-text-dim)]">
                           #{sub.id.toString()}
                         </td>
-                        <td className="px-6 py-3 text-[#00f0ff]">
+                        <td className="px-6 py-3 text-[var(--color-secondary)]">
                           {formatAddress(sub.auditor)}
                         </td>
                         <td className="px-6 py-3">
@@ -518,19 +547,19 @@ export function ProjectDetail() {
                           {sub.drainAmountWei > 0n ? (
                             <span>{formatEther(sub.drainAmountWei)} ETH</span>
                           ) : (
-                            <span className="text-[#888]">-</span>
+                            <span className="text-[var(--color-text-dim)]">-</span>
                           )}
                         </td>
                         <td className="px-6 py-3">
                           {sub.payoutAmount > 0n ? (
-                            <span className="text-[#00ff9d] font-bold">
+                            <span className="text-[var(--color-primary)] font-bold">
                               {formatEther(sub.payoutAmount)} ETH
                             </span>
                           ) : (
-                            <span className="text-[#888]">-</span>
+                            <span className="text-[var(--color-text-dim)]">-</span>
                           )}
                         </td>
-                        <td className="px-6 py-3 text-[#888]">
+                        <td className="px-6 py-3 text-[var(--color-text-dim)]">
                           {formatTimestamp(sub.commitTimestamp)}
                         </td>
                       </tr>
@@ -542,19 +571,19 @@ export function ProjectDetail() {
           </CardContent>
         </Card>
 
-        <Card className="bg-[#111]/50 border-[#1a1a1a]">
+        <Card className="bg-[var(--color-bg-panel)]/50 border-[var(--color-bg-light)]">
           <CardContent className="p-4">
             <div className="grid md:grid-cols-3 gap-4 font-mono text-sm">
               <div>
-                <span className="text-[#888]">OWNER: </span>
-                <span className="text-[#00f0ff] break-all">{project.owner}</span>
+                <span className="text-[var(--color-text-dim)]">OWNER: </span>
+                <span className="text-[var(--color-secondary)] break-all">{project.owner}</span>
               </div>
               <div>
-                <span className="text-[#888]">TARGET_CONTRACT: </span>
-                <span className="text-[#00f0ff] break-all">{project.targetContract}</span>
+                <span className="text-[var(--color-text-dim)]">TARGET_CONTRACT: </span>
+                <span className="text-[var(--color-secondary)] break-all">{project.targetContract}</span>
               </div>
               <div>
-                <span className="text-[#888]">RULES_HASH: </span>
+                <span className="text-[var(--color-text-dim)]">RULES_HASH: </span>
                 <span className="break-all">{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>
               </div>
             </div>

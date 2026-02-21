@@ -37,53 +37,21 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div style={{
-          padding: '2rem',
-          border: '1px solid var(--color-error)',
-          background: 'rgba(255, 0, 0, 0.05)',
-          color: 'var(--color-text)',
-          fontFamily: 'var(--font-mono)'
-        }}>
-          <h3 style={{ 
-            color: 'var(--color-error)', 
-            marginBottom: '1rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem'
-          }}>
+        <div className="error-boundary-container">
+          <h3 className="error-boundary-title">
             <span>⚠</span> // ERROR_DETECTED
           </h3>
-          <p style={{ 
-            marginBottom: '1rem', 
-            fontSize: '0.9rem',
-            color: 'var(--color-text-dim)'
-          }}>
+          <p className="error-boundary-desc">
             An unexpected error occurred in the PoC Builder.
           </p>
           {this.state.error && (
-            <pre style={{
-              background: 'rgba(0, 0, 0, 0.3)',
-              padding: '1rem',
-              borderRadius: '4px',
-              fontSize: '0.8rem',
-              color: 'var(--color-error)',
-              overflow: 'auto',
-              maxHeight: '200px',
-              marginBottom: '1rem'
-            }}>
+            <pre className="error-boundary-pre">
               {this.state.error.message}
             </pre>
           )}
           <button
             onClick={this.handleReset}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--color-primary)',
-              color: 'var(--color-primary)',
-              padding: '0.5rem 1.5rem',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-mono)'
-            }}
+            className="error-boundary-btn"
           >
             [ TRY_AGAIN ]
           </button>

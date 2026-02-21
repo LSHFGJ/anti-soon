@@ -33,13 +33,13 @@ const formatDeadline = (timestamp: bigint): { text: string; urgent: boolean } =>
 
 const getModeLabel = (mode: number): string => mode === 0 ? 'UNIQUE' : 'MULTI'
 
-const getStatusInfo = (project: Project): { label: string; color: string } => {
+const getStatusInfo = (project: Project): { label: string; className: string; glow: string } => {
   const now = BigInt(Math.floor(Date.now() / 1000))
   
-  if (!project.active) return { label: 'INACTIVE', color: '#999999' }
-  if (now > project.revealDeadline) return { label: 'ENDED', color: '#ff003c' }
-  if (now > project.commitDeadline) return { label: 'REVEAL', color: '#00f0ff' }
-  return { label: 'OPEN', color: '#00ff9d' }
+  if (!project.active) return { label: 'INACTIVE', className: 'status-inactive', glow: 'transparent' }
+  if (now > project.revealDeadline) return { label: 'ENDED', className: 'status-ended', glow: 'var(--color-error)' }
+  if (now > project.commitDeadline) return { label: 'REVEAL', className: 'status-reveal', glow: 'var(--color-secondary-glow)' }
+  return { label: 'OPEN', className: 'status-open', glow: 'var(--color-primary-glow)' }
 }
 
 interface ProjectCardProps {
@@ -63,16 +63,15 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -4 }}
       transition={{ 
-        type: 'spring', 
-        stiffness: 300, 
-        damping: 20 
+        duration: 0.2,
+        ease: 'linear'
       }}
       className="h-full"
     >
       <Card 
         className={cn(
           'relative overflow-hidden cursor-pointer h-full',
-          'bg-[#0a0a0f] border-[var(--color-text-dim)]/20',
+          'bg-[var(--color-bg-panel)] border-[var(--color-text-dim)]/20',
           'hover:border-[var(--color-primary)]/50',
           'transition-colors duration-300',
           className
@@ -87,31 +86,21 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         />
         
         <div 
-          className="absolute inset-0 pointer-events-none opacity-[0.03]"
-          style={{
-            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,157,0.1) 2px, rgba(0,255,157,0.1) 4px)',
-          }}
+          className="project-card-scanline absolute inset-0 pointer-events-none opacity-[0.03]"
         />
 
         <CardHeader className="pb-3 relative">
           <div className="flex items-start justify-between gap-2">
             <CardTitle 
-              className="text-sm font-mono tracking-wider text-[var(--color-text)] truncate"
-              style={{ fontFamily: 'var(--font-mono)' }}
+              className="font-mono text-sm tracking-wider text-[var(--color-text)] truncate"
             >
               PROJECT_{project.id.toString().padStart(3, '0')}
             </CardTitle>
             
             <motion.span
-              className="shrink-0 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border"
-              style={{ 
-                color: status.color, 
-                borderColor: status.color,
-                backgroundColor: `${status.color}15`,
-                fontFamily: 'var(--font-mono)'
-              }}
+              className={cn("shrink-0 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border", status.className)}
               animate={status.label === 'OPEN' ? {
-                boxShadow: [`0 0 0px ${status.color}00`, `0 0 8px ${status.color}40`, `0 0 0px ${status.color}00`]
+                boxShadow: [`0 0 0px transparent`, `0 0 8px ${status.glow}`, `0 0 0px transparent`]
               } : {}}
               transition={{ duration: 2, repeat: Infinity }}
             >
@@ -120,8 +109,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           </div>
           
           <p 
-            className="text-[10px] text-[var(--color-text-dim)] font-mono truncate"
-            style={{ fontFamily: 'var(--font-mono)' }}
+            className="font-mono text-[10px] text-[var(--color-text-dim)] truncate"
           >
             {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)}
           </p>
@@ -130,14 +118,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         <CardContent className="py-4 relative">
           <div className="text-center mb-4">
             <motion.div 
-              className="text-3xl font-bold"
-              style={{ 
-                color: 'var(--color-primary)',
-                fontFamily: 'var(--font-display)',
-                textShadow: '0 0 20px rgba(0, 255, 157, 0.3)'
-              }}
+              className="project-card-bounty-value text-3xl font-bold"
               whileHover={{ scale: 1.05 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+              transition={{ duration: 0.2, ease: 'linear' }}
             >
               {formatEth(project.bountyPool)} ETH
             </motion.div>
@@ -158,8 +141,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
             
             <div className="p-2 bg-[var(--color-bg)]/50 border border-[var(--color-text-dim)]/10">
               <div 
-                className="text-sm font-mono"
-                style={{ color: deadline.urgent ? 'var(--color-error)' : 'var(--color-text)' }}
+                className={cn("text-sm font-mono", deadline.urgent ? "text-error" : "text-[var(--color-text)]")}
               >
                 {deadline.text}
               </div>
@@ -181,11 +163,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
         <CardFooter className="pt-0 relative">
           <div 
-            className="absolute bottom-0 left-0 right-0 h-px"
-            style={{
-              background: 'linear-gradient(90deg, transparent, var(--color-primary), transparent)',
-              opacity: 0.3
-            }}
+            className="project-card-footer-line absolute bottom-0 left-0 right-0 h-px"
           />
           
           <div className="flex items-center justify-between w-full text-[10px] text-[var(--color-text-dim)] font-mono">

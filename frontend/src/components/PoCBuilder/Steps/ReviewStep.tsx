@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
 import { useCommitReveal } from '../../../hooks/useCommitReveal'
 import { useToast } from '@/hooks/use-toast'
@@ -14,26 +14,19 @@ interface ReviewStepProps {
   onConnect: () => void
   onSubmit: () => void
   onBack: () => void
-  projectId?: bigint
+  projectId: bigint | null
   useV2?: boolean
 }
 
 const Spinner: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    gap: '0.75rem',
-    padding: '1rem',
-    color: 'var(--color-secondary)'
-  }}>
+  <div className="flex items-center justify-center gap-3 p-4 text-[var(--color-secondary)]">
     <span className="spinner"></span>
-    <span style={{ fontFamily: 'var(--font-mono)' }}>{children}</span>
+    <span className="font-mono">{children}</span>
   </div>
 )
 
 const CheckIcon: React.FC = () => (
-  <span style={{ color: 'var(--color-primary)', marginRight: '0.5rem' }}>✓</span>
+  <span className="text-[var(--color-primary)] mr-2">✓</span>
 )
 
 export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({ 
@@ -45,36 +38,52 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
   onConnect, 
   onSubmit, 
   onBack,
-  projectId = 1n,
+  projectId,
   useV2 = true
 }) => {
   const commitReveal = useCommitReveal(projectId, pocJson)
   const [showV1Fallback, setShowV1Fallback] = useState(false)
   const { success, error: toastError } = useToast()
-  const [prevPhase, setPrevPhase] = useState(commitReveal.state.phase)
+  const notifiedPhaseRef = useRef(commitReveal.state.phase)
+  const notifiedErrorRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    const { state } = commitReveal
-    if (prevPhase !== state.phase) {
-      if (state.phase === 'committed') {
+    const { phase, error: phaseError } = commitReveal.state
+
+    if (phase !== notifiedPhaseRef.current) {
+      if (phase === 'committed') {
         success({
           title: 'PoC Committed',
           description: 'Your encrypted PoC has been submitted successfully.',
         })
-      } else if (state.phase === 'revealed') {
+      } else if (phase === 'revealed') {
         success({
           title: 'PoC Revealed',
           description: 'Verification is now in progress.',
         })
-      } else if (state.phase === 'idle' && state.error) {
+      } else if (phase === 'failed' && phaseError) {
         toastError({
           title: 'Transaction Failed',
-          description: state.error,
+          description: phaseError,
         })
+        notifiedErrorRef.current = phaseError
       }
-      setPrevPhase(state.phase)
+
+      notifiedPhaseRef.current = phase
+      if (phase !== 'failed') {
+        notifiedErrorRef.current = undefined
+      }
+      return
     }
-  }, [commitReveal.state.phase, commitReveal.state.error, success, toastError, prevPhase])
+
+    if (phase === 'failed' && phaseError && phaseError !== notifiedErrorRef.current) {
+      toastError({
+        title: 'Transaction Failed',
+        description: phaseError,
+      })
+      notifiedErrorRef.current = phaseError
+    }
+  }, [commitReveal.state.phase, commitReveal.state.error, success, toastError])
 
   useEffect(() => {
     if (submissionHash && !useV2) {
@@ -96,119 +105,85 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
 
   const renderV2Flow = () => {
     const { state, commit, reveal, reset } = commitReveal
+    const projectContextMissing = projectId === null
+    const revealAvailable = Boolean(state.submissionId && state.salt)
+    const retryLabel = revealAvailable ? '[ RETRY_REVEAL ]' : '[ RETRY_COMMIT ]'
+    const onRetry = revealAvailable ? reveal : commit
+    const commitActive = state.phase !== 'idle'
+    const revealActive = ['revealing', 'revealed'].includes(state.phase) || (state.phase === 'failed' && revealAvailable)
+    const verifyingActive = state.phase === 'revealed'
 
     return (
-      <div style={{ marginTop: '1.5rem' }}>
-        <div style={{
-          border: '1px solid var(--color-text-dim)',
-          padding: '1rem',
-          marginBottom: '1rem',
-          background: 'rgba(0,0,0,0.2)'
-        }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '1rem',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.85rem',
-            color: 'var(--color-text-dim)'
-          }}>
-            <span style={{ 
-              color: state.phase !== 'idle' ? 'var(--color-primary)' : 'var(--color-text)',
-              fontWeight: state.phase !== 'idle' && state.phase !== 'encrypting' ? 'bold' : 'normal'
-            }}>
+      <div className="mt-6">
+        <div className="border border-[var(--color-text-dim)] p-4 mb-4 bg-neutral-900/80">
+          <div className="flex items-center gap-4">
+            <span className={commitActive ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-text)] font-normal'}>
               1. COMMIT
             </span>
-            <span style={{ color: 'var(--color-text-dim)' }}>→</span>
-            <span style={{ 
-              color: ['committed', 'revealing', 'revealed'].includes(state.phase) ? 'var(--color-primary)' : 'var(--color-text)',
-              fontWeight: state.phase === 'revealed' ? 'bold' : 'normal'
-            }}>
+            <span className="text-[var(--color-text-dim)]">→</span>
+            <span className={revealActive ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-text)] font-normal'}>
               2. REVEAL
             </span>
-            <span style={{ color: 'var(--color-text-dim)' }}>→</span>
-            <span style={{ 
-              color: state.phase === 'revealed' ? 'var(--color-primary)' : 'var(--color-text-dim)'
-            }}>
-              VERIFY
+            <span className="text-[var(--color-text-dim)]">→</span>
+            <span className={verifyingActive ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-text-dim)] font-normal'}>
+              3. VERIFYING
             </span>
           </div>
         </div>
 
         {state.error && (
-          <div style={{ 
-            color: 'var(--color-error)', 
-            border: '1px solid var(--color-error)', 
-            padding: '1rem', 
-            marginBottom: '1rem',
-            background: 'rgba(255,0,0,0.05)'
-          }}>
-            <div style={{ fontFamily: 'var(--font-mono)', marginBottom: '0.5rem' }}>ERROR:</div>
-            <div style={{ fontSize: '0.9rem' }}>{state.error}</div>
-            <button
-              onClick={reset}
-              style={{
-                marginTop: '0.75rem',
-                background: 'transparent',
-                border: '1px solid var(--color-error)',
-                color: 'var(--color-error)',
-                padding: '0.5rem 1rem',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.8rem'
-              }}
-            >
-              [ RESET ]
-            </button>
+          <div className="text-[var(--color-error)] border border-[var(--color-error)] p-4 mb-4 bg-[rgba(255,0,0,0.05)]">
+            <div className="font-mono mb-2">ERROR:</div>
+            <div className="text-sm">{state.error}</div>
+            <div className="flex gap-2 flex-wrap mt-3">
+              <button
+                onClick={onRetry}
+                className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
+              >
+                {retryLabel}
+              </button>
+              <button
+                onClick={reset}
+                className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
+              >
+                [ RESET ]
+              </button>
+            </div>
           </div>
         )}
 
         {state.phase === 'idle' && (
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+          <div className="flex gap-4 flex-wrap">
             {!isConnected ? (
               <button 
                 onClick={onConnect}
-                style={{ 
-                  padding: '0.75rem 2rem', 
-                  background: 'var(--color-secondary)', 
-                  color: 'var(--color-bg)', 
-                  border: 'none', 
-                  cursor: 'pointer', 
-                  fontFamily: 'var(--font-mono)'
-                }}
+                className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
               >
                 [ CONNECT_WALLET ]
               </button>
             ) : (
-              <>
-                <button 
-                  onClick={commit}
-                  style={{ 
-                    padding: '0.75rem 2rem', 
-                    background: 'var(--color-primary)', 
-                    color: 'var(--color-bg)', 
-                    border: 'none', 
-                    cursor: 'pointer', 
-                    fontFamily: 'var(--font-mono)'
-                  }}
+              projectContextMissing ? (
+                <div
+                  className="border border-[var(--color-error)] bg-[rgba(255,0,0,0.05)] text-[var(--color-error)] px-4 py-3 font-mono text-xs"
                 >
-                  [ 1. COMMIT_ENCRYPTED_POC ]
-                </button>
-                <button 
-                  onClick={() => setShowV1Fallback(true)}
-                  style={{ 
-                    padding: '0.75rem 1.5rem', 
-                    background: 'transparent', 
-                    color: 'var(--color-text-dim)', 
-                    border: '1px solid var(--color-text-dim)', 
-                    cursor: 'pointer', 
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  USE V1 (LEGACY)
-                </button>
-              </>
+                  SELECT A PROJECT FIRST (open Explorer or Project Detail, then enter Builder from that context).
+                </div>
+              ) : (
+                <>
+                  <button 
+                    onClick={commit}
+                    className="px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
+                  >
+                    [ 1. COMMIT_ENCRYPTED_POC ]
+                  </button>
+                  <button 
+                    onClick={() => setShowV1Fallback(true)}
+                    className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
+                  >
+                    USE V1 (LEGACY)
+                  </button>
+                </>
+              )
             )}
           </div>
         )}
@@ -217,72 +192,40 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           <Spinner>Encrypting PoC JSON...</Spinner>
         )}
 
-        {state.phase === 'uploading' && (
-          <Spinner>Uploading ciphertext to IPFS...</Spinner>
-        )}
-
         {state.phase === 'committing' && (
-          <Spinner>Committing to blockchain...</Spinner>
+          <Spinner>Committing encrypted PoC to blockchain...</Spinner>
         )}
 
         {state.phase === 'committed' && (
-          <div style={{ 
-            padding: '1.5rem', 
-            border: '1px solid var(--color-primary)', 
-            background: 'rgba(0,255,136,0.05)',
-            marginBottom: '1rem'
-          }}>
-            <div style={{ 
-              color: 'var(--color-primary)', 
-              fontWeight: 'bold', 
-              fontFamily: 'var(--font-mono)',
-              marginBottom: '1rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
+          <div className="p-6 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.05)] mb-4">
+            <div className="flex items-center gap-2">
               <CheckIcon /> PHASE_1_COMPLETE
             </div>
             
-            <div style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-              <span style={{ color: 'var(--color-text-dim)' }}>Submission ID: </span>
-              <span style={{ color: 'var(--color-secondary)', fontFamily: 'var(--font-mono)' }}>
+            <div className="text-sm mb-3">
+              <span className="text-[var(--color-text-dim)]">Submission ID: </span>
+              <span className="text-[var(--color-secondary)] font-mono">
                 {state.submissionId?.toString()}
               </span>
             </div>
 
             {state.commitTxHash && (
-              <div style={{ fontSize: '0.85rem', marginBottom: '0.75rem', wordBreak: 'break-all' }}>
-                <span style={{ color: 'var(--color-text-dim)' }}>Commit TX: </span>
-                <code style={{ color: 'var(--color-secondary)', fontSize: '0.8rem' }}>
+              <div className="text-sm mb-3 break-all">
+                <span className="text-[var(--color-text-dim)]">Commit TX: </span>
+                <code className="text-[var(--color-secondary)] text-xs">
                   {state.commitTxHash}
                 </code>
               </div>
             )}
 
-            <div style={{ 
-              marginTop: '1rem', 
-              padding: '1rem', 
-              background: 'rgba(0,0,0,0.3)', 
-              borderRadius: '4px',
-              fontSize: '0.8rem',
-              color: 'var(--color-text-dim)'
-            }}>
+            <div className="mt-4 p-4 bg-neutral-900/80 rounded text-xs text-[var(--color-text-dim)]">
               Your PoC is encrypted on IPFS. Keys are securely managed by the protocol.
               Reveal when ready to trigger verification.
             </div>
 
             <button 
               onClick={reveal}
-              style={{ 
-                marginTop: '1rem',
-                padding: '0.75rem 2rem', 
-                background: 'var(--color-secondary)', 
-                color: 'var(--color-bg)', 
-                border: 'none', 
-                cursor: 'pointer', 
-                fontFamily: 'var(--font-mono)'
-              }}
+              className="mt-4 px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
             >
               [ 2. REVEAL_POC ]
             </button>
@@ -294,34 +237,16 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
         )}
 
         {state.phase === 'revealed' && (
-          <div style={{ 
-            padding: '1.5rem', 
-            border: '1px solid var(--color-primary)', 
-            background: 'rgba(0,255,136,0.1)',
-            marginBottom: '1rem'
-          }}>
-            <div style={{ 
-              color: 'var(--color-primary)', 
-              fontWeight: 'bold', 
-              fontFamily: 'var(--font-mono)',
-              marginBottom: '1rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
+          <div className="p-6 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)] mb-4">
+            <div className="flex items-center gap-2">
               <CheckIcon /> POC_REVEALED
             </div>
             
-            <div style={{ fontSize: '0.9rem', color: 'var(--color-text)', marginBottom: '1rem' }}>
+            <div className="text-sm text-[var(--color-text)] mb-4">
               CRE verification is now in progress. The network will:
             </div>
             
-            <ol style={{ 
-              color: 'var(--color-text-dim)', 
-              margin: 0, 
-              paddingLeft: '1.5rem',
-              fontSize: '0.85rem'
-            }}>
+            <ol className="m-0 pl-6 text-[var(--color-text-dim)] text-sm leading-relaxed">
               <li>Decrypt your PoC using the revealed key</li>
               <li>Create Tenderly fork at specified block</li>
               <li>Execute the exploit in sandbox</li>
@@ -329,18 +254,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
               <li>Auto-release bounty if valid</li>
             </ol>
 
-            <div style={{ 
-              marginTop: '1rem', 
-              padding: '0.75rem', 
-              background: 'var(--color-secondary)', 
-              color: 'var(--color-bg)',
-              textAlign: 'center',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.85rem'
-            }}>
+            <div className="mt-4 p-3 bg-[var(--color-secondary)] text-[var(--color-bg)] text-center font-mono text-sm">
               <a 
                 href={`/submission/${state.submissionId}`}
-                style={{ color: 'var(--color-bg)', textDecoration: 'none' }}
+                className="text-[var(--color-bg)] no-underline"
               >
                 VIEW VERIFICATION STATUS →
               </a>
@@ -354,56 +271,31 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
   const renderV1Flow = () => (
     <>
       {error && (
-        <div style={{ 
-          color: 'var(--color-error)', 
-          border: '1px solid var(--color-error)', 
-          padding: '1rem', 
-          marginBottom: '1rem',
-          background: 'rgba(255,0,0,0.05)'
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', marginBottom: '0.5rem' }}>ERROR:</div>
-          <div style={{ fontSize: '0.9rem' }}>{error}</div>
+        <div className="text-[var(--color-error)] border border-[var(--color-error)] p-4 mb-4 bg-[rgba(255,0,0,0.05)]">
+          <div className="font-mono mb-2">ERROR:</div>
+          <div className="text-sm">{error}</div>
         </div>
       )}
 
       {submissionHash && (
-        <div style={{ 
-          marginBottom: '1rem', 
-          padding: '1rem', 
-          border: '1px solid var(--color-primary)', 
-          background: 'rgba(0, 255, 136, 0.1)'
-        }}>
-          <div style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontFamily: 'var(--font-mono)', marginBottom: '0.5rem' }}>
+        <div className="mb-4 p-4 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)]">
+          <div className="text-[var(--color-primary)] font-bold font-mono mb-2">
             ✓ PoC_TRANSMITTED (V1)
           </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--color-text-dim)', marginBottom: '0.75rem' }}>
+          <div className="text-sm text-[var(--color-text-dim)] mb-3">
             Transaction Hash:
           </div>
-          <code style={{ 
-            fontSize: '0.8rem', 
-            color: 'var(--color-secondary)', 
-            background: 'rgba(0,255,136,0.1)', 
-            padding: '0.5rem',
-            display: 'block',
-            wordBreak: 'break-all'
-          }}>
+          <code className="block">
             {submissionHash}
           </code>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+      <div className="flex gap-4 flex-wrap">
         {!isConnected ? (
           <button 
             onClick={onConnect}
-            style={{ 
-              padding: '0.75rem 2rem', 
-              background: 'var(--color-secondary)', 
-              color: 'var(--color-bg)', 
-              border: 'none', 
-              cursor: 'pointer', 
-              fontFamily: 'var(--font-mono)'
-            }}
+            className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
           >
             [ CONNECT_WALLET ]
           </button>
@@ -411,18 +303,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           <button 
             onClick={onSubmit} 
             disabled={isSubmitting}
-            style={{ 
-              padding: '0.75rem 2rem', 
-              background: isSubmitting ? 'var(--color-text-dim)' : 'var(--color-primary)', 
-              color: 'var(--color-bg)', 
-              border: 'none', 
-              cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              fontFamily: 'var(--font-mono)',
-              opacity: isSubmitting ? 0.7 : 1
-            }}
+            className={`px-8 py-3 text-[var(--color-bg)] border-none font-mono ${isSubmitting ? 'bg-[var(--color-text-dim)] cursor-not-allowed opacity-70' : 'bg-[var(--color-primary)] cursor-pointer'}`}
           >
             {isSubmitting ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
+              <span className="flex items-center gap-2 justify-center">
                 <span className="spinner"></span> TRANSMITTING...
               </span>
             ) : '[ SUBMIT_POC (V1) ]'}
@@ -430,15 +314,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
         )}
         <button 
           onClick={() => setShowV1Fallback(false)}
-          style={{ 
-            padding: '0.75rem 1.5rem', 
-            background: 'transparent', 
-            color: 'var(--color-text-dim)', 
-            border: '1px solid var(--color-text-dim)', 
-            cursor: 'pointer', 
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.85rem'
-          }}
+          className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
         >
           BACK TO V2
         </button>
@@ -460,7 +336,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           </span>
         </CardHeader>
         <CardContent className="pt-0">
-          <pre className="bg-black/50 p-4 border border-primary/20 rounded-md overflow-auto text-xs font-mono text-primary max-h-[400px]">
+          <pre className="bg-neutral-900/80 p-4 border border-primary/20 rounded-md overflow-auto text-xs font-mono text-primary max-h-[400px]">
             {pocJson}
           </pre>
         </CardContent>

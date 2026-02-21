@@ -23,10 +23,20 @@ function hexToBytes(hex: `0x${string}`): Uint8Array {
   return bytes
 }
 
-type SubmissionPhase = 'idle' | 'loading_key' | 'encrypting' | 'uploading' | 'committing' | 'committed' | 'revealing' | 'revealed' | 'error'
+export const SUBMISSION_LIFECYCLE_PHASES = [
+  'idle',
+  'encrypting',
+  'committing',
+  'committed',
+  'revealing',
+  'revealed',
+  'failed'
+] as const
+
+export type SubmissionLifecyclePhase = (typeof SUBMISSION_LIFECYCLE_PHASES)[number]
 
 interface SubmissionState {
-  phase: SubmissionPhase
+  phase: SubmissionLifecyclePhase
   submissionId?: bigint
   salt?: `0x${string}`
   iv?: `0x${string}`
@@ -48,6 +58,10 @@ export const usePoCSubmission = () => {
   const [state, setState] = useState<SubmissionState>({ phase: 'idle' })
   const { address, walletClient, publicClient, isConnected } = useWallet()
 
+  const setFailed = useCallback((message: string) => {
+    setState(s => ({ ...s, phase: 'failed', error: message }))
+  }, [])
+
   const uploadToIPFS = async (ciphertext: `0x${string}`, iv: `0x${string}`): Promise<string> => {
     await new Promise(resolve => setTimeout(resolve, 800))
     const payload = JSON.stringify({ ciphertext, iv })
@@ -57,25 +71,15 @@ export const usePoCSubmission = () => {
     return `ipfs://Qm${payloadHash.slice(4, 50)}`
   }
 
-  const submitPoC = useCallback(async (pocJsonOrProjectId: bigint | string, pocJson?: string): Promise<SubmitPoCResult | undefined> => {
-    let projectId: bigint
-    let pocData: string
-
-    if (typeof pocJsonOrProjectId === 'bigint' && pocJson) {
-      projectId = pocJsonOrProjectId
-      pocData = pocJson
-    } else {
-      projectId = 1n
-      pocData = pocJsonOrProjectId as string
-    }
+  const submitPoC = useCallback(async (projectId: bigint, pocData: string): Promise<SubmitPoCResult | undefined> => {
 
     if (!isConnected || !walletClient || !publicClient || !address) {
-      setState(s => ({ ...s, phase: 'error', error: 'Wallet not connected' }))
+      setFailed('Wallet not connected. Connect your wallet and retry submission.')
       return undefined
     }
 
     try {
-      setState(s => ({ ...s, phase: 'loading_key', error: undefined }))
+      setState(s => ({ ...s, phase: 'encrypting', error: undefined }))
 
       const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/project/${projectId}/public-key`)
       if (!response.ok) throw new Error('Failed to fetch project public key')
@@ -83,15 +87,9 @@ export const usePoCSubmission = () => {
       const publicKey = data.publicKey as `0x${string}`
 
       if (!publicKey) {
-        setState(s => ({
-          ...s,
-          phase: 'error',
-          error: 'Project public key not available. The project must be registered with a public key before submissions.'
-        }))
+        setFailed('Project public key is unavailable. Ensure the project is registered with a public key before submitting.')
         return undefined
       }
-
-      setState(s => ({ ...s, phase: 'encrypting' }))
 
       const publicKeyBytes = hexToBytes(publicKey)
       const { ciphertext, iv } = await aesGcmEncrypt(pocData, publicKeyBytes)
@@ -103,7 +101,7 @@ export const usePoCSubmission = () => {
       const cipherHash = hashCiphertext(ciphertextHex)
       const commitHash = computeCommitHash(cipherHash, address as Address, salt)
 
-      setState(s => ({ ...s, phase: 'uploading' }))
+      setState(s => ({ ...s, phase: 'committing' }))
 
       const cipherURI = await uploadToIPFS(ciphertextHex, ivHex)
 
@@ -174,14 +172,10 @@ export const usePoCSubmission = () => {
       }
     } catch (err: any) {
       console.error('Submission error:', err)
-      setState(s => ({
-        ...s,
-        phase: 'error',
-        error: err.message || 'Submission failed'
-      }))
+      setFailed(`Submission failed: ${err.message || 'unknown error'}. Reset and try again.`)
       return undefined
     }
-  }, [isConnected, walletClient, publicClient, address])
+  }, [isConnected, walletClient, publicClient, address, setFailed])
 
   const reset = useCallback(() => {
     setState({ phase: 'idle' })
@@ -191,7 +185,7 @@ export const usePoCSubmission = () => {
     state,
     submitPoC,
     reset,
-    isSubmitting: state.phase !== 'idle' && state.phase !== 'error' && state.phase !== 'committed' && state.phase !== 'revealed',
+    isSubmitting: state.phase !== 'idle' && state.phase !== 'failed' && state.phase !== 'committed' && state.phase !== 'revealed',
     submissionId: state.submissionId,
     commitTxHash: state.commitTxHash,
     revealTxHash: state.revealTxHash,

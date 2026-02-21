@@ -20,95 +20,40 @@ export const StepGuidance: React.FC<StepGuidanceProps> = React.memo(({
   const [expandedField, setExpandedField] = useState<string | null>(null)
 
   return (
-    <div style={{ 
-      marginBottom: '1.5rem', 
-      padding: '1rem', 
-      background: 'rgba(0, 255, 136, 0.03)', 
-      border: '1px solid var(--color-primary-dim)',
-      borderRadius: '4px'
-    }}>
-      <h4 style={{ 
-        color: 'var(--color-primary)', 
-        marginBottom: '0.5rem', 
-        fontFamily: 'var(--font-mono)',
-        fontSize: '0.9rem'
-      }}>
+    <div className="step-guidance-container">
+      <h4 className="step-guidance-title">
         {title}
       </h4>
-      <p style={{ 
-        color: 'var(--color-text-dim)', 
-        fontSize: '0.85rem', 
-        lineHeight: 1.6,
-        marginBottom: fields ? '1rem' : 0
-      }}>
+      <p className={`step-guidance-desc ${fields ? 'mb-4' : 'mb-0'}`}>
         {description}
       </p>
       
       {fields && fields.length > 0 && (
-        <div style={{ marginTop: '0.5rem' }}>
-          <div style={{ 
-            fontSize: '0.75rem', 
-            color: 'var(--color-text-dim)', 
-            marginBottom: '0.5rem',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em'
-          }}>
+        <div className="step-guidance-fields-wrapper">
+          <div className="step-guidance-fields-title">
             Field Guide
           </div>
           {fields.map((f, i) => (
             <div 
               key={i}
-              style={{ 
-                marginBottom: '0.5rem',
-                cursor: 'pointer'
-              }}
+              className="step-guidance-field-item"
               onClick={() => setExpandedField(expandedField === f.field ? null : f.field)}
             >
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '0.5rem',
-                color: expandedField === f.field ? 'var(--color-primary)' : 'var(--color-text)',
-                fontSize: '0.85rem'
-              }}>
-                <span style={{ 
-                  color: 'var(--color-secondary)', 
-                  fontFamily: 'var(--font-mono)'
-                }}>
+              <div className={`step-guidance-field-header ${expandedField === f.field ? 'text-primary' : 'text-[var(--color-text)]'}`}>
+                <span className="step-guidance-field-icon">
                   {expandedField === f.field ? '▼' : '▶'}
                 </span>
-                <code style={{ 
-                  background: 'rgba(255,255,255,0.1)', 
-                  padding: '0.1rem 0.3rem',
-                  borderRadius: '2px',
-                  fontSize: '0.8rem'
-                }}>
+                <code className="step-guidance-field-code">
                   {f.field}
                 </code>
               </div>
               {expandedField === f.field && (
-                <div style={{ 
-                  marginLeft: '1.5rem', 
-                  marginTop: '0.5rem',
-                  padding: '0.5rem',
-                  background: 'rgba(0,0,0,0.3)',
-                  borderRadius: '2px',
-                  fontSize: '0.8rem',
-                  animation: 'fadeIn 0.2s ease'
-                }}>
-                  <div style={{ color: 'var(--color-text-dim)', marginBottom: f.example ? '0.5rem' : 0 }}>
+                <div className="step-guidance-field-content">
+                  <div className={`step-guidance-field-desc ${f.example ? 'mb-2' : 'mb-0'}`}>
                     {f.description}
                   </div>
                   {f.example && (
-                    <div style={{ 
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-secondary)',
-                      background: 'rgba(0,255,136,0.05)',
-                      padding: '0.5rem',
-                      marginTop: '0.5rem',
-                      borderRadius: '2px',
-                      wordBreak: 'break-all'
-                    }}>
+                    <div className="step-guidance-field-example">
                       Example: {f.example}
                     </div>
                   )}

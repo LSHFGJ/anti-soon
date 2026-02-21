@@ -14,11 +14,12 @@ import {
 } from '../../ui/form'
 import { Input } from '../../ui/input'
 import { Button } from '../../ui/button'
-import { 
+import {
   targetConfigSchema, 
   type TargetConfigFormData,
   chainOptions 
 } from '../../../lib/validations/poc'
+import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
 
 interface TargetStepProps {
   config: TargetConfig
@@ -33,6 +34,8 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   onNext, 
   onLoadExample 
 }) => {
+  const { schedule, flush, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
+
   const form = useForm<TargetConfigFormData>({
     resolver: zodResolver(targetConfigSchema),
     defaultValues: {
@@ -51,27 +54,28 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = e.target.value
       onChange(value)
-      onUpdate(field, value)
+      schedule(field, value)
     }
-  }, [onUpdate])
+  }, [schedule])
 
   const handleAbiChange = useCallback((value: string) => {
     form.setValue('abiJson', value, { shouldValidate: true })
-    onUpdate('abiJson', value)
-  }, [form, onUpdate])
+    schedule('abiJson', value)
+  }, [form, schedule])
 
   const handleSubmit = useCallback((data: TargetConfigFormData) => {
+    flushAll()
     Object.entries(data).forEach(([key, value]) => {
       onUpdate(key as keyof TargetConfig, value)
     })
     onNext()
-  }, [onUpdate, onNext])
+  }, [flushAll, onUpdate, onNext])
 
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.target} />
       
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
+      <div className="flex justify-end mb-6">
         {onLoadExample && (
           <Button 
             type="button"
@@ -96,19 +100,20 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                   Target Contract Address
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    {...field}
-                    placeholder="0x..."
-                    onChange={handleFieldChange('targetContract', field.onChange)}
-                    className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
-                  />
+                    <Input
+                      {...field}
+                      placeholder="0x..."
+                      onChange={handleFieldChange('targetContract', field.onChange)}
+                      onBlur={() => flush('targetContract')}
+                      className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+                    />
                 </FormControl>
                 <FormMessage className="text-[var(--color-error)] text-xs" />
               </FormItem>
             )}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+          <div className="grid grid-cols-2 gap-6">
             <FormField
               control={form.control}
               name="chain"
@@ -121,6 +126,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                     <select 
                       value={field.value} 
                       onChange={handleFieldChange('chain', field.onChange)}
+                      onBlur={() => flush('chain')}
                       className="flex h-10 w-full rounded-md border border-[var(--color-text-dim)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] font-mono focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] cursor-pointer"
                     >
                       <option value="Mainnet">Ethereum Mainnet</option>
@@ -148,6 +154,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                       type="text"
                       placeholder="e.g. 18500000"
                       onChange={handleFieldChange('forkBlock', field.onChange)}
+                      onBlur={() => flush('forkBlock')}
                       className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
                     />
                   </FormControl>
@@ -182,7 +189,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
             )}
           />
 
-          <div style={{ marginTop: '2rem', textAlign: 'right' }}>
+          <div className="mt-8 text-right">
             <Button 
               type="submit"
               className="font-mono text-base px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary)]/90 tracking-wider"

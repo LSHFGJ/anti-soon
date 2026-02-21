@@ -8,9 +8,9 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { useWallet } from '../hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { ScriptPicker } from '@/components/ScriptPicker'
 import { ScopeEditor } from '@/components/ScopeEditor'
+import { NeonPanel, PageHeader, StatusBanner } from '@/components/shared/ui-primitives'
 import type { DeployScript, ContractScope } from '@/types'
 import {
   Select,
@@ -184,11 +184,12 @@ export function CreateProject() {
   const extractContractNames = (content: string): string[] => {
     const contracts: string[] = []
     const regex = /new\s+([A-Z][a-zA-Z0-9_]*)\s*\(/g
-    let match: RegExpExecArray | null
-    while ((match = regex.exec(content)) !== null) {
+    let match = regex.exec(content)
+    while (match !== null) {
       if (!contracts.includes(match[1])) {
         contracts.push(match[1])
       }
+      match = regex.exec(content)
     }
     return contracts
   }
@@ -362,29 +363,21 @@ export function CreateProject() {
     <div className="wizard-steps">
       {STEPS.map((step, index) => (
         <div key={step} className="wizard-step">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div className="flex items-center">
             <div 
               className={`wizard-step-number ${index < activeStep ? 'completed' : ''} ${index === activeStep ? 'active' : ''}`}
             >
               {index < activeStep ? '✓' : index + 1}
             </div>
             <span 
-              className={`wizard-step-label ${index === activeStep ? 'active' : ''}`}
-              style={{ 
-                color: index <= activeStep ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                marginLeft: '0.5rem',
-              }}
+              className={`wizard-step-label ml-2 ${index === activeStep ? 'active' : ''} ${index <= activeStep ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-dim)]'}`}
             >
               {step}
             </span>
           </div>
           {index < STEPS.length - 1 && (
             <div 
-              className="wizard-connector"
-              style={{ 
-                background: index < activeStep ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                margin: '0 0.75rem',
-              }}
+              className={`wizard-connector mx-3 ${index < activeStep ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-text-dim)]'}`}
             />
           )}
         </div>
@@ -393,14 +386,14 @@ export function CreateProject() {
   )
 
   const renderRepositoryStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_01: REPOSITORY URL
+    <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+        {"// STEP_01: REPOSITORY URL"}
       </h3>
-      <p style={{ color: 'var(--color-text-dim)', marginBottom: '2rem' }}>
+      <p className="text-[var(--color-text-dim)] mb-8">
         Paste a public GitHub repository URL and scan for Foundry deployment scripts.
       </p>
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+      <div className="flex gap-3 items-center">
         <Input
           placeholder="https://github.com/owner/repo"
           value={repoUrl}
@@ -416,12 +409,12 @@ export function CreateProject() {
         </Button>
       </div>
       {scanError && (
-        <p style={{ color: 'var(--color-error)', marginTop: '1rem', fontSize: '0.875rem' }}>
+        <p className="text-[var(--color-error)] mt-4 text-sm">
           ✗ {scanError}
         </p>
       )}
       {scripts.length > 0 && (
-        <p style={{ color: 'var(--color-primary)', marginTop: '1rem', fontSize: '0.875rem' }}>
+        <p className="text-[var(--color-primary)] mt-4 text-sm">
           ✓ Found {scripts.length} deployment script{scripts.length === 1 ? '' : 's'}. Click NEXT to continue.
         </p>
       )}
@@ -429,11 +422,11 @@ export function CreateProject() {
   )
 
   const renderScriptStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_02: SELECT DEPLOY SCRIPT
+    <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+        {"// STEP_02: SELECT DEPLOY SCRIPT"}
       </h3>
-      <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
+      <p className="text-[var(--color-text-dim)] mb-4">
         Select a Foundry deployment script to deploy your contracts.
       </p>
       <ScriptPicker
@@ -457,11 +450,11 @@ export function CreateProject() {
     })) || []
 
     return (
-      <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-          // STEP_03: DEFINE SCOPE
+      <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+          {"// STEP_03: DEFINE SCOPE"}
         </h3>
-        <p style={{ color: 'var(--color-text-dim)', marginBottom: '1rem' }}>
+        <p className="text-[var(--color-text-dim)] mb-4">
           Select which contracts should be included in the audit scope.
         </p>
         <ScopeEditor
@@ -477,18 +470,18 @@ export function CreateProject() {
   }
 
   const renderBountyStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_04: BOUNTY CONFIG
+    <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+        {"// STEP_04: BOUNTY CONFIG"}
       </h3>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+      <div className="grid grid-cols-2 gap-6">
         <FormField
           control={form.control}
           name="bountyPool"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 BOUNTY POOL (ETH) *
               </FormLabel>
               <FormControl>
@@ -510,7 +503,7 @@ export function CreateProject() {
           name="maxPayout"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 MAX PAYOUT PER BUG (ETH) *
               </FormLabel>
               <FormControl>
@@ -533,7 +526,7 @@ export function CreateProject() {
         name="mode"
         render={({ field }) => (
           <FormItem className="mt-6">
-            <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+            <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
               COMPETITION MODE *
             </FormLabel>
             <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -545,14 +538,14 @@ export function CreateProject() {
               <SelectContent className="bg-[var(--color-bg)] border-[var(--color-bg-light)]">
                 <SelectItem value="0">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold" style={{ color: 'var(--color-primary)' }}>UNIQUE</span>
-                    <span className="text-xs" style={{ color: 'var(--color-text-dim)' }}>First valid reveal wins</span>
+                    <span className="font-bold text-[var(--color-primary)]">UNIQUE</span>
+                    <span className="text-xs text-[var(--color-text-dim)]">First valid reveal wins</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="1">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold" style={{ color: 'var(--color-secondary)' }}>MULTI</span>
-                    <span className="text-xs" style={{ color: 'var(--color-text-dim)' }}>Batch verification</span>
+                    <span className="font-bold text-[var(--color-secondary)]">MULTI</span>
+                    <span className="text-xs text-[var(--color-text-dim)]">Batch verification</span>
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -562,13 +555,13 @@ export function CreateProject() {
         )}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem', marginTop: '1.5rem' }}>
+      <div className="grid grid-cols-2 gap-6 mt-6">
         <FormField
           control={form.control}
           name="commitDeadlineHours"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 COMMIT DEADLINE (HOURS) *
               </FormLabel>
               <FormControl>
@@ -590,7 +583,7 @@ export function CreateProject() {
           name="revealDeadlineHours"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 REVEAL DEADLINE (HOURS) *
               </FormLabel>
               <FormControl>
@@ -611,18 +604,18 @@ export function CreateProject() {
   )
 
   const renderRulesStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_05: VERIFICATION RULES
+    <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+        {"// STEP_05: VERIFICATION RULES"}
       </h3>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
+      <div className="grid grid-cols-2 gap-6">
         <FormField
           control={form.control}
           name="maxAttackerSeed"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 MAX ATTACKER SEED (ETH) *
               </FormLabel>
               <FormControl>
@@ -635,7 +628,7 @@ export function CreateProject() {
                   {...field} 
                 />
               </FormControl>
-              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+              <FormDescription className="text-xs text-[var(--color-text-dim)]">
                 Maximum ETH attacker can give themselves in setup
               </FormDescription>
               <FormMessage className="text-[var(--color-error)]" />
@@ -648,7 +641,7 @@ export function CreateProject() {
           name="maxWarpSeconds"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 MAX WARP SECONDS *
               </FormLabel>
               <FormControl>
@@ -660,7 +653,7 @@ export function CreateProject() {
                   {...field} 
                 />
               </FormControl>
-              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+              <FormDescription className="text-xs text-[var(--color-text-dim)]">
                 Maximum time the PoC can warp forward (0 = unlimited)
               </FormDescription>
               <FormMessage className="text-[var(--color-error)]" />
@@ -674,13 +667,8 @@ export function CreateProject() {
         name="allowImpersonation"
         render={({ field }) => (
           <FormItem className="mt-6">
-            <div 
-              className="flex items-center gap-3 cursor-pointer p-4 border rounded-md transition-colors"
-              style={{ 
-                borderColor: field.value ? 'var(--color-primary)' : 'var(--color-text-dim)',
-                background: field.value ? 'rgba(0, 255, 157, 0.1)' : 'transparent',
-              }}
-              onClick={() => field.onChange(!field.value)}
+            <label 
+              className={`flex items-center gap-3 cursor-pointer p-4 border rounded-md transition-colors ${field.value ? 'border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)]' : 'border-[var(--color-text-dim)] bg-transparent'}`}
             >
               <FormControl>
                 <input
@@ -691,14 +679,14 @@ export function CreateProject() {
                 />
               </FormControl>
               <div>
-                <Label className={`cursor-pointer ${field.value ? 'font-bold' : ''}`}>
+                <span className={`cursor-pointer ${field.value ? 'font-bold' : ''}`}>
                   ALLOW IMPERSONATION
-                </Label>
-                <p className="text-xs mt-1" style={{ color: 'var(--color-text-dim)' }}>
+                </span>
+                <p className="text-xs mt-1 text-[var(--color-text-dim)]">
                   Allow PoC to impersonate arbitrary addresses (e.g., for governance attacks)
                 </p>
               </div>
-            </div>
+            </label>
           </FormItem>
         )}
       />
@@ -709,7 +697,7 @@ export function CreateProject() {
           name="disputeWindowHours"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-dim)' }}>
+              <FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
                 DISPUTE WINDOW (HOURS) *
               </FormLabel>
               <FormControl>
@@ -721,7 +709,7 @@ export function CreateProject() {
                   {...field} 
                 />
               </FormControl>
-              <FormDescription className="text-xs" style={{ color: 'var(--color-text-dim)' }}>
+              <FormDescription className="text-xs text-[var(--color-text-dim)]">
                 Time for project owner to dispute AI verdicts
               </FormDescription>
               <FormMessage className="text-[var(--color-error)]" />
@@ -733,25 +721,18 @@ export function CreateProject() {
   )
 
   const renderThresholdsStep = () => (
-    <div style={{ animation: 'fadeIn 0.3s ease' }}>
-      <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-        // STEP_06: SEVERITY THRESHOLDS
+    <div className="animate-[fadeIn_0.3s_linear]">
+      <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+        {"// STEP_06: SEVERITY THRESHOLDS"}
       </h3>
       
-      <p className="mb-6 text-sm" style={{ color: 'var(--color-text-dim)' }}>
+      <p className="mb-6 text-sm text-[var(--color-text-dim)]">
         Define ETH drain amounts that determine vulnerability severity. Higher severity = higher payout.
       </p>
 
       <div className="flex flex-col gap-4">
-        <div 
-          className="grid items-center gap-4 p-4 border rounded-md"
-          style={{ 
-            gridTemplateColumns: '120px 1fr auto',
-            borderColor: '#ff003c',
-            background: 'rgba(255, 0, 60, 0.05)',
-          }}
-        >
-          <span className="font-bold" style={{ color: '#ff003c' }}>CRITICAL</span>
+        <div className="grid items-center gap-4 p-4 border rounded-md border-[var(--color-error)] bg-[var(--color-error-dim)] grid-cols-[120px_1fr_auto]">
+          <span className="font-bold text-[var(--color-error)]">CRITICAL</span>
           <FormField
             control={form.control}
             name="criticalThreshold"
@@ -771,18 +752,11 @@ export function CreateProject() {
               </FormItem>
             )}
           />
-          <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
+          <span className="text-[var(--color-text-dim)]">ETH</span>
         </div>
 
-        <div 
-          className="grid items-center gap-4 p-4 border rounded-md"
-          style={{ 
-            gridTemplateColumns: '120px 1fr auto',
-            borderColor: '#ff8800',
-            background: 'rgba(255, 136, 0, 0.05)',
-          }}
-        >
-          <span className="font-bold" style={{ color: '#ff8800' }}>HIGH</span>
+        <div className="grid items-center gap-4 p-4 border rounded-md border-[var(--color-warning)] bg-[var(--color-warning-dim)] grid-cols-[120px_1fr_auto]">
+          <span className="font-bold text-[var(--color-warning)]">HIGH</span>
           <FormField
             control={form.control}
             name="highThreshold"
@@ -802,18 +776,11 @@ export function CreateProject() {
               </FormItem>
             )}
           />
-          <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
+          <span className="text-[var(--color-text-dim)]">ETH</span>
         </div>
 
-        <div 
-          className="grid items-center gap-4 p-4 border rounded-md"
-          style={{ 
-            gridTemplateColumns: '120px 1fr auto',
-            borderColor: '#ffff00',
-            background: 'rgba(255, 255, 0, 0.05)',
-          }}
-        >
-          <span className="font-bold" style={{ color: '#ffff00' }}>MEDIUM</span>
+        <div className="grid items-center gap-4 p-4 border rounded-md border-[var(--color-gold)] bg-[var(--color-gold-dim)] grid-cols-[120px_1fr_auto]">
+          <span className="font-bold text-[var(--color-gold)]">MEDIUM</span>
           <FormField
             control={form.control}
             name="mediumThreshold"
@@ -833,18 +800,11 @@ export function CreateProject() {
               </FormItem>
             )}
           />
-          <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
+          <span className="text-[var(--color-text-dim)]">ETH</span>
         </div>
 
-        <div 
-          className="grid items-center gap-4 p-4 border rounded-md"
-          style={{ 
-            gridTemplateColumns: '120px 1fr auto',
-            borderColor: '#88ff88',
-            background: 'rgba(136, 255, 136, 0.05)',
-          }}
-        >
-          <span className="font-bold" style={{ color: '#88ff88' }}>LOW</span>
+        <div className="grid items-center gap-4 p-4 border rounded-md border-[var(--color-primary)] bg-[var(--color-primary-dim)] grid-cols-[120px_1fr_auto]">
+          <span className="font-bold text-[var(--color-primary)]">LOW</span>
           <FormField
             control={form.control}
             name="lowThreshold"
@@ -864,7 +824,7 @@ export function CreateProject() {
               </FormItem>
             )}
           />
-          <span style={{ color: 'var(--color-text-dim)' }}>ETH</span>
+          <span className="text-[var(--color-text-dim)]">ETH</span>
         </div>
       </div>
     </div>
@@ -874,53 +834,51 @@ export function CreateProject() {
     const formData = form.getValues()
     
     return (
-      <div style={{ animation: 'fadeIn 0.3s ease' }}>
-        <h3 style={{ color: 'var(--color-primary)', marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>
-          // STEP_07: REVIEW & SUBMIT
+      <div className="animate-[fadeIn_0.3s_linear]">
+        <h3 className="text-[var(--color-primary)] mb-6 font-mono">
+          {"// STEP_07: REVIEW & SUBMIT"}
         </h3>
 
         <div 
-          className="grid gap-6 mb-8"
-          style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}
+          className="grid gap-6 mb-8 grid-cols-2"
         >
-          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+          <div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
+            <h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
               [BASICS]
             </h4>
             <div className="text-sm font-mono">
               <div className="mb-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>TARGET: </span>
-                <span style={{ color: 'var(--color-text)' }}>{formData.targetContract || '—'}</span>
+                <span className="text-[var(--color-text-dim)]">TARGET: </span>
+                <span className="text-[var(--color-text)]">{formData.targetContract || '—'}</span>
               </div>
               <div>
-                <span style={{ color: 'var(--color-text-dim)' }}>FORK_BLOCK: </span>
+                <span className="text-[var(--color-text-dim)]">FORK_BLOCK: </span>
                 <span>{formData.forkBlock || '0 (latest)'}</span>
               </div>
               <div className="mt-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>REPO_URL: </span>
-                <span style={{ color: 'var(--color-text)' }}>{repoUrl || '—'}</span>
+                <span className="text-[var(--color-text-dim)]">REPO_URL: </span>
+                <span className="text-[var(--color-text)]">{repoUrl || '—'}</span>
               </div>
             </div>
           </div>
 
-          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+          <div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
+            <h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
               [BOUNTY]
             </h4>
             <div className="text-sm font-mono">
               <div className="mb-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>POOL: </span>
-                <span className="font-bold" style={{ color: 'var(--color-primary)' }}>{formData.bountyPool} ETH</span>
+                <span className="text-[var(--color-text-dim)]">POOL: </span>
+                <span className="font-bold text-[var(--color-primary)]">{formData.bountyPool} ETH</span>
               </div>
               <div className="mb-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>MAX_PAYOUT: </span>
+                <span className="text-[var(--color-text-dim)]">MAX_PAYOUT: </span>
                 <span>{formData.maxPayout} ETH</span>
               </div>
               <div>
-                <span style={{ color: 'var(--color-text-dim)' }}>MODE: </span>
+                <span className="text-[var(--color-text-dim)]">MODE: </span>
                 <span 
-                  className="font-bold" 
-                  style={{ color: formData.mode === '0' ? 'var(--color-primary)' : 'var(--color-secondary)' }}
+                  className={`font-bold ${formData.mode === '0' ? 'text-[var(--color-primary)]' : 'text-[var(--color-secondary)]'}`}
                 >
                   {formData.mode === '0' ? 'UNIQUE' : 'MULTI'}
                 </span>
@@ -928,47 +886,47 @@ export function CreateProject() {
             </div>
           </div>
 
-          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+          <div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
+            <h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
               [RULES]
             </h4>
             <div className="text-sm font-mono">
               <div className="mb-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>MAX_SEED: </span>
+                <span className="text-[var(--color-text-dim)]">MAX_SEED: </span>
                 <span>{formData.maxAttackerSeed} ETH</span>
               </div>
               <div className="mb-2">
-                <span style={{ color: 'var(--color-text-dim)' }}>MAX_WARP: </span>
+                <span className="text-[var(--color-text-dim)]">MAX_WARP: </span>
                 <span>{formData.maxWarpSeconds}s</span>
               </div>
               <div>
-                <span style={{ color: 'var(--color-text-dim)' }}>IMPERSONATE: </span>
-                <span style={{ color: formData.allowImpersonation ? 'var(--color-primary)' : 'var(--color-error)' }}>
+                <span className="text-[var(--color-text-dim)]">IMPERSONATE: </span>
+                <span className={formData.allowImpersonation ? 'text-[var(--color-primary)]' : 'text-[var(--color-error)]'}>
                   {formData.allowImpersonation ? 'YES' : 'NO'}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="p-4 border rounded-md" style={{ borderColor: 'var(--color-bg-light)', background: 'rgba(255,255,255,0.02)' }}>
-            <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-secondary)' }}>
+          <div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
+            <h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
               [THRESHOLDS]
             </h4>
             <div className="text-sm font-mono">
               <div className="mb-1">
-                <span style={{ color: '#ff003c' }}>CRITICAL: </span>
+                <span className="text-[var(--color-error)]">CRITICAL: </span>
                 <span>{formData.criticalThreshold} ETH</span>
               </div>
               <div className="mb-1">
-                <span style={{ color: '#ff8800' }}>HIGH: </span>
+                <span className="text-[var(--color-warning)]">HIGH: </span>
                 <span>{formData.highThreshold} ETH</span>
               </div>
               <div className="mb-1">
-                <span style={{ color: '#ffff00' }}>MEDIUM: </span>
+                <span className="text-[var(--color-gold)]">MEDIUM: </span>
                 <span>{formData.mediumThreshold} ETH</span>
               </div>
               <div>
-                <span style={{ color: '#88ff88' }}>LOW: </span>
+                <span className="text-[var(--color-primary)]">LOW: </span>
                 <span>{formData.lowThreshold} ETH</span>
               </div>
             </div>
@@ -976,100 +934,89 @@ export function CreateProject() {
         </div>
 
         <div 
-          className="p-4 border rounded-md mb-8"
-          style={{ 
-            borderColor: 'var(--color-primary)', 
-            background: 'rgba(0, 255, 157, 0.05)',
-          }}
+          className="p-4 border rounded-md mb-8 border-[var(--color-primary)] bg-[rgba(124,58,237,0.05)]"
         >
-          <h4 className="mb-4 text-xs font-mono" style={{ color: 'var(--color-primary)' }}>
+          <h4 className="mb-4 text-xs font-mono text-[var(--color-primary)]">
             [TIMELINE]
           </h4>
-          <div className="grid gap-4 text-sm font-mono" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="grid gap-4 text-sm font-mono grid-cols-3">
             <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>COMMIT DEADLINE: </span>
+              <span className="text-[var(--color-text-dim)]">COMMIT DEADLINE: </span>
               <span>{formData.commitDeadlineHours}h from now</span>
             </div>
             <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>REVEAL DEADLINE: </span>
+              <span className="text-[var(--color-text-dim)]">REVEAL DEADLINE: </span>
               <span>{formData.revealDeadlineHours}h from now</span>
             </div>
             <div>
-              <span style={{ color: 'var(--color-text-dim)' }}>DISPUTE WINDOW: </span>
+              <span className="text-[var(--color-text-dim)]">DISPUTE WINDOW: </span>
               <span>{formData.disputeWindowHours}h</span>
             </div>
           </div>
         </div>
 
         {!isConnected && (
-          <div 
-            className="p-6 border rounded-md mb-6 text-center"
-            style={{ 
-              borderColor: 'var(--color-error)', 
-              background: 'rgba(255, 0, 60, 0.1)',
-            }}
-          >
-            <p className="mb-4" style={{ color: 'var(--color-error)' }}>
-              Wallet not connected. Connect your wallet to submit.
-            </p>
+          <StatusBanner
+            variant="error"
+            className="mb-6 text-center"
+            message={(
+              <>
+                <p className="mb-4">Wallet not connected. Connect your wallet to submit.</p>
             <Button onClick={connect} className="btn-cyber">
               CONNECT WALLET
             </Button>
-          </div>
+              </>
+            )}
+          />
         )}
 
         {txHash && (
-          <div 
-            className="p-4 border rounded-md mb-6"
-            style={{ 
-              borderColor: 'var(--color-primary)', 
-              background: 'rgba(0, 255, 157, 0.1)',
-            }}
-          >
-            <p className="text-sm font-mono mb-2" style={{ color: 'var(--color-primary)' }}>
+          <StatusBanner
+            variant="success"
+            className="mb-6"
+            message={(
+              <>
+                <p className="text-sm font-mono mb-2">
               ✓ TRANSACTION SUBMITTED
             </p>
             <p className="text-xs font-mono break-all">
-              <span style={{ color: 'var(--color-text-dim)' }}>TX_HASH: </span>
+              <span className="text-[var(--color-text-dim)]">TX_HASH: </span>
               <a 
                 href={`https://sepolia.etherscan.io/tx/${txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: 'var(--color-secondary)' }}
+                className="text-[var(--color-secondary)]"
               >
                 {txHash}
               </a>
             </p>
-            <p className="text-xs mt-2" style={{ color: 'var(--color-text-dim)' }}>
+            <p className="text-xs mt-2 text-[var(--color-text-dim)]">
               Redirecting to explorer...
             </p>
-          </div>
+              </>
+            )}
+          />
         )}
 
         {txError && (
-          <div 
-            className="p-4 border rounded-md mb-6"
-            style={{ 
-              borderColor: 'var(--color-error)', 
-              background: 'rgba(255, 0, 60, 0.1)',
-            }}
-          >
-            <p className="text-sm font-mono" style={{ color: 'var(--color-error)' }}>
-              ✗ TRANSACTION FAILED
-            </p>
-            <p className="text-xs font-mono mt-2" style={{ color: 'var(--color-text)' }}>
-              {txError}
-            </p>
-          </div>
+          <StatusBanner
+            variant="error"
+            className="mb-6"
+            message={
+              <>
+                <p className="text-sm font-mono">✗ TRANSACTION FAILED</p>
+                <p className="text-xs font-mono mt-2 text-[var(--color-text)]">{txError}</p>
+              </>
+            }
+          />
         )}
 
         {isConnected && (
           <div 
-            className="p-3 border rounded-md mb-6 text-xs font-mono"
-            style={{ borderColor: 'var(--color-bg-light)' }}
+            className="p-3 border rounded-md mb-6 text-xs font-mono border-[var(--color-bg-light)]"
           >
-            <span style={{ color: 'var(--color-text-dim)' }}>SUBMITTING FROM: </span>
-            <span style={{ color: 'var(--color-secondary)' }}>{address}</span>
+            <span className="text-[var(--color-text-dim)]">SUBMITTING FROM: </span>
+            <span className="text-[var(--color-secondary)]">{address}</span>
           </div>
         )}
       </div>
@@ -1090,60 +1037,27 @@ export function CreateProject() {
   }
 
   return (
-    <div style={{ height: 'calc(100vh - 142px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div className="container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header style={{ marginBottom: '1rem', flexShrink: 0 }}>
-          <h1 style={{ 
-            fontSize: '1.5rem', 
-            fontFamily: 'var(--font-display)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
-            color: 'var(--color-primary)',
-          }}>
-            CREATE PROJECT
-          </h1>
-          <div style={{ 
-            height: '2px', 
-            background: 'linear-gradient(90deg, var(--color-primary), transparent)',
-            width: '150px',
-            margin: '0.25rem 0 0.5rem',
-          }} />
-          <p style={{ 
-            color: 'var(--color-text-dim)', 
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.8rem',
-          }}>
-            &gt; Register a new bounty project on-chain
-          </p>
-        </header>
+    <div className="h-[calc(100vh-142px)] flex flex-col overflow-hidden">
+      <div className="container flex-1 flex flex-col overflow-hidden">
+        <PageHeader title="CREATE PROJECT" subtitle="> Register a new bounty project on-chain" className="mb-4" />
 
-        <div style={{ flexShrink: 0, marginBottom: '1rem' }}>
+        <div className="shrink-0 mb-4">
           {renderStepIndicator()}
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            <div style={{ 
-              background: 'rgba(255, 255, 255, 0.02)', 
-              padding: '1rem', 
-              border: '1px solid var(--color-bg-light)',
-              flex: 1,
-              overflow: 'auto',
-            }}>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 overflow-hidden">
+            <NeonPanel className="flex-1 overflow-auto" contentClassName="p-4">
               {renderCurrentStep()}
-            </div>
+            </NeonPanel>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexShrink: 0, marginTop: '1rem' }}>
+            <div className="flex justify-between gap-4 shrink-0 mt-4">
               <Button
                 type="button"
                 onClick={handleBack}
                 disabled={activeStep === 0 || isSubmitting}
                 variant="outline"
-                className="btn-cyber"
-                style={{ 
-                  opacity: activeStep === 0 ? 0.5 : 1,
-                  cursor: activeStep === 0 ? 'not-allowed' : 'pointer',
-                }}
+                className={`btn-cyber ${activeStep === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 [ PREVIOUS ]
               </Button>
@@ -1156,15 +1070,11 @@ export function CreateProject() {
                 <Button
                   type="submit"
                   disabled={!isConnected || isSubmitting || !!txHash}
-                  className="btn-cyber"
-                  style={{ 
-                    opacity: (!isConnected || isSubmitting || txHash) ? 0.5 : 1,
-                    minWidth: '180px',
-                  }}
+                  className={`btn-cyber min-w-[180px] ${(!isConnected || isSubmitting || txHash) ? 'opacity-50' : ''}`}
                 >
                   {isSubmitting ? (
                     <>
-                      <span className="spinner" style={{ marginRight: '0.5rem' }} />
+                      <span className="spinner mr-2" />
                       SUBMITTING...
                     </>
                   ) : txHash ? (

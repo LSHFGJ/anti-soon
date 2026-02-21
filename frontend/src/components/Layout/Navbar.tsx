@@ -1,13 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useWallet } from '../../hooks/useWallet'
 import { Button } from '@/components/ui/button'
-import {
-  NavigationMenu,
-  NavigationMenuList,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  navigationMenuTriggerStyle,
-} from '@/components/ui/navigation-menu'
 import { cn } from '@/lib/utils'
 
 export function Navbar() {
@@ -28,77 +21,58 @@ export function Navbar() {
   }
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 h-[70px] flex items-center justify-between px-8 bg-[rgba(10,10,10,0.95)] backdrop-blur-sm border-b border-[var(--color-bg-light)]">
-      <Link to="/" className="flex items-baseline gap-2 no-underline group">
-        <span className="font-['Syncopate',sans-serif] text-xl font-bold text-[var(--color-primary)] transition-all duration-200 group-hover:drop-shadow-[0_0_10px_rgba(0,255,157,0.5)]">
+    <nav className="fixed top-0 left-0 right-0 z-50 h-auto md:h-[70px] flex items-center justify-between md:justify-between gap-2 px-3 sm:px-4 md:px-8 py-2 md:py-0 flex-wrap md:flex-nowrap bg-[var(--color-bg-panel)] backdrop-blur-md border-b border-neutral-800 shadow-[0_0_40px_rgba(124,58,237,0.4)]">
+      <Link to="/" className="order-1 flex items-baseline gap-2 no-underline group flex-shrink-0">
+        <span className="font-['Syncopate',sans-serif] text-base sm:text-lg md:text-xl font-bold text-[var(--color-primary)] transition-all duration-300 group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]">
           ANTI-SOON
         </span>
-        <span className="font-['JetBrains_Mono',monospace] text-[0.7rem] text-[var(--color-text-dim)]">
+        <span className="hidden sm:inline font-['JetBrains_Mono',monospace] text-[0.7rem] text-[var(--color-text-dim)]">
           v2.0
         </span>
       </Link>
 
-      <NavigationMenu className="hidden md:flex">
-        <NavigationMenuList className="flex gap-1">
-          {navItems.map((item) => (
-            <NavigationMenuItem key={item.path}>
-              <Link to={item.path}>
-                <NavigationMenuLink
-                  className={cn(
-                    navigationMenuTriggerStyle(),
-                    "font-['JetBrains_Mono',monospace] text-[0.8rem] px-4 py-2",
-                    "text-[var(--color-text-dim)] border border-transparent",
-                    "hover:text-[var(--color-primary)] hover:bg-transparent",
-                    "transition-all duration-200",
-                    isActive(item.path) && [
-                      "text-[var(--color-primary)]",
-                      "border-[var(--color-primary)]",
-                      "bg-[rgba(0,255,157,0.1)]",
-                    ]
-                  )}
-                >
-                  [{item.label}]
-                </NavigationMenuLink>
-              </Link>
-            </NavigationMenuItem>
-          ))}
-        </NavigationMenuList>
-      </NavigationMenu>
-
-      <div className="flex md:hidden gap-1 overflow-x-auto">
+      <div className="hidden md:flex navbar-links md:order-2">
         {navItems.map((item) => (
           <Link
             key={item.path}
             to={item.path}
             className={cn(
-              "font-['JetBrains_Mono',monospace] text-[0.7rem] px-2 py-1",
-              "text-[var(--color-text-dim)] border border-transparent",
-              "hover:text-[var(--color-primary)]",
-              "transition-all duration-200 whitespace-nowrap",
-              isActive(item.path) && [
-                "text-[var(--color-primary)]",
-                "border-[var(--color-primary)]",
-                "bg-[rgba(0,255,157,0.1)]",
-              ]
+              "nav-link",
+              isActive(item.path) && "active"
             )}
           >
-            [{item.label.slice(0, 3)}]
+            [{item.label}]
           </Link>
         ))}
       </div>
 
-      <div className="flex gap-4 items-center">
+      <div className="order-3 w-full flex md:hidden gap-1 overflow-x-auto px-1 flex-nowrap items-center pb-1">
+        {navItems.map((item) => (
+          <Link
+            key={item.path}
+            to={item.path}
+            className={cn(
+              "nav-link whitespace-nowrap shrink-0 py-2 px-3",
+              isActive(item.path) && "active"
+            )}
+          >
+            [{item.label}]
+          </Link>
+        ))}
+      </div>
+
+      <div className="order-2 md:order-3 flex gap-2 sm:gap-4 items-center flex-shrink-0 ml-auto">
         {isConnected && (
           <Link to="/create-project">
             <Button
               variant="outline"
               size="sm"
               className={cn(
-                "font-['JetBrains_Mono',monospace] text-[0.75rem]",
-                "text-[var(--color-secondary)] border-[var(--color-secondary)]",
-                "bg-transparent hover:bg-[var(--color-secondary)] hover:text-[var(--color-bg)]",
-                "hover:border-[var(--color-secondary)]",
-                "transition-all duration-200"
+                "hidden sm:inline-flex font-['JetBrains_Mono',monospace] text-[0.75rem]",
+                "text-[var(--color-secondary)] border-[var(--color-secondary)]/50",
+                "bg-[var(--color-secondary-dim)] hover:bg-[var(--color-secondary)] hover:text-[var(--color-bg)]",
+                "hover:border-[var(--color-secondary)] hover:shadow-[0_0_15px_var(--color-secondary-glow)]",
+                "transition-all duration-300"
               )}
             >
               + CREATE
@@ -113,15 +87,19 @@ export function Navbar() {
           className={cn(
             "font-['JetBrains_Mono',monospace] text-[0.8rem]",
             isConnected
-              ? "text-[var(--color-primary)] border-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)]"
-              : "text-[var(--color-text)] border-[var(--color-text-dim)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
-            "bg-transparent",
-            "transition-all duration-200"
+              ? "text-[var(--color-primary)] border-[var(--color-primary)]/50 bg-[var(--color-primary-dim)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] hover:shadow-[0_0_15px_var(--color-primary-glow)]"
+              : "text-[var(--color-text)] border-white/20 hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] hover:shadow-[0_0_15px_var(--color-primary-dim)]",
+            "transition-all duration-300"
           )}
         >
           {isConnected 
             ? `[${address?.slice(0, 6)}...${address?.slice(-4)}]` 
-            : '[ CONNECT ]'
+            : (
+              <>
+                <span className="sm:hidden">[CONN]</span>
+                <span className="hidden sm:inline">[ CONNECT ]</span>
+              </>
+            )
           }
         </Button>
       </div>

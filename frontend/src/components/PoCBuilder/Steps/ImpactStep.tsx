@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import type { ImpactConfig, ImpactType } from '../../../types/poc'
 import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
 
 interface ImpactStepProps {
   config: ImpactConfig
@@ -29,19 +30,52 @@ const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] 
 ]
 
 export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack }) => {
+  const [draft, setDraft] = useState({
+    type: config.type,
+    estimatedLoss: config.estimatedLoss,
+    description: config.description,
+  })
+
+  useEffect(() => {
+    setDraft({
+      type: config.type,
+      estimatedLoss: config.estimatedLoss,
+      description: config.description,
+    })
+  }, [config.type, config.estimatedLoss, config.description])
+
+  const { schedule, flush, flushAll } = useDeferredFieldUpdates<'estimatedLoss' | 'description'>((field, value) => {
+    onUpdate(field, value)
+  })
+
   const handleTypeChange = useCallback((value: ImpactType) => {
+    setDraft((prev) => ({ ...prev, type: value }))
     onUpdate('type', value)
   }, [onUpdate])
 
   const handleLossChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onUpdate('estimatedLoss', e.target.value)
-  }, [onUpdate])
+    const nextValue = e.target.value
+    setDraft((prev) => ({ ...prev, estimatedLoss: nextValue }))
+    schedule('estimatedLoss', nextValue)
+  }, [schedule])
 
   const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onUpdate('description', e.target.value)
-  }, [onUpdate])
+    const nextValue = e.target.value
+    setDraft((prev) => ({ ...prev, description: nextValue }))
+    schedule('description', nextValue)
+  }, [schedule])
 
-  const selectedType = IMPACT_TYPES.find(t => t.value === config.type)
+  const handleBack = useCallback(() => {
+    flushAll()
+    onBack()
+  }, [flushAll, onBack])
+
+  const handleNext = useCallback(() => {
+    flushAll()
+    onNext()
+  }, [flushAll, onNext])
+
+  const selectedType = IMPACT_TYPES.find(t => t.value === draft.type)
 
   return (
     <div className="step-content">
@@ -56,7 +90,7 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
             <Label htmlFor="impact-type" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
               Vulnerability Type
             </Label>
-            <Select value={config.type} onValueChange={handleTypeChange}>
+            <Select value={draft.type} onValueChange={handleTypeChange}>
               <SelectTrigger id="impact-type" className="font-mono bg-background/50">
                 <SelectValue placeholder="Select impact type" />
               </SelectTrigger>
@@ -89,8 +123,9 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
             <Input
               id="estimated-loss"
               type="number"
-              value={config.estimatedLoss}
+              value={draft.estimatedLoss}
               onChange={handleLossChange}
+              onBlur={() => flush('estimatedLoss')}
               placeholder="e.g. 1000000000000000000000 (1000 ETH)"
               className="font-mono bg-background/50"
             />
@@ -106,8 +141,9 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
             <Textarea
               id="impact-description"
               rows={4}
-              value={config.description}
+              value={draft.description}
               onChange={handleDescriptionChange}
+              onBlur={() => flush('description')}
               placeholder="Describe the vulnerability impact and how the exploit works..."
               className="font-mono bg-background/50 resize-y min-h-[100px]"
             />
@@ -118,13 +154,13 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
       <div className="flex justify-between items-center mt-8">
         <Button 
           variant="outline"
-          onClick={onBack}
+          onClick={handleBack}
           className="font-mono"
         >
           &lt;&lt; BACK
         </Button>
         <Button 
-          onClick={onNext}
+          onClick={handleNext}
           className="font-mono bg-primary hover:bg-primary/90"
         >
           REVIEW &gt;&gt;

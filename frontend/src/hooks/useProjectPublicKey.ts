@@ -6,12 +6,14 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
  * @param projectId The project ID to query
  * @returns Object containing publicKey, isLoading, and error
  */
-export function useProjectPublicKey(projectId: bigint) {
+export function useProjectPublicKey(projectId: bigint | null) {
+  const effectiveProjectId = projectId ?? 0n
+
   const { data, isLoading, error } = useReadContract({
     address: BOUNTY_HUB_ADDRESS,
     abi: BOUNTY_HUB_V2_ABI,
     functionName: 'projects',
-    args: [projectId],
+    args: [effectiveProjectId],
     query: {
       enabled: projectId !== undefined && projectId !== null
     }

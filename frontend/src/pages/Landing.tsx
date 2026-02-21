@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { Hero } from '../components/Hero'
@@ -12,37 +11,6 @@ import {
   staggerChild,
   slideUp 
 } from '../lib/animations'
-
-const PageLoadingSkeleton = () => (
-  <div className="container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-    <div style={{ 
-      height: '5rem', 
-      width: '400px', 
-      marginBottom: '2rem',
-      background: 'linear-gradient(90deg, rgba(17, 17, 17, 1) 0%, rgba(0, 255, 157, 0.15) 50%, rgba(17, 17, 17, 1) 100%)',
-      backgroundSize: '200% 100%',
-      animation: 'skeleton-neon-pulse 1.5s ease-in-out infinite',
-      borderRadius: '4px'
-    }} />
-    <div style={{ 
-      height: '1.5rem', 
-      width: '350px', 
-      marginBottom: '1rem',
-      background: 'linear-gradient(90deg, rgba(17, 17, 17, 1) 0%, rgba(0, 255, 157, 0.1) 50%, rgba(17, 17, 17, 1) 100%)',
-      backgroundSize: '200% 100%',
-      animation: 'skeleton-neon-pulse 1.5s ease-in-out infinite',
-      borderRadius: '2px'
-    }} />
-    <div style={{ 
-      height: '1rem', 
-      width: '500px', 
-      background: 'linear-gradient(90deg, rgba(17, 17, 17, 1) 0%, rgba(0, 255, 157, 0.08) 50%, rgba(17, 17, 17, 1) 100%)',
-      backgroundSize: '200% 100%',
-      animation: 'skeleton-neon-pulse 1.5s ease-in-out infinite',
-      borderRadius: '2px'
-    }} />
-  </div>
-)
 
 const AnimatedSection = ({ 
   children, 
@@ -68,34 +36,18 @@ const AnimatedSection = ({
 const ProjectCard = ({ project, index }: { project: typeof DEMO_PROJECTS[0]; index: number }) => (
   <motion.div
     variants={staggerChild}
-    style={{
-      background: 'linear-gradient(135deg, rgba(17, 17, 17, 0.9), rgba(10, 10, 10, 0.95))',
-      border: '1px solid var(--color-bg-light)',
-      padding: '1.5rem',
-      position: 'relative',
-      borderRadius: '4px',
-      transition: 'all 0.3s ease'
-    }}
+    className="landing-project-card"
     whileHover={{ 
-      borderColor: 'var(--color-primary)',
-      boxShadow: '0 0 40px rgba(0, 255, 157, 0.15)',
+      borderColor: 'var(--color-primary-dim)',
+      boxShadow: '0 10px 30px -10px var(--color-primary-dim)',
       y: -6
     }}
-    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+    transition={{ duration: 0.2, ease: 'linear' }}
   >
+    <div className="landing-project-card-highlight" />
+    
     <motion.div
-      style={{
-        position: 'absolute', 
-        top: 0, 
-        right: 0,
-        padding: '0.25rem 0.75rem',
-        background: project.status === 'active' ? 'var(--color-primary)' : 'var(--color-secondary)',
-        color: 'var(--color-bg)',
-        fontSize: '0.7rem',
-        fontWeight: 'bold',
-        borderRadius: '0 4px 0 4px',
-        letterSpacing: '0.05em'
-      }}
+      className={`landing-project-card-status ${project.status === 'active' ? 'active' : 'reporting'}`}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.2 + index * 0.1 }}
@@ -103,44 +55,23 @@ const ProjectCard = ({ project, index }: { project: typeof DEMO_PROJECTS[0]; ind
       {project.status === 'active' ? 'ACTIVE' : 'REPORTING'}
     </motion.div>
     
-    <h3 style={{ 
-      fontFamily: 'var(--font-display)', 
-      fontSize: '1.2rem', 
-      marginBottom: '1rem', 
-      color: 'var(--color-text)',
-      paddingRight: '4rem'
-    }}>
+    <h3 className="landing-project-card-title">
       {project.name}
     </h3>
     
-    <p style={{ 
-      color: 'var(--color-text-dim)', 
-      fontSize: '0.85rem', 
-      marginBottom: '1rem',
-      lineHeight: 1.6,
-      minHeight: '3.2em'
-    }}>
+    <p className="landing-project-card-desc">
       {project.description.length > 120 
         ? project.description.slice(0, 120) + '...'
         : project.description
       }
     </p>
     
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'space-between', 
-      fontFamily: 'var(--font-mono)', 
-      fontSize: '0.85rem',
-      alignItems: 'center'
-    }}>
-      <span style={{ color: 'var(--color-text-dim)' }}>BOUNTY</span>
+    <div className="landing-project-card-footer">
+      <span className="text-[var(--color-text-dim)]">BOUNTY</span>
       <motion.span 
-        style={{ 
-          color: 'var(--color-primary)', 
-          fontWeight: 'bold'
-        }}
+        className="landing-project-card-bounty"
         whileHover={{
-          textShadow: '0 0 15px rgba(0, 255, 157, 0.5)'
+          textShadow: '0 0 20px var(--color-primary-glow)'
         }}
       >
         {project.prizePool}
@@ -148,18 +79,9 @@ const ProjectCard = ({ project, index }: { project: typeof DEMO_PROJECTS[0]; ind
     </div>
     
     {project.highFindings > 0 && (
-      <div style={{ 
-        marginTop: '0.75rem',
-        display: 'flex',
-        gap: '0.5rem',
-        alignItems: 'center'
-      }}>
+      <div className="landing-project-card-findings">
         <span className="severity-badge high">HIGH</span>
-        <span style={{ 
-          color: 'var(--color-text-dim)', 
-          fontSize: '0.75rem',
-          fontFamily: 'var(--font-mono)'
-        }}>
+        <span className="landing-project-card-findings-text">
           {project.highFindings} findings
         </span>
       </div>
@@ -168,7 +90,7 @@ const ProjectCard = ({ project, index }: { project: typeof DEMO_PROJECTS[0]; ind
 )
 
 const StatSection = ({ isLoading }: { isLoading: boolean }) => (
-  <section style={{ padding: '4rem 0', background: 'var(--color-bg-light)' }}>
+  <section className="landing-stat-section">
     <div className="container">
       <AnimatePresence mode="wait">
         {isLoading ? (
@@ -186,11 +108,7 @@ const StatSection = ({ isLoading }: { isLoading: boolean }) => (
             variants={staggerContainer}
             initial="hidden"
             animate="visible"
-            style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(4, 1fr)', 
-              gap: '1.5rem' 
-            }}
+            className="landing-stat-grid"
           >
             <AnimatedStatCard
               label="Total Bounties"
@@ -214,7 +132,7 @@ const StatSection = ({ isLoading }: { isLoading: boolean }) => (
               label="Avg Response"
               value="<10s"
               subValue="Verification Time"
-              color="#00f0ff"
+              color="var(--color-secondary)"
               delay={0.3}
             />
           </motion.div>
@@ -225,7 +143,7 @@ const StatSection = ({ isLoading }: { isLoading: boolean }) => (
 )
 
 const FeaturedProjectsSection = () => (
-  <section style={{ padding: '4rem 0' }}>
+  <section className="landing-featured-section">
     <div className="container">
       <motion.div 
         variants={staggerContainer}
@@ -241,12 +159,7 @@ const FeaturedProjectsSection = () => (
         
         <motion.div 
           variants={staggerContainer}
-          style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(3, 1fr)', 
-            gap: '1.5rem',
-            marginTop: '2rem'
-          }}
+          className="landing-featured-grid"
         >
           {DEMO_PROJECTS.filter(p => p.status === 'active' || p.status === 'report_in_progress').slice(0, 3).map((project, idx) => (
             <ProjectCard key={project.id} project={project} index={idx} />
@@ -255,7 +168,7 @@ const FeaturedProjectsSection = () => (
         
         <motion.div 
           variants={staggerChild}
-          style={{ textAlign: 'center', marginTop: '2.5rem' }}
+          className="landing-featured-footer"
         >
           <Link to="/explorer" className="btn-cyber">
             View All Projects
@@ -267,13 +180,9 @@ const FeaturedProjectsSection = () => (
 )
 
 const CTASection = () => (
-  <section style={{ 
-    padding: '5rem 0', 
-    background: 'linear-gradient(180deg, var(--color-bg) 0%, rgba(0, 255, 157, 0.03) 50%, var(--color-bg) 100%)',
-    borderTop: '1px solid rgba(0, 255, 157, 0.1)',
-    borderBottom: '1px solid rgba(0, 255, 157, 0.1)'
-  }}>
-    <div className="container" style={{ textAlign: 'center' }}>
+  <section className="landing-cta-section">
+    <div className="landing-cta-bg" />
+    <div className="container landing-cta-content">
       <motion.div
         variants={staggerContainer}
         initial="hidden"
@@ -282,26 +191,14 @@ const CTASection = () => (
       >
         <motion.h2 
           variants={staggerChild}
-          style={{ 
-            fontFamily: 'var(--font-display)', 
-            fontSize: '2.5rem', 
-            color: 'var(--color-primary)', 
-            marginBottom: '1.5rem',
-            textShadow: '0 0 30px rgba(0, 255, 157, 0.3)'
-          }}
+          className="landing-cta-title"
         >
           READY TO SUBMIT A POC?
         </motion.h2>
         
         <motion.p 
           variants={staggerChild}
-          style={{ 
-            color: 'var(--color-text-dim)', 
-            marginBottom: '2rem', 
-            maxWidth: '600px', 
-            margin: '0 auto 2rem',
-            lineHeight: 1.6
-          }}
+          className="landing-cta-desc"
         >
           Connect your wallet and use our PoC Builder to craft, encrypt, and submit your vulnerability proof-of-concept. Get verified in seconds, not weeks.
         </motion.p>
@@ -309,25 +206,11 @@ const CTASection = () => (
         <motion.div variants={staggerChild}>
           <Link 
             to="/builder"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '1rem',
-              color: 'var(--color-bg)',
-              background: 'var(--color-primary)',
-              padding: '1rem 2.5rem',
-              textDecoration: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 0 25px rgba(0, 255, 157, 0.3)',
-              transition: 'all 0.3s ease'
-            }}
+            className="btn-cyber landing-cta-btn"
           >
-            <span style={{ opacity: 0.7 }}>[</span>
+            <span className="opacity-70">[</span>
             <span>START BUILDING POC</span>
-            <span style={{ opacity: 0.7 }}>]</span>
+            <span className="opacity-70">]</span>
           </Link>
         </motion.div>
       </motion.div>
@@ -336,71 +219,33 @@ const CTASection = () => (
 )
 
 export function Landing() {
-  const [isLoading, setIsLoading] = useState(true)
-  const [statsLoaded, setStatsLoaded] = useState(false)
-  
-  useEffect(() => {
-    const loadTimer = setTimeout(() => setIsLoading(false), 400)
-    const statsTimer = setTimeout(() => setStatsLoaded(true), 800)
-    
-    return () => {
-      clearTimeout(loadTimer)
-      clearTimeout(statsTimer)
-    }
-  }, [])
-  
   return (
-    <AnimatePresence mode="wait">
-      {isLoading ? (
-        <motion.div
-          key="page-loading"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <PageLoadingSkeleton />
-        </motion.div>
-      ) : (
-        <motion.main
-          key="page-content"
-          variants={pageTransition}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          style={{ minHeight: '100vh', position: 'relative' }}
-        >
-          <div 
-            className="cyber-grid-bg"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: -1,
-              opacity: 0.4
-            }}
-          />
-          
-          <AnimatedSection>
-            <Hero />
-          </AnimatedSection>
-          
-          <StatSection isLoading={!statsLoaded} />
-          
-          <FeaturedProjectsSection />
-          
-          <AnimatedSection delay={0.1}>
-            <HowItWorks />
-          </AnimatedSection>
-          
-          <CTASection />
-          
-          <div style={{ height: '3rem' }} />
-        </motion.main>
-      )}
-    </AnimatePresence>
+    <motion.main
+      key="page-content"
+      variants={pageTransition}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="landing-main"
+    >
+      <div className="cyber-grid-bg landing-cyber-grid" />
+      
+      <AnimatedSection>
+        <Hero />
+      </AnimatedSection>
+      
+      <StatSection isLoading={false} />
+      
+      <FeaturedProjectsSection />
+      
+      <AnimatedSection delay={0.1}>
+        <HowItWorks />
+      </AnimatedSection>
+      
+      <CTASection />
+      
+      <div className="h-12" />
+    </motion.main>
   )
 }
 
