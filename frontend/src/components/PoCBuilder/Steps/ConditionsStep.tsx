@@ -13,9 +13,10 @@ interface ConditionsStepProps {
   onUpdate: (id: string, field: keyof Condition, value: string) => void
   onNext: () => void
   onBack: () => void
+  showStepNavigation?: boolean
 }
 
-export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ conditions, onAdd, onRemove, onUpdate, onNext, onBack }) => {
+export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ conditions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true }) => {
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.conditions} />
@@ -46,34 +47,36 @@ export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ condi
         + ADD_CONDITION
       </Button>
       
-      <div className="flex justify-between gap-4">
-        <Button
-          onClick={onBack}
-          variant="outline"
-          className={cn(
-            "px-6 py-3",
-            "bg-transparent border border-[var(--color-text-dim)]",
-            "text-[var(--color-text)]",
-            "hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
-            "font-mono tracking-wider",
-            "transition-all duration-200"
-          )}
-        >
-          &lt;&lt; BACK
-        </Button>
-        <Button
-          onClick={onNext}
-          className={cn(
-            "px-8 py-3",
-            "bg-[var(--color-primary)] text-[var(--color-bg)]",
-            "hover:shadow-[0_0_20px_var(--color-primary-dim)]",
-            "font-mono tracking-wider font-semibold",
-            "transition-all duration-200"
-          )}
-        >
-          NEXT &gt;&gt;
-        </Button>
-      </div>
+      {showStepNavigation ? (
+        <div className="flex justify-between gap-4">
+          <Button
+            onClick={onBack}
+            variant="outline"
+            className={cn(
+              "px-6 py-3",
+              "bg-transparent border border-[var(--color-text-dim)]",
+              "text-[var(--color-text)]",
+              "hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
+              "font-mono tracking-wider",
+              "transition-all duration-200"
+            )}
+          >
+            &lt;&lt; BACK
+          </Button>
+          <Button
+            onClick={onNext}
+            className={cn(
+              "px-8 py-3",
+              "bg-[var(--color-primary)] text-[var(--color-bg)]",
+              "hover:shadow-[0_0_20px_var(--color-primary-dim)]",
+              "font-mono tracking-wider font-semibold",
+              "transition-all duration-200"
+            )}
+          >
+            NEXT &gt;&gt;
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 })
@@ -159,7 +162,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
       </CardHeader>
       
       <CardContent className="pt-2 pb-4 px-4 space-y-3">
-        <div className="grid grid-cols-[1fr_2fr] gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_2fr]">
           <select 
             value={draft.type} 
             onChange={e => handleChange('type', e.target.value)}
@@ -214,7 +217,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
         )}
         
         {draft.type === 'setStorage' && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <input 
               placeholder="Contract Address" 
               value={draft.target} 

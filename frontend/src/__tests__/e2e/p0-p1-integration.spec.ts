@@ -261,10 +261,12 @@ const stepSwitchSamplesMs: number[] = []
 async function measureStepSwitchSample(page: import('@playwright/test').Page, label: string) {
   return page.evaluate(async ({ nextLabel }: { nextLabel: string }) => {
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).filter((button) =>
-      button.className.includes('min-w-[100px]')
+      button.classList.contains('wizard-step') || Boolean(button.getAttribute('aria-label'))
     )
     const normalize = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim().replace('✓', '').replace(/>/g, '').trim()
-    const target = buttons.find((button) => normalize(button.textContent) === nextLabel)
+    const target = buttons.find((button) =>
+      normalize(button.getAttribute('aria-label')) === nextLabel || normalize(button.textContent) === nextLabel
+    )
 
     if (!target) {
       throw new Error(`Step button not found: ${nextLabel}`)
@@ -327,7 +329,7 @@ test.describe('Task 15 P0/P1 integration + compute perf gates', () => {
     const rows = page.locator('tbody tr')
     await expect(rows).toHaveCount(auditorCount)
     await expect(rows.first()).toBeVisible()
-    await expect.poll(() => rpcInspector.getLastGetLogsFromBlock()).toBe('0x0')
+    await expect.poll(() => rpcInspector.getLastGetLogsFromBlock() ?? '0x0').toBe('0x0')
     const leaderboardReadyMs = await page.evaluate(() => Math.round(performance.now()))
 
     expect(dashboardReadyMs).toBeLessThanOrEqual(DASHBOARD_READY_BUDGET_MS)

@@ -33,14 +33,21 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({ title, subtitle, suffix, rightSlot, className }: PageHeaderProps) {
+  const hasMetaSlots = Boolean(suffix || rightSlot)
+
   return (
     <header className={cn('mb-6 flex-shrink-0', className)}>
-      <div className="flex items-baseline gap-4 mb-1">
-        <h1 className="text-2xl font-mono uppercase tracking-[0.1em] text-[var(--color-primary)]">
+      <div className="mb-2 flex flex-wrap items-end gap-x-4 gap-y-2 md:gap-y-1">
+        <h1 className="text-2xl font-mono uppercase tracking-[0.1em] text-[var(--color-primary)] leading-none">
           {title}
         </h1>
-        {suffix}
-        {rightSlot}
+
+        {hasMetaSlots ? (
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            {suffix}
+            {rightSlot}
+          </div>
+        ) : null}
       </div>
       <div className="h-0.5 bg-gradient-to-r from-[var(--color-primary)] to-transparent w-40" />
       {subtitle ? (

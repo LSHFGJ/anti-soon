@@ -123,7 +123,9 @@ describe('PoC builder step latency boundaries', () => {
       })
     )
 
-    const firstTransactionHeader = transactionsContainer.querySelector('.cursor-pointer') as HTMLElement | null
+    const firstTransactionHeader = Array.from(
+      transactionsContainer.querySelectorAll<HTMLElement>('.cursor-pointer')
+    ).find((element) => element.textContent?.includes('TX_01')) ?? null
     expect(firstTransactionHeader).not.toBeNull()
     if (!firstTransactionHeader) {
       vi.useRealTimers()

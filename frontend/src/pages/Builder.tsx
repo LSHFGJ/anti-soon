@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
-import { NeonPanel, PageHeader } from '../components/shared/ui-primitives'
-import { DEMO_PROJECTS } from '../config'
+import { PageHeader } from '../components/shared/ui-primitives'
 
 type BuilderLocationState = {
   projectId?: string | number | bigint
@@ -39,7 +38,7 @@ export function Builder() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { projectId: pathProjectId } = useParams<{ projectId?: string }>()
-  const [selectedProject] = useState<typeof DEMO_PROJECTS[0] | null>(null)
+  const selectedProject = null
 
   const explicitProjectId = useMemo(() => {
     const state = location.state as BuilderLocationState | null
@@ -55,12 +54,13 @@ export function Builder() {
   return (
     <main
       data-builder-shell="root"
-      className="min-h-[calc(100vh-142px)] py-6"
+      className="min-h-[calc(100vh-142px)] flex flex-col py-6"
     >
-      <div className="container flex h-full min-h-0 flex-col">
+      <div className="container flex-1 flex flex-col min-h-0">
         <PageHeader
           title="POC_BUILDER_V1.0"
           subtitle="> Craft, encrypt, and submit your vulnerability proof-of-concept"
+          className="mb-4"
           rightSlot={
             explicitProjectId !== null ? (
               <span
@@ -73,9 +73,7 @@ export function Builder() {
           }
         />
 
-        <NeonPanel className="flex-1 min-h-0 overflow-hidden" contentClassName="flex h-full min-h-0 p-0">
-          <PoCBuilder selectedProject={selectedProject} submissionProjectId={explicitProjectId} />
-        </NeonPanel>
+        <PoCBuilder selectedProject={selectedProject} submissionProjectId={explicitProjectId} />
       </div>
     </main>
   )

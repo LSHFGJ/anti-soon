@@ -14,9 +14,10 @@ interface TransactionsStepProps {
   onUpdate: (id: string, field: keyof Transaction, value: string) => void
   onNext: () => void
   onBack: () => void
+  showStepNavigation?: boolean
 }
 
-export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ transactions, onAdd, onRemove, onUpdate, onNext, onBack }) => {
+export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ transactions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true }) => {
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.transactions} />
@@ -47,34 +48,36 @@ export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ t
         + ADD_TRANSACTION
       </Button>
       
-      <div className="flex justify-between gap-4">
-        <Button
-          onClick={onBack}
-          variant="outline"
-          className={cn(
-            "px-6 py-3",
-            "bg-transparent border border-[var(--color-text-dim)]",
-            "text-[var(--color-text)]",
-            "hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
-            "font-mono tracking-wider",
-            "transition-all duration-200"
-          )}
-        >
-          &lt;&lt; BACK
-        </Button>
-        <Button
-          onClick={onNext}
-          className={cn(
-            "px-8 py-3",
-            "bg-[var(--color-primary)] text-[var(--color-bg)]",
-            "hover:shadow-[0_0_20px_var(--color-primary-dim)]",
-            "font-mono tracking-wider font-semibold",
-            "transition-all duration-200"
-          )}
-        >
-          NEXT &gt;&gt;
-        </Button>
-      </div>
+      {showStepNavigation ? (
+        <div className="flex justify-between gap-4">
+          <Button
+            onClick={onBack}
+            variant="outline"
+            className={cn(
+              "px-6 py-3",
+              "bg-transparent border border-[var(--color-text-dim)]",
+              "text-[var(--color-text)]",
+              "hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]",
+              "font-mono tracking-wider",
+              "transition-all duration-200"
+            )}
+          >
+            &lt;&lt; BACK
+          </Button>
+          <Button
+            onClick={onNext}
+            className={cn(
+              "px-8 py-3",
+              "bg-[var(--color-primary)] text-[var(--color-bg)]",
+              "hover:shadow-[0_0_20px_var(--color-primary-dim)]",
+              "font-mono tracking-wider font-semibold",
+              "transition-all duration-200"
+            )}
+          >
+            NEXT &gt;&gt;
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 })
@@ -185,7 +188,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
             "animate-accordion-down"
           )}
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <p className={cn(
                 "block text-sm",

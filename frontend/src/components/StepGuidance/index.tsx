@@ -17,26 +17,40 @@ export const StepGuidance: React.FC<StepGuidanceProps> = React.memo(({
   description, 
   fields 
 }) => {
+  const [showGuideDetails, setShowGuideDetails] = useState(false)
   const [expandedField, setExpandedField] = useState<string | null>(null)
 
   return (
     <div className="step-guidance-container">
-      <h4 className="step-guidance-title">
-        {title}
-      </h4>
-      <p className={`step-guidance-desc ${fields ? 'mb-4' : 'mb-0'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="step-guidance-title">
+          {title}
+        </h4>
+        {fields && fields.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowGuideDetails((prev) => !prev)}
+            className="font-mono text-[10px] tracking-[0.08em] text-[var(--color-secondary)] bg-transparent border border-[var(--color-secondary)]/40 px-2 py-1 cursor-pointer hover:bg-[var(--color-secondary-dim)] transition-all duration-200 ease-linear"
+          >
+            {showGuideDetails ? '[ HIDE_GUIDE ]' : '[ SHOW_GUIDE ]'}
+          </button>
+        ) : null}
+      </div>
+
+      <p className="step-guidance-desc mb-0">
         {description}
       </p>
       
-      {fields && fields.length > 0 && (
+      {fields && fields.length > 0 && showGuideDetails && (
         <div className="step-guidance-fields-wrapper">
           <div className="step-guidance-fields-title">
             Field Guide
           </div>
-          {fields.map((f, i) => (
-            <div 
-              key={i}
-              className="step-guidance-field-item"
+          {fields.map((f) => (
+            <button
+              type="button"
+              key={f.field}
+              className="step-guidance-field-item w-full border-0 bg-transparent p-0 text-left"
               onClick={() => setExpandedField(expandedField === f.field ? null : f.field)}
             >
               <div className={`step-guidance-field-header ${expandedField === f.field ? 'text-primary' : 'text-[var(--color-text)]'}`}>
@@ -59,7 +73,7 @@ export const StepGuidance: React.FC<StepGuidanceProps> = React.memo(({
                   )}
                 </div>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}

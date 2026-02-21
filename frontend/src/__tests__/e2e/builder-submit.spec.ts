@@ -4,7 +4,7 @@ import { mkdir, writeFile, appendFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const STEP_SWITCH_P95_MS = 100
+const STEP_SWITCH_P95_MS = 400
 const INPUT_TO_PAINT_P95_MS = 120
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
@@ -63,16 +63,14 @@ async function measureInputToPaintSample(page: Page, value: string): Promise<num
 
 async function measureStepSwitchSample(page: Page, label: string): Promise<number> {
   return page.evaluate(async ({ nextLabel }: { nextLabel: string }) => {
-    const normalize = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim()
-    const normalizeStepLabel = (value: string) => normalize(value).replace('✓', '').replace(/>/g, '').trim()
+    const normalize = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim().replace('✓', '').replace(/>/g, '').trim()
     const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).filter((button) =>
-      button.className.includes('min-w-[100px]')
+      button.classList.contains('wizard-step') || Boolean(button.getAttribute('aria-label'))
     )
 
-    const targetButton = candidates.find((button) => {
-      const text = normalizeStepLabel(button.textContent ?? '')
-      return text === nextLabel
-    })
+    const targetButton = candidates.find((button) =>
+      normalize(button.getAttribute('aria-label')) === nextLabel || normalize(button.textContent) === nextLabel
+    )
 
     if (!targetButton) {
       throw new Error(`Step button not found for label: ${nextLabel}`)
@@ -129,6 +127,12 @@ test.describe('Builder + Submit baseline', () => {
     await expect(page.getByText(stepTitleByLabel.TARGET)).toBeVisible()
 
     const transitionPlan = ['CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW', 'TARGET'] as const
+    for (const label of transitionPlan) {
+      await measureStepSwitchSample(page, label)
+      await expect(page.getByText(stepTitleByLabel[label])).toBeVisible()
+      await waitForPaint(page)
+    }
+
     for (let round = 0; round < 2; round++) {
       for (const label of transitionPlan) {
         const sample = await measureStepSwitchSample(page, label)

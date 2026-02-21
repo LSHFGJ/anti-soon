@@ -7,6 +7,7 @@ import { useWallet } from '../../hooks/useWallet'
 import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import type { PoCData } from '../../types/poc'
 import { Button } from '../ui/button'
+import { NeonPanel } from '../shared/ui-primitives'
 import { cn } from '../../lib/utils'
 
 import { TargetStep } from './Steps/TargetStep'
@@ -23,11 +24,12 @@ interface PoCBuilderProps {
 }
 
 const stepLabels = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW'] as const
+const firstStep = 1
+const lastStep = stepLabels.length
 
 const stepSurfaceVariants: Variants = {
   hidden: {
     opacity: 0,
-    y: 8,
     transition: {
       duration: 0.2,
       ease: 'linear'
@@ -35,7 +37,6 @@ const stepSurfaceVariants: Variants = {
   },
   visible: {
     opacity: 1,
-    y: 0,
     transition: {
       duration: 0.2,
       ease: 'linear'
@@ -56,7 +57,7 @@ const StepSurface: React.FC<{
       initial={false}
       variants={stepSurfaceVariants}
       animate={isActive ? 'visible' : 'hidden'}
-      className={isActive ? 'block pointer-events-auto' : 'hidden pointer-events-none'}
+      className={isActive ? 'block h-full pointer-events-auto' : 'hidden pointer-events-none'}
       aria-hidden={!isActive}
     >
       {children}
@@ -142,129 +143,152 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
   }, [submitPoC, submissionProjectId, pocJson])
   const handleStepSelect = useCallback((step: number) => setActiveStep(step), [setActiveStep])
 
+  const renderStepIndicator = useCallback(() => (
+    <div className="wizard-steps">
+      {stepLabels.map((step, index) => {
+        const stepNumber = index + 1
+        const isCompleted = stepNumber < activeStep
+        const isActive = stepNumber === activeStep
+
+        return (
+          <React.Fragment key={step}>
+            <button
+              type="button"
+              onClick={() => handleStepSelect(stepNumber)}
+              aria-label={step}
+              className={cn(
+                'wizard-step rounded-sm border-0 bg-transparent p-0 text-left',
+                'transition-all duration-200 ease-linear',
+                isCompleted && 'completed',
+                isActive && 'active',
+                isActive && 'drop-shadow-[0_0_10px_var(--color-primary-dim)]'
+              )}
+            >
+              <div className="flex items-center">
+                <div className={cn('wizard-step-number', isCompleted && 'completed', isActive && 'active')}>
+                  {isCompleted ? '✓' : stepNumber}
+                </div>
+                <span
+                  className={cn(
+                    'wizard-step-label ml-2',
+                    isActive && 'active',
+                    stepNumber <= activeStep ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-dim)]'
+                  )}
+                >
+                  {step}
+                </span>
+              </div>
+            </button>
+            {index < stepLabels.length - 1 ? (
+              <div className={cn('wizard-connector mx-3', isCompleted ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-text-dim)]')} />
+            ) : null}
+          </React.Fragment>
+        )
+      })}
+    </div>
+  ), [activeStep, handleStepSelect])
+
   return (
     <section
       id="builder"
       data-builder-shell="content"
-      className="container px-4 py-4 min-h-0 flex-1 flex flex-col border-l border-[var(--color-text-dim)]"
+      className="w-full min-h-0 flex-1 flex flex-col"
     >
-      <div className="flex justify-between items-center mb-4 shrink-0">
-        <h2 className="text-[var(--color-primary)] text-base">{`// PoC_BUILDER_V1.0`}</h2>
-        {selectedProject && (
-          <div className="border border-[var(--color-secondary)] px-4 py-2 text-[var(--color-secondary)] text-xs bg-[rgba(124,58,237,0.05)]">
+      <div className="mb-4 flex shrink-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          {renderStepIndicator()}
+          <p className="mt-2 text-center lg:hidden font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--color-secondary)]">
+            Step {activeStep}/{lastStep}: {stepLabels[activeStep - 1]}
+          </p>
+        </div>
+        {selectedProject ? (
+          <div className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
             PROJECT: {selectedProject.name.toUpperCase()}
           </div>
-        )}
+        ) : null}
       </div>
-      
-      {/* Progress Bar */}
-      <div className="relative mb-4 flex-shrink-0">
-        <div className="h-1 bg-[var(--color-text-dim)]/20 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)]"
-            initial={false}
-            animate={{ width: `${(activeStep / 5) * 100}%` }}
-            transition={{ duration: 0.2, ease: 'linear' }}
-          />
+
+      <NeonPanel className="flex-1 min-h-0" contentClassName="h-full min-h-0 p-4">
+        <div data-builder-scroll-owner="primary" className="h-full min-h-0 overflow-y-auto pr-1">
+          <StepSurface step={1} activeStep={activeStep}>
+            <TargetStep 
+              config={targetConfig} 
+              onUpdate={updateTargetConfig} 
+              onNext={handleNext} 
+              onLoadExample={handleLoadExample}
+              showStepNavigation={false}
+            />
+          </StepSurface>
+
+          <StepSurface step={2} activeStep={activeStep}>
+            <ConditionsStep 
+              conditions={conditions} 
+              onAdd={addCondition} 
+              onRemove={removeCondition} 
+              onUpdate={updateCondition} 
+              onNext={handleNext}
+              onBack={handleBack}
+              showStepNavigation={false}
+            />
+          </StepSurface>
+
+          <StepSurface step={3} activeStep={activeStep}>
+            <TransactionsStep 
+              transactions={transactions} 
+              onAdd={addTransaction} 
+              onRemove={removeTransaction} 
+              onUpdate={updateTransaction} 
+              onNext={handleNext}
+              onBack={handleBack}
+              showStepNavigation={false}
+            />
+          </StepSurface>
+
+          <StepSurface step={4} activeStep={activeStep}>
+            <ImpactStep 
+              config={impactConfig} 
+              onUpdate={updateImpactConfig} 
+              onNext={handleNext}
+              onBack={handleBack}
+              showStepNavigation={false}
+            />
+          </StepSurface>
+
+          <StepSurface step={5} activeStep={activeStep}>
+            <ReviewStep
+              pocJson={pocJson}
+              isConnected={isConnected}
+              isSubmitting={isSubmitting}
+              submissionHash={commitTxHash || revealTxHash || ''}
+              error={error || null}
+              onConnect={connect}
+              onSubmit={handleSubmit}
+              onBack={handleBack}
+              projectId={submissionProjectId}
+              useV2={true}
+              showBackButton={false}
+            />
+          </StepSurface>
         </div>
-      </div>
+      </NeonPanel>
 
-      {/* Step Navigation */}
-      <div className="flex gap-2 mb-4 overflow-x-auto shrink-0">
-        {[1, 2, 3, 4, 5].map(step => {
-          const isCompleted = activeStep > step
-          const isActive = activeStep === step
-          return (
-            <Button
-              key={step}
-              variant="ghost"
-              size="sm"
-              onClick={() => handleStepSelect(step)}
-              className={cn(
-                "relative min-w-[100px] font-mono text-xs tracking-wider transition-all duration-200 ease-linear",
-                "border rounded-sm",
-                isActive && "bg-[var(--color-primary)] text-[var(--color-bg)] border-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 hover:text-[var(--color-bg)]",
-                isCompleted && !isActive && "border-[var(--color-secondary)] text-[var(--color-secondary)] hover:bg-[var(--color-secondary)]/10",
-                !isCompleted && !isActive && "border-[var(--color-text-dim)] text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:border-[var(--color-text)]"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                {isCompleted && (
-                  <motion.span
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="text-[var(--color-secondary)]"
-                  >
-                    ✓
-                  </motion.span>
-                )}
-                <span>{stepLabels[step - 1]}</span>
-              </span>
-            </Button>
-          )
-        })}
-      </div>
-
-      <div
-        data-builder-scroll-owner="primary"
-        className="bg-[rgba(255,255,255,0.03)] p-4 border border-[var(--color-text-dim)] flex-1 min-h-0 overflow-auto"
-      >
-        
-        <StepSurface step={1} activeStep={activeStep}>
-          <TargetStep 
-            config={targetConfig} 
-            onUpdate={updateTargetConfig} 
-            onNext={handleNext} 
-            onLoadExample={handleLoadExample}
-          />
-        </StepSurface>
-
-        <StepSurface step={2} activeStep={activeStep}>
-          <ConditionsStep 
-            conditions={conditions} 
-            onAdd={addCondition} 
-            onRemove={removeCondition} 
-            onUpdate={updateCondition} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        </StepSurface>
-
-        <StepSurface step={3} activeStep={activeStep}>
-          <TransactionsStep 
-            transactions={transactions} 
-            onAdd={addTransaction} 
-            onRemove={removeTransaction} 
-            onUpdate={updateTransaction} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        </StepSurface>
-
-        <StepSurface step={4} activeStep={activeStep}>
-          <ImpactStep 
-            config={impactConfig} 
-            onUpdate={updateImpactConfig} 
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        </StepSurface>
-
-        <StepSurface step={5} activeStep={activeStep}>
-          <ReviewStep
-            pocJson={pocJson}
-            isConnected={isConnected}
-            isSubmitting={isSubmitting}
-            submissionHash={commitTxHash || revealTxHash || ''}
-            error={error || null}
-            onConnect={connect}
-            onSubmit={handleSubmit}
-            onBack={handleBack}
-            projectId={submissionProjectId}
-            useV2={true}
-          />
-        </StepSurface>
-
+      <div className="mt-4 flex shrink-0 justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4">
+        <Button
+          type="button"
+          onClick={handleBack}
+          disabled={activeStep === firstStep}
+          variant="outline"
+          className={cn('btn-cyber', activeStep === firstStep && 'opacity-50 cursor-not-allowed')}
+        >
+          [ PREVIOUS ]
+        </Button>
+        {activeStep < lastStep ? (
+          <Button type="button" onClick={handleNext} className="btn-cyber">
+            [ NEXT ]
+          </Button>
+        ) : (
+          <span className="min-w-[116px]" aria-hidden />
+        )}
       </div>
 
       {/* Template Selection Modal for DummyVault */}

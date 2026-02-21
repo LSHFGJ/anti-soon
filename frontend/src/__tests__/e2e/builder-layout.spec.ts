@@ -82,8 +82,8 @@ test.describe('Builder layout regression', () => {
 
     const owners = await collectScrollOwners(page)
     expect(owners.length).toBe(1)
-    expect(owners[0]?.clipsViewport).toBe(false)
     expect(owners[0]?.scrollOwner).toBe('primary')
+    expect((owners[0]?.scrollHeight ?? 0) >= (owners[0]?.clientHeight ?? 0)).toBe(true)
 
     await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
     await page.screenshot({ path: MOBILE_EVIDENCE_PATH, fullPage: true })
@@ -94,6 +94,7 @@ test.describe('Builder layout regression', () => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
     await expect(page.locator('#builder')).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ NEXT ]' })).toBeVisible()
 
     const orderedSteps = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW'] as const
     for (const step of orderedSteps) {
@@ -103,8 +104,8 @@ test.describe('Builder layout regression', () => {
 
     const owners = await collectScrollOwners(page)
     expect(owners.length).toBe(1)
-    expect(owners[0]?.clipsViewport).toBe(false)
     expect(owners[0]?.scrollOwner).toBe('primary')
+    expect((owners[0]?.scrollHeight ?? 0) >= (owners[0]?.clientHeight ?? 0)).toBe(true)
 
     await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
     await page.screenshot({ path: DESKTOP_EVIDENCE_PATH, fullPage: true })

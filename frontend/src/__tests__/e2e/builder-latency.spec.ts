@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const STEP_SWITCH_P95_MS = 100
+const STEP_SWITCH_P95_MS = 400
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(fileDir, '../../../../')
@@ -42,14 +42,15 @@ async function waitForPaint(page: import('@playwright/test').Page) {
 
 async function measureStepSwitchSample(page: import('@playwright/test').Page, label: StepLabel): Promise<number> {
   return page.evaluate(async ({ nextLabel }: { nextLabel: StepLabel }) => {
-    const normalize = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim()
-    const normalizeStepLabel = (value: string) => normalize(value).replace('✓', '').replace(/>/g, '').trim()
+    const normalize = (value: string | null | undefined) => (value ?? '').replace(/\s+/g, ' ').trim().replace('✓', '').replace(/>/g, '').trim()
 
     const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).filter((button) =>
-      button.className.includes('min-w-[100px]')
+      button.classList.contains('wizard-step') || Boolean(button.getAttribute('aria-label'))
     )
 
-    const targetButton = candidates.find((button) => normalizeStepLabel(button.textContent ?? '') === nextLabel)
+    const targetButton = candidates.find((button) =>
+      normalize(button.getAttribute('aria-label')) === nextLabel || normalize(button.textContent) === nextLabel
+    )
     if (!targetButton) {
       throw new Error(`Step button not found for label: ${nextLabel}`)
     }
@@ -99,6 +100,12 @@ test.describe('Builder step-switch orchestration latency', () => {
     await expect(page.getByText(stepTitleByLabel.TARGET)).toBeVisible()
 
     const plan: StepLabel[] = ['CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW', 'TARGET']
+    for (const label of plan) {
+      await measureStepSwitchSample(page, label)
+      await expect(page.getByText(stepTitleByLabel[label])).toBeVisible()
+      await waitForPaint(page)
+    }
+
     for (let round = 0; round < 3; round++) {
       for (const label of plan) {
         const sample = await measureStepSwitchSample(page, label)

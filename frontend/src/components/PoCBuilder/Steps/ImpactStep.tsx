@@ -20,6 +20,7 @@ interface ImpactStepProps {
   onUpdate: (field: keyof ImpactConfig, value: string | ImpactType) => void
   onNext: () => void
   onBack: () => void
+  showStepNavigation?: boolean
 }
 
 const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] = [
@@ -29,7 +30,7 @@ const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] 
   { value: 'other', label: 'Other', description: 'Other vulnerability type' },
 ]
 
-export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack }) => {
+export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack, showStepNavigation = true }) => {
   const [draft, setDraft] = useState({
     type: config.type,
     estimatedLoss: config.estimatedLoss,
@@ -83,15 +84,15 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
       
       <Card className="bg-card/50 border-primary/20">
         <CardHeader>
-          <CardTitle className="text-lg font-mono text-secondary">Vulnerability Classification</CardTitle>
+          <CardTitle className="text-base font-mono text-secondary">Vulnerability Classification</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="impact-type" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+            <Label htmlFor="impact-type" className="text-[var(--color-text)] text-sm font-medium">
               Vulnerability Type
             </Label>
             <Select value={draft.type} onValueChange={handleTypeChange}>
-              <SelectTrigger id="impact-type" className="font-mono bg-background/50">
+              <SelectTrigger id="impact-type" className="font-mono text-sm bg-background/50">
                 <SelectValue placeholder="Select impact type" />
               </SelectTrigger>
               <SelectContent className="bg-card border-primary/20">
@@ -117,7 +118,7 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="estimated-loss" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+            <Label htmlFor="estimated-loss" className="text-[var(--color-text)] text-sm font-medium">
               Estimated Loss (ETH in wei)
             </Label>
             <Input
@@ -135,37 +136,39 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="impact-description" className="text-muted-foreground font-mono text-xs uppercase tracking-wider">
+            <Label htmlFor="impact-description" className="text-[var(--color-text)] text-sm font-medium">
               Impact Description
             </Label>
             <Textarea
               id="impact-description"
-              rows={4}
+              rows={3}
               value={draft.description}
               onChange={handleDescriptionChange}
               onBlur={() => flush('description')}
               placeholder="Describe the vulnerability impact and how the exploit works..."
-              className="font-mono bg-background/50 resize-y min-h-[100px]"
+              className="font-mono bg-background/50 resize-y min-h-[84px]"
             />
           </div>
         </CardContent>
       </Card>
       
-      <div className="flex justify-between items-center mt-8">
-        <Button 
-          variant="outline"
-          onClick={handleBack}
-          className="font-mono"
-        >
-          &lt;&lt; BACK
-        </Button>
-        <Button 
-          onClick={handleNext}
-          className="font-mono bg-primary hover:bg-primary/90"
-        >
-          REVIEW &gt;&gt;
-        </Button>
-      </div>
+      {showStepNavigation ? (
+        <div className="flex justify-between items-center mt-4">
+          <Button 
+            variant="outline"
+            onClick={handleBack}
+            className="font-mono"
+          >
+            &lt;&lt; BACK
+          </Button>
+          <Button 
+            onClick={handleNext}
+            className="font-mono bg-primary hover:bg-primary/90"
+          >
+            REVIEW &gt;&gt;
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 })

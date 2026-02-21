@@ -61,6 +61,7 @@
 
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --font-display: var(--font-mono);
+    --app-nav-offset: 70px;
   }
 
   .dark {
@@ -586,9 +587,10 @@ input:focus, select:focus, textarea:focus {
    ============================================ */
 .wizard-steps {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: 0;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
 
 .wizard-step {
@@ -615,7 +617,19 @@ input:focus, select:focus, textarea:focus {
   background: var(--color-primary-dim);
 }
 
+.wizard-step-number.active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-dim);
+}
+
 .wizard-step.completed .wizard-step-number {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: white;
+}
+
+.wizard-step-number.completed {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: white;
@@ -629,6 +643,10 @@ input:focus, select:focus, textarea:focus {
 }
 
 .wizard-step.active .wizard-step-label {
+  color: var(--color-primary);
+}
+
+.wizard-step-label.active {
   color: var(--color-primary);
 }
 
@@ -647,8 +665,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  height: 100%;
-  overflow-y: auto;
+  min-height: 100%;
 }
 
 .step-content input,
@@ -746,6 +763,21 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+@media (max-width: 1024px) {
+  .wizard-steps {
+    gap: 0.35rem;
+  }
+
+  .wizard-step-label {
+    display: none;
+  }
+
+  .wizard-connector {
+    width: 18px;
+    margin: 0 0.2rem;
+  }
+}
+
 /* ============================================
    RESPONSIVE / MOBILE STYLES
    ============================================ */
@@ -785,8 +817,15 @@ input:focus, select:focus, textarea:focus {
 
   /* Wizard steps - compact */
   .wizard-steps {
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 0.35rem;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .wizard-step {
+    flex: 0 0 auto;
   }
 
   .wizard-step-label {
@@ -794,13 +833,21 @@ input:focus, select:focus, textarea:focus {
   }
 
   .wizard-connector {
-    width: 20px;
+    display: block;
+    width: 12px;
+    margin: 0 0.15rem;
+    flex: 0 0 12px;
   }
 
   .wizard-step-number {
     width: 28px;
     height: 28px;
     font-size: 0.75rem;
+  }
+
+  .step-guidance-container {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
   }
 
   /* Timeline - wrap */
@@ -968,7 +1015,7 @@ input:focus, select:focus, textarea:focus {
    STEP GUIDANCE
    ============================================ */
 .step-guidance-container {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   padding: 1rem;
   background: rgba(124, 58, 237, 0.03);
   border: 1px solid var(--color-primary-dim);
@@ -1287,7 +1334,6 @@ input:focus, select:focus, textarea:focus {
 
 .landing-cta-desc {
   color: var(--color-text);
-  margin-bottom: 2.5rem;
   max-width: 600px;
   margin: 0 auto 2.5rem;
   line-height: 1.8;

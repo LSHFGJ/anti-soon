@@ -16,6 +16,7 @@ interface ReviewStepProps {
   onBack: () => void
   projectId: bigint | null
   useV2?: boolean
+  showBackButton?: boolean
 }
 
 const Spinner: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -39,17 +40,18 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
   onSubmit, 
   onBack,
   projectId,
-  useV2 = true
+  useV2 = true,
+  showBackButton = true,
 }) => {
   const commitReveal = useCommitReveal(projectId, pocJson)
+  const phase = commitReveal.state.phase
+  const phaseError = commitReveal.state.error
   const [showV1Fallback, setShowV1Fallback] = useState(false)
   const { success, error: toastError } = useToast()
-  const notifiedPhaseRef = useRef(commitReveal.state.phase)
+  const notifiedPhaseRef = useRef(phase)
   const notifiedErrorRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    const { phase, error: phaseError } = commitReveal.state
-
     if (phase !== notifiedPhaseRef.current) {
       if (phase === 'committed') {
         success({
@@ -83,7 +85,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
       })
       notifiedErrorRef.current = phaseError
     }
-  }, [commitReveal.state.phase, commitReveal.state.error, success, toastError])
+  }, [phase, phaseError, success, toastError])
 
   useEffect(() => {
     if (submissionHash && !useV2) {
@@ -137,12 +139,14 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
             <div className="text-sm">{state.error}</div>
             <div className="flex gap-2 flex-wrap mt-3">
               <button
+                type="button"
                 onClick={onRetry}
                 className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
               >
                 {retryLabel}
               </button>
               <button
+                type="button"
                 onClick={reset}
                 className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
               >
@@ -156,6 +160,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           <div className="flex gap-4 flex-wrap">
             {!isConnected ? (
               <button 
+                type="button"
                 onClick={onConnect}
                 className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
               >
@@ -171,12 +176,14 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
               ) : (
                 <>
                   <button 
+                    type="button"
                     onClick={commit}
                     className="px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
                   >
                     [ 1. COMMIT_ENCRYPTED_POC ]
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setShowV1Fallback(true)}
                     className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
                   >
@@ -224,6 +231,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
             </div>
 
             <button 
+              type="button"
               onClick={reveal}
               className="mt-4 px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
             >
@@ -294,6 +302,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
       <div className="flex gap-4 flex-wrap">
         {!isConnected ? (
           <button 
+            type="button"
             onClick={onConnect}
             className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
           >
@@ -301,6 +310,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           </button>
         ) : (
           <button 
+            type="button"
             onClick={onSubmit} 
             disabled={isSubmitting}
             className={`px-8 py-3 text-[var(--color-bg)] border-none font-mono ${isSubmitting ? 'bg-[var(--color-text-dim)] cursor-not-allowed opacity-70' : 'bg-[var(--color-primary)] cursor-pointer'}`}
@@ -313,6 +323,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
           </button>
         )}
         <button 
+          type="button"
           onClick={() => setShowV1Fallback(false)}
           className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
         >
@@ -327,7 +338,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
       <StepGuidance {...STEP_GUIDES.review} />
       
       <Card className="bg-card/50 border-primary/20">
-        <CardHeader className="flex flex-row items-center justify-between py-4">
+        <CardHeader className="flex flex-row items-center justify-between py-3">
           <CardTitle className="text-sm font-mono text-secondary">
             GENERATED_POC.JSON
           </CardTitle>
@@ -335,8 +346,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
             {pocJson.length} bytes
           </span>
         </CardHeader>
-        <CardContent className="pt-0">
-          <pre className="bg-neutral-900/80 p-4 border border-primary/20 rounded-md overflow-auto text-xs font-mono text-primary max-h-[400px]">
+        <CardContent className="pt-0 pb-3">
+          <pre className="bg-neutral-900/80 p-3 border border-primary/20 rounded-md overflow-auto text-xs font-mono text-primary max-h-[240px]">
             {pocJson}
           </pre>
         </CardContent>
@@ -344,15 +355,17 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(({
 
       {useV2 && !showV1Fallback ? renderV2Flow() : renderV1Flow()}
 
-      <div className="mt-6">
-        <Button 
-          variant="outline"
-          onClick={onBack}
-          className="font-mono"
-        >
-          &lt;&lt; BACK
-        </Button>
-      </div>
+      {showBackButton ? (
+        <div className="mt-4">
+          <Button 
+            variant="outline"
+            onClick={onBack}
+            className="font-mono"
+          >
+            &lt;&lt; BACK
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 })

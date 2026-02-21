@@ -24,15 +24,17 @@ import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
 interface TargetStepProps {
   config: TargetConfig
   onUpdate: (field: keyof TargetConfig, value: string) => void
-  onNext: () => void
+  onNext?: () => void
   onLoadExample?: () => void
+  showStepNavigation?: boolean
 }
 
 export const TargetStep: React.FC<TargetStepProps> = React.memo(({ 
   config, 
   onUpdate, 
   onNext, 
-  onLoadExample 
+  onLoadExample,
+  showStepNavigation = true,
 }) => {
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
 
@@ -68,14 +70,14 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
     Object.entries(data).forEach(([key, value]) => {
       onUpdate(key as keyof TargetConfig, value)
     })
-    onNext()
+    onNext?.()
   }, [flushAll, onUpdate, onNext])
 
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.target} />
       
-      <div className="flex justify-end mb-6">
+      <div className="flex justify-end mb-3">
         {onLoadExample && (
           <Button 
             type="button"
@@ -90,7 +92,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
       </div>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <FormField
             control={form.control}
             name="targetContract"
@@ -113,7 +115,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
             )}
           />
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <FormField
               control={form.control}
               name="chain"
@@ -178,7 +180,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                       value={field.value}
                       onChange={handleAbiChange}
                       language="json"
-                      height={280}
+                      height={220}
                       placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
                       error={fieldState.error?.message}
                     />
@@ -189,14 +191,16 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
             )}
           />
 
-          <div className="mt-8 text-right">
-            <Button 
-              type="submit"
-              className="font-mono text-base px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary)]/90 tracking-wider"
-            >
-              NEXT &gt;&gt;
-            </Button>
-          </div>
+          {showStepNavigation ? (
+            <div className="mt-4 text-right">
+              <Button 
+                type="submit"
+                className="font-mono text-sm px-6 py-2.5 bg-[var(--color-primary)] text-[var(--color-bg)] hover:bg-[var(--color-primary)]/90 tracking-wider"
+              >
+                NEXT &gt;&gt;
+              </Button>
+            </div>
+          ) : null}
         </form>
       </Form>
     </div>
