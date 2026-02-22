@@ -1,0 +1,126 @@
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockUseWallet = vi.fn();
+const mockResolveProjectPublicKey = vi.fn();
+const mockAesGcmEncrypt = vi.fn();
+const mockGenerateRandomSalt = vi.fn();
+const mockHashCiphertext = vi.fn();
+const mockComputeCommitHash = vi.fn();
+const mockUploadEncryptedPoC = vi.fn();
+const mockQueueRevealIfEnabled = vi.fn();
+
+vi.mock("../hooks/useWallet", () => ({
+	useWallet: () => mockUseWallet(),
+}));
+
+vi.mock("../lib/projectPublicKey", () => ({
+	resolveProjectPublicKey: (...args: unknown[]) =>
+		mockResolveProjectPublicKey(...args),
+}));
+
+vi.mock("../utils/encryption", () => ({
+	aesGcmEncrypt: (...args: unknown[]) => mockAesGcmEncrypt(...args),
+	generateRandomSalt: () => mockGenerateRandomSalt(),
+	hashCiphertext: (...args: unknown[]) => mockHashCiphertext(...args),
+	computeCommitHash: (...args: unknown[]) => mockComputeCommitHash(...args),
+}));
+
+vi.mock("../lib/ipfsUpload", () => ({
+	uploadEncryptedPoC: (...args: unknown[]) => mockUploadEncryptedPoC(...args),
+}));
+
+vi.mock("../lib/revealQueue", () => ({
+	queueRevealIfEnabled: (...args: unknown[]) =>
+		mockQueueRevealIfEnabled(...args),
+}));
+
+import { usePoCSubmission } from "../hooks/usePoCSubmission";
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+describe("usePoCSubmission queue fallback", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				readContract: vi.fn().mockResolvedValue([]),
+				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi.fn(),
+			},
+			isConnected: true,
+		});
+
+		mockResolveProjectPublicKey.mockResolvedValue("0x11");
+		mockGenerateRandomSalt.mockReturnValue("0x1234");
+		mockHashCiphertext.mockReturnValue("0x5678");
+		mockComputeCommitHash.mockReturnValue("0x9abc");
+		mockUploadEncryptedPoC.mockResolvedValue("ipfs://bafytestcid");
+		mockQueueRevealIfEnabled.mockResolvedValue(null);
+	});
+
+	it("keeps commit result when optional queueing fails", async () => {
+		const receiptDeferred = deferred<{
+			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
+		}>();
+
+		const walletClient = {
+			writeContract: vi.fn().mockResolvedValue("0xcommit"),
+		};
+		const publicClient = {
+			readContract: vi.fn().mockResolvedValue([]),
+			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+			waitForTransactionReceipt: vi.fn().mockReturnValue(receiptDeferred.promise),
+		};
+
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient,
+			publicClient,
+			isConnected: true,
+		});
+
+		mockAesGcmEncrypt.mockResolvedValue({
+			ciphertext: new Uint8Array([1, 2, 3]),
+			iv: new Uint8Array([4, 5, 6]),
+		});
+		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
+
+		const { result } = renderHook(() => usePoCSubmission());
+
+		let submitPromise!: Promise<
+			| { submissionId?: bigint; commitTxHash?: `0x${string}`; revealTxHash?: `0x${string}` }
+			| undefined
+		>;
+		await act(async () => {
+			submitPromise = result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		await act(async () => {
+			receiptDeferred.resolve({ logs: [] });
+		});
+
+		let submitResult:
+			| { submissionId?: bigint; commitTxHash?: `0x${string}`; revealTxHash?: `0x${string}` }
+			| undefined;
+		await act(async () => {
+			submitResult = await submitPromise;
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(submitResult?.commitTxHash).toBe("0xcommit");
+	});
+});

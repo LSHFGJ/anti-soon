@@ -1,38 +1,21 @@
-/**
- * IPFS utility functions for storing and retrieving contract metadata
- * Uses Pinata API for uploads and IPFS gateway for reads
- */
+const ENV = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
+const API_BASE_URL = ENV.VITE_API_URL?.trim() ?? ''
+const IPFS_UPLOAD_ENDPOINT = `${API_BASE_URL}/api/ipfs/upload`
+const IPFS_GATEWAY = ENV.VITE_IPFS_GATEWAY?.trim() || 'https://storacha.link/ipfs/'
 
-const PINATA_API_URL = 'https://api.pinata.cloud/pinning/pinJSONToIPFS'
-const IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/'
-
-interface PinataResponse {
-  IpfsHash: string
-  PinSize: number
-  Timestamp: string
+interface UploadResponse {
+  cid?: string
+  uri?: string
 }
 
-/**
- * Upload JSON metadata to IPFS via Pinata
- * @param metadata - Object to upload
- * @returns IPFS CID (content identifier)
- */
 export async function uploadToIPFS(metadata: object): Promise<string> {
-  const apiKey = import.meta.env.VITE_PINATA_API_KEY
-  const apiSecret = import.meta.env.VITE_PINATA_API_SECRET
-  
-  if (!apiKey || !apiSecret) {
-    throw new Error('Pinata API credentials not configured')
-  }
-
-  const response = await fetch(PINATA_API_URL, {
+  const response = await fetch(IPFS_UPLOAD_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'pinata_api_key': apiKey,
-      'pinata_secret_api_key': apiSecret,
+      'Accept': 'application/json',
     },
-    body: JSON.stringify(metadata),
+    body: JSON.stringify({ metadata }),
   })
 
   if (!response.ok) {
@@ -40,15 +23,17 @@ export async function uploadToIPFS(metadata: object): Promise<string> {
     throw new Error(`IPFS upload failed: ${error}`)
   }
 
-  const data: PinataResponse = await response.json()
-  return data.IpfsHash
+  const data: UploadResponse = await response.json()
+  if (typeof data.cid === 'string' && data.cid.length > 0) {
+    return data.cid
+  }
+  if (typeof data.uri === 'string' && data.uri.startsWith('ipfs://')) {
+    return data.uri.replace('ipfs://', '')
+  }
+
+  throw new Error('IPFS upload response missing cid/uri')
 }
 
-/**
- * Fetch JSON metadata from IPFS
- * @param cid - IPFS content identifier
- * @returns Parsed JSON object
- */
 export async function fetchFromIPFS<T = object>(cid: string): Promise<T> {
   const url = `${IPFS_GATEWAY}${cid}`
   
@@ -66,11 +51,6 @@ export async function fetchFromIPFS<T = object>(cid: string): Promise<T> {
   return response.json()
 }
 
-/**
- * Get IPFS gateway URL for a CID
- * @param cid - IPFS content identifier
- * @returns Full gateway URL
- */
 export function getIPFSUrl(cid: string): string {
   return `${IPFS_GATEWAY}${cid}`
 }
