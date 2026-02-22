@@ -8,15 +8,23 @@ contract BountyHubTest is Test {
     BountyHub public hub;
     address constant FORWARDER = address(0xF0);
     address constant TARGET = address(0xBEEF);
+    bytes32 constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
+    bytes32 constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes32 constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
     address owner = address(this);
     address auditor = address(0xA1);
     address otherUser = address(0xA2);
+    uint256 bySigAuditorPk = 0xA11CE;
+    address bySigAuditor;
 
     function setUp() public {
         vm.warp(1000);
         hub = new BountyHub(FORWARDER);
+        bySigAuditor = vm.addr(bySigAuditorPk);
         vm.deal(owner, 100 ether);
         vm.deal(auditor, 10 ether);
+        vm.deal(bySigAuditor, 10 ether);
         vm.deal(otherUser, 10 ether);
     }
 
@@ -119,6 +127,234 @@ contract BountyHubTest is Test {
 
         vm.prank(auditor);
         hub.revealPoC(0, key, salt);
+    }
+
+    function test_commitPoCBySig_relayerCanCommitForAuditor() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-bysig");
+        string memory cipherURI = "ipfs://cipher-bysig";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory signature = _signCommitBySig(bySigAuditorPk, bySigAuditor, 0, commitHash, keccak256(bytes(cipherURI)), nonce, deadline);
+
+        vm.prank(otherUser);
+        uint256 submissionId = hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, deadline, signature);
+
+        BountyHub.Submission memory sub = _getSubmission(submissionId);
+        assertEq(sub.auditor, bySigAuditor, "auditor should be signer");
+        assertTrue(hub.commitHashUsed(commitHash), "commit hash should be consumed");
+        assertEq(hub.sigNonces(bySigAuditor), nonce + 1, "nonce should increment");
+    }
+
+    function test_commitPoCBySig_rejectsReplayedSignature() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-bysig");
+        string memory cipherURI = "ipfs://cipher-bysig";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory signature = _signCommitBySig(bySigAuditorPk, bySigAuditor, 0, commitHash, keccak256(bytes(cipherURI)), nonce, deadline);
+
+        vm.prank(otherUser);
+        hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, deadline, signature);
+
+        vm.expectRevert("Invalid signer");
+        vm.prank(otherUser);
+        hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, deadline, signature);
+    }
+
+    function test_revealPoCBySig_relayerCanRevealForAuditor() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-bysig");
+        string memory cipherURI = "ipfs://cipher-bysig";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+
+        uint256 commitNonce = hub.sigNonces(bySigAuditor);
+        uint256 commitDeadline = block.timestamp + 1 days;
+        bytes memory commitSig = _signCommitBySig(bySigAuditorPk, bySigAuditor, 0, commitHash, keccak256(bytes(cipherURI)), commitNonce, commitDeadline);
+
+        vm.prank(otherUser);
+        uint256 submissionId = hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, commitDeadline, commitSig);
+
+        bytes32 decryptionKey = keccak256("reveal-key");
+        uint256 revealNonce = hub.sigNonces(bySigAuditor);
+        uint256 revealDeadline = block.timestamp + 1 days;
+        bytes memory revealSig = _signRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, revealNonce, revealDeadline);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(otherUser);
+        hub.revealPoCBySig(bySigAuditor, submissionId, decryptionKey, salt, revealDeadline, revealSig);
+
+        BountyHub.Submission memory sub = _getSubmission(submissionId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "status should be revealed");
+        assertEq(sub.decryptionKey, decryptionKey, "key should match");
+        assertEq(hub.sigNonces(bySigAuditor), revealNonce + 1, "nonce should increment");
+    }
+
+    function test_revealPoCBySig_rejectsWrongSigner() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-bysig");
+        string memory cipherURI = "ipfs://cipher-bysig";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        uint256 commitNonce = hub.sigNonces(bySigAuditor);
+        uint256 commitDeadline = block.timestamp + 1 days;
+        bytes memory commitSig = _signCommitBySig(bySigAuditorPk, bySigAuditor, 0, commitHash, keccak256(bytes(cipherURI)), commitNonce, commitDeadline);
+
+        vm.prank(otherUser);
+        uint256 submissionId = hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, commitDeadline, commitSig);
+
+        uint256 wrongPk = 0xB0B;
+        bytes32 decryptionKey = keccak256("reveal-key");
+        uint256 revealNonce = hub.sigNonces(bySigAuditor);
+        uint256 revealDeadline = block.timestamp + 1 days;
+        bytes memory revealSig = _signRevealBySig(wrongPk, bySigAuditor, submissionId, decryptionKey, salt, revealNonce, revealDeadline);
+
+        vm.warp(block.timestamp + 1);
+        vm.expectRevert("Invalid signer");
+        vm.prank(otherUser);
+        hub.revealPoCBySig(bySigAuditor, submissionId, decryptionKey, salt, revealDeadline, revealSig);
+    }
+
+    function test_queueRevealBySig_andExecuteAfterCommitDeadline() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        uint256 commitDeadline = block.timestamp + 1 days;
+        uint256 revealDeadline = block.timestamp + 2 days;
+        uint256 projectId = hub.registerProjectV2{value: 1 ether}(
+            TARGET,
+            0.5 ether,
+            0,
+            BountyHub.CompetitionMode.MULTI,
+            commitDeadline,
+            revealDeadline,
+            1 days,
+            rules
+        );
+
+        bytes32 salt = keccak256("queue-salt");
+        string memory cipherURI = "ipfs://queued-reveal";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        vm.prank(bySigAuditor);
+        uint256 submissionId = hub.commitPoC(projectId, commitHash, cipherURI);
+
+        bytes32 decryptionKey = keccak256("queued-key");
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, nonce, revealDeadline);
+
+        vm.prank(otherUser);
+        hub.queueRevealBySig(bySigAuditor, submissionId, decryptionKey, salt, revealDeadline, revealSig);
+
+        (,,, uint256 queuedDeadline, bool queued) = hub.queuedReveals(submissionId);
+        assertTrue(queued, "queued reveal should be stored");
+        assertEq(queuedDeadline, revealDeadline, "queued deadline should match");
+
+        vm.expectRevert("Reveal not started");
+        vm.prank(otherUser);
+        hub.executeQueuedReveal(submissionId);
+
+        vm.warp(commitDeadline + 1);
+        vm.prank(otherUser);
+        hub.executeQueuedReveal(submissionId);
+
+        BountyHub.Submission memory sub = _getSubmission(submissionId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "status should be revealed");
+        (,,,, bool queueCleared) = hub.queuedReveals(submissionId);
+        assertTrue(!queueCleared, "queued reveal should be cleared");
+    }
+
+    function test_queueRevealBySig_rejectsWrongSigner() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("queue-salt");
+        string memory cipherURI = "ipfs://queued-reveal";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        vm.prank(bySigAuditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory revealSig = _signQueueRevealBySig(0xB0B, bySigAuditor, submissionId, keccak256("queued-key"), salt, nonce, deadline);
+
+        vm.expectRevert("Invalid signer");
+        vm.prank(otherUser);
+        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+    }
+
+    function test_queueRevealBySig_rejectsRevealSignatureType() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("queue-salt");
+        string memory cipherURI = "ipfs://queued-reveal";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        vm.prank(bySigAuditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory revealSig = _signRevealBySig(
+            bySigAuditorPk,
+            bySigAuditor,
+            submissionId,
+            keccak256("queued-key"),
+            salt,
+            nonce,
+            deadline
+        );
+
+        vm.expectRevert("Invalid signer");
+        vm.prank(otherUser);
+        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+    }
+
+    function test_executeQueuedReveal_respectsSignatureDeadline() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("queue-salt");
+        string memory cipherURI = "ipfs://queued-reveal";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        vm.prank(bySigAuditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 120;
+        bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, keccak256("queued-key"), salt, nonce, deadline);
+
+        vm.prank(otherUser);
+        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+
+        vm.warp(deadline + 1);
+        vm.expectRevert("Signature expired");
+        vm.prank(otherUser);
+        hub.executeQueuedReveal(submissionId);
+    }
+
+    function test_revealPoC_clearsQueuedReveal() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("queue-salt");
+        string memory cipherURI = "ipfs://queued-reveal";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), bySigAuditor, salt));
+        vm.prank(bySigAuditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        bytes32 decryptionKey = keccak256("queued-key");
+        uint256 nonce = hub.sigNonces(bySigAuditor);
+        uint256 deadline = block.timestamp + 1 days;
+        bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, nonce, deadline);
+
+        vm.prank(otherUser);
+        hub.queueRevealBySig(bySigAuditor, submissionId, decryptionKey, salt, deadline, revealSig);
+
+        vm.prank(bySigAuditor);
+        hub.revealPoC(submissionId, decryptionKey, salt);
+
+        (,,,, bool queued) = hub.queuedReveals(submissionId);
+        assertTrue(!queued, "queued reveal should be cleared after direct reveal");
     }
 
     function test_submitPoC_V1_backwardCompat() public {
@@ -340,6 +576,69 @@ contract BountyHubTest is Test {
         (sub.auditor, sub.projectId, sub.commitHash, sub.cipherURI, sub.decryptionKey, sub.salt, 
          sub.commitTimestamp, sub.revealTimestamp, sub.status, sub.drainAmountWei, sub.severity, 
          sub.payoutAmount, sub.disputeDeadline, sub.challenged, sub.challenger, sub.challengeBond) = hub.submissions(subId);
+    }
+
+    function _domainSeparator() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                EIP712_DOMAIN_TYPEHASH,
+                keccak256(bytes("BountyHub")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(hub)
+            )
+        );
+    }
+
+    function _signCommitBySig(
+        uint256 pk,
+        address signer,
+        uint256 projectId,
+        bytes32 commitHash,
+        bytes32 cipherURIHash,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(COMMIT_BY_SIG_TYPEHASH, signer, projectId, commitHash, cipherURIHash, nonce, deadline)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signRevealBySig(
+        uint256 pk,
+        address signer,
+        uint256 submissionId,
+        bytes32 decryptionKey,
+        bytes32 salt,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(REVEAL_BY_SIG_TYPEHASH, signer, submissionId, decryptionKey, salt, nonce, deadline)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signQueueRevealBySig(
+        uint256 pk,
+        address signer,
+        uint256 submissionId,
+        bytes32 decryptionKey,
+        bytes32 salt,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(
+            abi.encode(QUEUE_REVEAL_BY_SIG_TYPEHASH, signer, submissionId, decryptionKey, salt, nonce, deadline)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     // ============ ENCRYPTION TESTS ============

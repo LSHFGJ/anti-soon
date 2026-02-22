@@ -91,6 +91,15 @@ contract BountyHub is ReceiverTemplate {
         uint256 challengeBond;
     }
 
+    /// @notice Pre-authorized reveal payload stored for delayed execution
+    struct QueuedReveal {
+        address auditor;
+        bytes32 decryptionKey;
+        bytes32 salt;
+        uint256 deadline;
+        bool queued;
+    }
+
     // V1 Submission struct for backward compatibility
     struct SubmissionV1 {
         address auditor;
@@ -110,6 +119,7 @@ contract BountyHub is ReceiverTemplate {
     uint256 public nextSubmissionId;
     mapping(uint256 => Project) internal _projects;
     mapping(uint256 => Submission) public submissions;
+    mapping(uint256 => QueuedReveal) public queuedReveals;
     mapping(uint256 => ProjectRules) public projectRules;
     mapping(uint256 => ContractScope[]) public projectScopes;  // V4: multi-contract support
 
@@ -118,10 +128,18 @@ contract BountyHub is ReceiverTemplate {
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
     mapping(address => mapping(uint256 => uint256)) public lastSubmitTime;  // V1 cooldown
     mapping(address => mapping(uint256 => uint256)) public lastCommitTime;  // V2 cooldown
+    mapping(address => uint256) public sigNonces;          // bySig replay protection
 
     uint256 public constant COOLDOWN = 10 minutes;
     uint256 public constant MIN_CHALLENGE_BOND = 0.01 ether;
     uint256 public constant TIMEOUT_PENALTY_BPS = 500; // 5% in basis points
+
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant EIP712_NAME_HASH = keccak256("BountyHub");
+    bytes32 private constant EIP712_VERSION_HASH = keccak256("1");
+    bytes32 private constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
+    bytes32 private constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes32 private constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
 
     // ═══════════ Events ═══════════
 
@@ -134,6 +152,8 @@ contract BountyHub is ReceiverTemplate {
     event ProjectRegisteredV2(uint256 indexed projectId, address indexed owner, CompetitionMode mode);
     event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash);
     event PoCRevealed(uint256 indexed submissionId, bytes32 decryptionKey);
+    event RevealQueued(uint256 indexed submissionId, address indexed auditor, uint256 deadline);
+    event QueuedRevealExecuted(uint256 indexed submissionId, address indexed executor);
     event PoCVerified(uint256 indexed submissionId, bool isValid, uint256 drainAmountWei, uint8 severity);
     event DisputeRaised(uint256 indexed submissionId, address indexed challenger, uint256 bond);
     event DisputeResolved(uint256 indexed submissionId, bool overturned);
@@ -367,7 +387,7 @@ contract BountyHub is ReceiverTemplate {
 
     /// @notice Phase 1: Auditor commits an encrypted PoC
     /// @param _projectId The project ID to submit to
-    /// @param _commitHash keccak256(abi.encodePacked(keccak256(ciphertext), msg.sender, salt))
+    /// @param _commitHash keccak256(abi.encodePacked(keccak256(cipherURI), auditor, salt))
     /// @param _cipherURI IPFS URI to the encrypted PoC
     /// @return submissionId The ID of the new submission
     function commitPoC(
@@ -375,11 +395,56 @@ contract BountyHub is ReceiverTemplate {
         bytes32 _commitHash,
         string calldata _cipherURI
     ) external returns (uint256 submissionId) {
+        return _commitPoC(_projectId, _commitHash, _cipherURI, msg.sender);
+    }
+
+    /// @notice Phase 1 (relayed): commit an encrypted PoC with auditor signature
+    /// @param _auditor Auditor address authorizing this commit
+    /// @param _projectId The project ID to submit to
+    /// @param _commitHash keccak256(abi.encodePacked(keccak256(cipherURI), auditor, salt))
+    /// @param _cipherURI IPFS URI to the encrypted PoC
+    /// @param _deadline Signature expiry timestamp
+    /// @param _signature EIP-712 signature from auditor
+    function commitPoCBySig(
+        address _auditor,
+        uint256 _projectId,
+        bytes32 _commitHash,
+        string calldata _cipherURI,
+        uint256 _deadline,
+        bytes calldata _signature
+    ) external returns (uint256 submissionId) {
+        require(block.timestamp <= _deadline, "Signature expired");
+
+        uint256 nonce = sigNonces[_auditor];
+        bytes32 structHash = keccak256(
+            abi.encode(
+                COMMIT_BY_SIG_TYPEHASH,
+                _auditor,
+                _projectId,
+                _commitHash,
+                keccak256(bytes(_cipherURI)),
+                nonce,
+                _deadline
+            )
+        );
+
+        _requireValidSignature(_auditor, structHash, _signature);
+        sigNonces[_auditor] = nonce + 1;
+
+        return _commitPoC(_projectId, _commitHash, _cipherURI, _auditor);
+    }
+
+    function _commitPoC(
+        uint256 _projectId,
+        bytes32 _commitHash,
+        string calldata _cipherURI,
+        address _auditor
+    ) internal returns (uint256 submissionId) {
         Project storage p = _projects[_projectId];
         require(p.active, "Project not active");
         require(p.bountyPool > 0, "No bounty remaining");
         require(!commitHashUsed[_commitHash], "Duplicate commit");
-        require(block.timestamp >= lastCommitTime[msg.sender][_projectId] + COOLDOWN, "Cooldown active");
+        require(block.timestamp >= lastCommitTime[_auditor][_projectId] + COOLDOWN, "Cooldown active");
 
         // MULTI mode: check commit deadline
         if (p.mode == CompetitionMode.MULTI && p.commitDeadline > 0) {
@@ -387,19 +452,19 @@ contract BountyHub is ReceiverTemplate {
         }
 
         commitHashUsed[_commitHash] = true;
-        lastCommitTime[msg.sender][_projectId] = block.timestamp;
+        lastCommitTime[_auditor][_projectId] = block.timestamp;
 
         submissionId = nextSubmissionId++;
         
         Submission storage sub = submissions[submissionId];
-        sub.auditor = msg.sender;
+        sub.auditor = _auditor;
         sub.projectId = _projectId;
         sub.commitHash = _commitHash;
         sub.cipherURI = _cipherURI;
         sub.commitTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Committed;
 
-        emit PoCCommitted(submissionId, _projectId, msg.sender, _commitHash);
+        emit PoCCommitted(submissionId, _projectId, _auditor, _commitHash);
     }
 
     /// @notice Phase 2: Auditor reveals the decryption key
@@ -411,16 +476,125 @@ contract BountyHub is ReceiverTemplate {
         bytes32 _decryptionKey,
         bytes32 _salt
     ) external {
+        _revealPoC(_submissionId, _decryptionKey, _salt, msg.sender);
+    }
+
+    /// @notice Phase 2 (relayed): reveal PoC with auditor signature
+    /// @param _auditor Auditor address authorizing reveal
+    /// @param _submissionId The submission ID to reveal
+    /// @param _decryptionKey The AES decryption key for the encrypted PoC
+    /// @param _salt Random salt used in commit hash
+    /// @param _deadline Signature expiry timestamp
+    /// @param _signature EIP-712 signature from auditor
+    function revealPoCBySig(
+        address _auditor,
+        uint256 _submissionId,
+        bytes32 _decryptionKey,
+        bytes32 _salt,
+        uint256 _deadline,
+        bytes calldata _signature
+    ) external {
+        require(block.timestamp <= _deadline, "Signature expired");
+
+        uint256 nonce = sigNonces[_auditor];
+        bytes32 structHash = keccak256(
+            abi.encode(
+                REVEAL_BY_SIG_TYPEHASH,
+                _auditor,
+                _submissionId,
+                _decryptionKey,
+                _salt,
+                nonce,
+                _deadline
+            )
+        );
+
+        _requireValidSignature(_auditor, structHash, _signature);
+        sigNonces[_auditor] = nonce + 1;
+
+        _revealPoC(_submissionId, _decryptionKey, _salt, _auditor);
+    }
+
+    /// @notice Queue a reveal payload authorized by auditor signature for delayed execution
+    /// @dev Signature is validated and nonce consumed when queued (not at execution time)
+    function queueRevealBySig(
+        address _auditor,
+        uint256 _submissionId,
+        bytes32 _decryptionKey,
+        bytes32 _salt,
+        uint256 _deadline,
+        bytes calldata _signature
+    ) external {
+        require(block.timestamp <= _deadline, "Signature expired");
+
+        Submission storage sub = submissions[_submissionId];
+        require(sub.auditor == _auditor, "Not the auditor");
+        require(sub.status == SubmissionStatus.Committed, "Not in committed status");
+        require(!queuedReveals[_submissionId].queued, "Reveal already queued");
+
+        uint256 nonce = sigNonces[_auditor];
+        bytes32 structHash = keccak256(
+            abi.encode(
+                QUEUE_REVEAL_BY_SIG_TYPEHASH,
+                _auditor,
+                _submissionId,
+                _decryptionKey,
+                _salt,
+                nonce,
+                _deadline
+            )
+        );
+
+        _requireValidSignature(_auditor, structHash, _signature);
+        sigNonces[_auditor] = nonce + 1;
+
+        queuedReveals[_submissionId] = QueuedReveal({
+            auditor: _auditor,
+            decryptionKey: _decryptionKey,
+            salt: _salt,
+            deadline: _deadline,
+            queued: true
+        });
+
+        emit RevealQueued(_submissionId, _auditor, _deadline);
+    }
+
+    /// @notice Execute a previously queued reveal once timing constraints permit it
+    /// @dev Callable by anyone (workflow/relayer/keeper). Auditor authorization was checked at queue time.
+    function executeQueuedReveal(uint256 _submissionId) external {
+        QueuedReveal memory queued = queuedReveals[_submissionId];
+        require(queued.queued, "No queued reveal");
+        require(block.timestamp <= queued.deadline, "Signature expired");
+
+        _revealPoC(_submissionId, queued.decryptionKey, queued.salt, queued.auditor);
+        emit QueuedRevealExecuted(_submissionId, msg.sender);
+    }
+
+    /// @notice Cancel queued reveal payload (auditor only)
+    function cancelQueuedReveal(uint256 _submissionId) external {
         Submission storage sub = submissions[_submissionId];
         require(sub.auditor == msg.sender, "Not the auditor");
+        require(queuedReveals[_submissionId].queued, "No queued reveal");
+
+        delete queuedReveals[_submissionId];
+    }
+
+    function _revealPoC(
+        uint256 _submissionId,
+        bytes32 _decryptionKey,
+        bytes32 _salt,
+        address _auditor
+    ) internal {
+        Submission storage sub = submissions[_submissionId];
+        require(sub.auditor == _auditor, "Not the auditor");
         require(sub.status == SubmissionStatus.Committed, "Not in committed status");
 
         Project storage p = _projects[sub.projectId];
 
-        // Verify commit hash: keccak256(abi.encodePacked(keccak256(cipherURI), msg.sender, _salt))
+        // Verify commit hash: keccak256(abi.encodePacked(keccak256(cipherURI), auditor, _salt))
         // Note: cipherURI is the IPFS hash, we verify the commitment matches
         bytes32 cipherHash = keccak256(bytes(sub.cipherURI));
-        bytes32 computedCommit = keccak256(abi.encodePacked(cipherHash, msg.sender, _salt));
+        bytes32 computedCommit = keccak256(abi.encodePacked(cipherHash, _auditor, _salt));
         require(computedCommit == sub.commitHash, "Invalid reveal");
 
         // MULTI mode: check reveal window
@@ -435,8 +609,49 @@ contract BountyHub is ReceiverTemplate {
         sub.salt = _salt;
         sub.revealTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Revealed;
+        delete queuedReveals[_submissionId];
 
         emit PoCRevealed(_submissionId, _decryptionKey);
+    }
+
+    function _requireValidSignature(
+        address _expectedSigner,
+        bytes32 _structHash,
+        bytes calldata _signature
+    ) internal view {
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), _structHash));
+        address recoveredSigner = _recoverSigner(digest, _signature);
+        require(recoveredSigner == _expectedSigner, "Invalid signer");
+    }
+
+    function _domainSeparator() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                EIP712_DOMAIN_TYPEHASH,
+                EIP712_NAME_HASH,
+                EIP712_VERSION_HASH,
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    function _recoverSigner(bytes32 _digest, bytes calldata _signature) internal pure returns (address signer) {
+        require(_signature.length == 65, "Invalid signature length");
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        assembly {
+            r := calldataload(_signature.offset)
+            s := calldataload(add(_signature.offset, 32))
+            v := byte(0, calldataload(add(_signature.offset, 64)))
+        }
+
+        require(v == 27 || v == 28, "Invalid signature v");
+        signer = ecrecover(_digest, v, r, s);
+        require(signer != address(0), "Invalid signer");
     }
 
     // ═══════════ V1 Submission (Backward Compatibility) ═══════════
