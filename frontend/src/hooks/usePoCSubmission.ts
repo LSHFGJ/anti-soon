@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { Address } from "viem";
-import { decodeEventLog } from "viem";
+import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { uploadEncryptedPoC } from "../lib/ipfsUpload";
 import { resolveProjectPublicKey } from "../lib/projectPublicKey";
@@ -9,7 +9,6 @@ import {
 	aesGcmEncrypt,
 	computeCommitHash,
 	generateRandomSalt,
-	hashCiphertext,
 } from "../utils/encryption";
 import { useWallet } from "./useWallet";
 
@@ -120,12 +119,6 @@ export const usePoCSubmission = () => {
 				const ivHex = `0x${bytesToHex(iv)}` as `0x${string}`;
 
 				const salt = generateRandomSalt();
-				const cipherHash = hashCiphertext(ciphertextHex);
-				const commitHash = computeCommitHash(
-					cipherHash,
-					address as Address,
-					salt,
-				);
 
 				setState((s) => ({ ...s, phase: "committing" }));
 
@@ -134,6 +127,12 @@ export const usePoCSubmission = () => {
 					iv: ivHex,
 					apiBaseUrl: import.meta.env.VITE_API_URL,
 				});
+				const cipherHash = keccak256(toBytes(cipherURI));
+				const commitHash = computeCommitHash(
+					cipherHash,
+					address as Address,
+					salt,
+				);
 
 				setState((s) => ({
 					...s,

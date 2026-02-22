@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { Address } from "viem";
-import { decodeEventLog } from "viem";
+import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { uploadEncryptedPoC } from "../lib/ipfsUpload";
 import { queueRevealIfEnabled } from "../lib/revealQueue";
@@ -8,7 +8,6 @@ import {
 	aesGcmEncrypt,
 	computeCommitHash,
 	generateRandomSalt,
-	hashCiphertext,
 } from "../utils/encryption";
 import { useProjectPublicKey } from "./useProjectPublicKey";
 import { useWallet } from "./useWallet";
@@ -121,12 +120,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			const ivHex = `0x${bytesToHex(iv)}` as `0x${string}`;
 
 			const salt = generateRandomSalt();
-			const cipherHash = hashCiphertext(ciphertextHex);
-			const commitHash = computeCommitHash(
-				cipherHash,
-				address as Address,
-				salt,
-			);
 
 			setState((s) => ({ ...s, phase: "committing" }));
 
@@ -135,6 +128,12 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				iv: ivHex,
 				apiBaseUrl: import.meta.env.VITE_API_URL,
 			});
+			const cipherHash = keccak256(toBytes(cipherURI));
+			const commitHash = computeCommitHash(
+				cipherHash,
+				address as Address,
+				salt,
+			);
 
 			setState((s) => ({
 				...s,

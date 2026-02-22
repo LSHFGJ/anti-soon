@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { keccak256, toBytes } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUseWallet = vi.fn();
@@ -6,7 +7,6 @@ const mockUseProjectPublicKey = vi.fn();
 
 const mockAesGcmEncrypt = vi.fn();
 const mockGenerateRandomSalt = vi.fn();
-const mockHashCiphertext = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
 const mockQueueRevealIfEnabled = vi.fn();
@@ -22,7 +22,6 @@ vi.mock("../hooks/useProjectPublicKey", () => ({
 vi.mock("../utils/encryption", () => ({
 	aesGcmEncrypt: (...args: unknown[]) => mockAesGcmEncrypt(...args),
 	generateRandomSalt: () => mockGenerateRandomSalt(),
-	hashCiphertext: (...args: unknown[]) => mockHashCiphertext(...args),
 	computeCommitHash: (...args: unknown[]) => mockComputeCommitHash(...args),
 }));
 
@@ -69,7 +68,6 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
-		mockHashCiphertext.mockReturnValue("0x5678");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
 		mockUploadEncryptedPoC.mockResolvedValue("ipfs://bafytestcid");
 		mockQueueRevealIfEnabled.mockResolvedValue(null);
@@ -150,6 +148,12 @@ describe("commit/reveal lifecycle state model", () => {
 			waitReceiptDeferred.resolve({ logs: [] });
 			await commitPromise;
 		});
+
+		expect(mockComputeCommitHash).toHaveBeenCalledWith(
+			keccak256(toBytes("ipfs://bafytestcid")),
+			"0x1111111111111111111111111111111111111111",
+			"0x1234",
+		);
 
 		expect(result.current.state.phase).toBe("committed");
 
