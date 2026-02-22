@@ -1,0 +1,11 @@
+{
+  "name": "auto-reveal-relayer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run-once": "bun run run.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.46.2"
+  }
+}

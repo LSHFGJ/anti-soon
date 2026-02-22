@@ -1,6 +1,6 @@
 {
   "etherscanApiUrl": "https://api-sepolia.etherscan.io/api",
-  "ipfsApiUrl": "https://api.pinata.cloud",
+  "ipfsUploadApiUrl": "https://your-api.example.com/api/ipfs/upload",
   "githubApiUrl": "https://api.github.com",
   "owner": "0x0000000000000000000000000000000000000000"
 }

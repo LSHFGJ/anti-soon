@@ -9,7 +9,7 @@ import { z } from "zod"
 
 const configSchema = z.object({
   etherscanApiUrl: z.string().default("https://api-sepolia.etherscan.io/api"),
-  ipfsApiUrl: z.string().default("https://api.pinata.cloud"),
+  ipfsUploadApiUrl: z.string(),
   githubApiUrl: z.string().default("https://api.github.com"),
   owner: z.string(),
 })
@@ -61,7 +61,7 @@ type ContractSource = {
 // ═══════════════════ Helper Functions ═══════════════════
 
 function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
-  const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\?]+)/)
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/?]+)/)
   if (!match) return null
   return { owner: match[1], repo: match[2].replace(/\.git$/, "") }
 }
@@ -87,7 +87,7 @@ function fetchContractSources(
     "Accept": "application/vnd.github.v3+json",
   }
   if (githubToken) {
-    headers["Authorization"] = `Bearer ${githubToken}`
+    headers.Authorization = `Bearer ${githubToken}`
   }
 
   const sources: ContractSource[] = []
@@ -213,6 +213,50 @@ type IpfsResult = {
   cid: string
 }
 
+function extractCid(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null
+  }
+
+  const data = payload as Record<string, unknown>
+
+  if (typeof data.cid === "string" && data.cid.length > 0) {
+    return data.cid
+  }
+
+  if (typeof data.IpfsHash === "string" && data.IpfsHash.length > 0) {
+    return data.IpfsHash
+  }
+
+  const uriCandidate =
+    typeof data.uri === "string"
+      ? data.uri
+      : typeof data.ipfsUri === "string"
+        ? data.ipfsUri
+        : null
+
+  if (uriCandidate?.startsWith("ipfs://")) {
+    const cid = uriCandidate.slice("ipfs://".length)
+    return cid.length > 0 ? cid : null
+  }
+
+  const gatewayCandidate =
+    typeof data.gatewayUrl === "string"
+      ? data.gatewayUrl
+      : typeof data.url === "string"
+        ? data.url
+        : null
+
+  if (gatewayCandidate) {
+    const match = gatewayCandidate.match(/\/ipfs\/([^/?#]+)/)
+    if (match?.[1]) {
+      return match[1]
+    }
+  }
+
+  return null
+}
+
 function uploadToIpfs(
   nodeRuntime: NodeRuntime<Config>,
   contractAddress: string,
@@ -234,37 +278,41 @@ function uploadToIpfs(
 
   const resp = confidentialHttpClient.sendRequest(nodeRuntime, {
     request: {
-      url: `${config.ipfsApiUrl}/pinning/pinJSONToIPFS`,
+      url: config.ipfsUploadApiUrl,
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
-        "Authorization": { values: ["Bearer {{.PINATA_JWT}}"] },
+        "Authorization": { values: ["Bearer {{.IPFS_UPLOAD_TOKEN}}"] },
       },
       bodyString: JSON.stringify({
-        pinataContent: metadata,
-        pinataMetadata: {
-          name: `antisoon-${contractName}-${contractAddress.slice(0, 8)}`,
-        },
+        payloadType: "contract-metadata",
+        metadata,
       }),
     },
     vaultDonSecrets: [
-      { key: "PINATA_JWT", owner: config.owner },
+      { key: "IPFS_UPLOAD_TOKEN", owner: config.owner },
       { key: "san_marino_aes_gcm_encryption_key" },
     ],
     encryptOutput: true,
   }).result()
 
-  if (resp.statusCode !== 200) {
+  if (resp.statusCode !== 200 && resp.statusCode !== 201) {
     nodeRuntime.log(`IPFS upload failed: ${resp.statusCode}`)
     return null
   }
 
   try {
     const result = JSON.parse(new TextDecoder().decode(resp.body))
-    nodeRuntime.log(`IPFS uploaded: CID=${result.IpfsHash}`)
+    const cid = extractCid(result)
+    if (!cid) {
+      nodeRuntime.log(`IPFS upload response missing CID`)
+      return null
+    }
+
+    nodeRuntime.log(`IPFS uploaded: CID=${cid}`)
     return {
       address: contractAddress,
-      cid: result.IpfsHash,
+      cid,
     }
   } catch (e) {
     nodeRuntime.log(`Failed to parse IPFS response: ${String(e)}`)
