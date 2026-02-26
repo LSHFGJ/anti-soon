@@ -2,10 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUseWallet = vi.fn();
-const mockResolveProjectPublicKey = vi.fn();
-const mockAesGcmEncrypt = vi.fn();
 const mockGenerateRandomSalt = vi.fn();
-const mockHashCiphertext = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
 const mockQueueRevealIfEnabled = vi.fn();
@@ -14,15 +11,8 @@ vi.mock("../hooks/useWallet", () => ({
 	useWallet: () => mockUseWallet(),
 }));
 
-vi.mock("../lib/projectPublicKey", () => ({
-	resolveProjectPublicKey: (...args: unknown[]) =>
-		mockResolveProjectPublicKey(...args),
-}));
-
 vi.mock("../utils/encryption", () => ({
-	aesGcmEncrypt: (...args: unknown[]) => mockAesGcmEncrypt(...args),
 	generateRandomSalt: () => mockGenerateRandomSalt(),
-	hashCiphertext: (...args: unknown[]) => mockHashCiphertext(...args),
 	computeCommitHash: (...args: unknown[]) => mockComputeCommitHash(...args),
 }));
 
@@ -64,9 +54,7 @@ describe("usePoCSubmission queue fallback", () => {
 			isConnected: true,
 		});
 
-		mockResolveProjectPublicKey.mockResolvedValue("0x11");
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
-		mockHashCiphertext.mockReturnValue("0x5678");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
 		mockUploadEncryptedPoC.mockResolvedValue(
 			"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
@@ -95,10 +83,6 @@ describe("usePoCSubmission queue fallback", () => {
 			isConnected: true,
 		});
 
-		mockAesGcmEncrypt.mockResolvedValue({
-			ciphertext: new Uint8Array([1, 2, 3]),
-			iv: new Uint8Array([4, 5, 6]),
-		});
 		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
 
 		const { result } = renderHook(() => usePoCSubmission());
@@ -126,6 +110,7 @@ describe("usePoCSubmission queue fallback", () => {
 		expect(submitResult?.commitTxHash).toBe("0xcommit");
 		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
 			expect.objectContaining({
+				poc: '{"poc":"json"}',
 				projectId: 1n,
 				auditor: "0x1111111111111111111111111111111111111111",
 			}),

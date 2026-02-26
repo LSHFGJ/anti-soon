@@ -3,9 +3,6 @@ import { keccak256, toBytes } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUseWallet = vi.fn();
-const mockUseProjectPublicKey = vi.fn();
-
-const mockAesGcmEncrypt = vi.fn();
 const mockGenerateRandomSalt = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
@@ -15,12 +12,7 @@ vi.mock("../hooks/useWallet", () => ({
 	useWallet: () => mockUseWallet(),
 }));
 
-vi.mock("../hooks/useProjectPublicKey", () => ({
-	useProjectPublicKey: () => mockUseProjectPublicKey(),
-}));
-
 vi.mock("../utils/encryption", () => ({
-	aesGcmEncrypt: (...args: unknown[]) => mockAesGcmEncrypt(...args),
 	generateRandomSalt: () => mockGenerateRandomSalt(),
 	computeCommitHash: (...args: unknown[]) => mockComputeCommitHash(...args),
 }));
@@ -61,12 +53,6 @@ describe("commit/reveal lifecycle state model", () => {
 			isConnected: false,
 		});
 
-		mockUseProjectPublicKey.mockReturnValue({
-			publicKey: "0x11",
-			isLoading: false,
-			error: null,
-		});
-
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
 		mockUploadEncryptedPoC.mockResolvedValue("oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc");
@@ -102,10 +88,7 @@ describe("commit/reveal lifecycle state model", () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
 		}>();
-		const encryptDeferred = deferred<{
-			ciphertext: Uint8Array;
-			iv: Uint8Array;
-		}>();
+		const uploadDeferred = deferred<string>();
 
 		const publicClient = {
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
@@ -123,7 +106,7 @@ describe("commit/reveal lifecycle state model", () => {
 			publicClient,
 			isConnected: true,
 		});
-		mockAesGcmEncrypt.mockReturnValue(encryptDeferred.promise);
+		mockUploadEncryptedPoC.mockReturnValue(uploadDeferred.promise);
 
 		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
 
@@ -132,13 +115,12 @@ describe("commit/reveal lifecycle state model", () => {
 			commitPromise = result.current.commit();
 		});
 
-		expect(result.current.state.phase).toBe("encrypting");
+		expect(result.current.state.phase).toBe("committing");
 
 		await act(async () => {
-			encryptDeferred.resolve({
-				ciphertext: new Uint8Array([1, 2, 3]),
-				iv: new Uint8Array([4, 5, 6]),
-			});
+			uploadDeferred.resolve(
+				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+			);
 			await Promise.resolve();
 		});
 
@@ -157,6 +139,7 @@ describe("commit/reveal lifecycle state model", () => {
 
 		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
 			expect.objectContaining({
+				poc: '{"poc":"json"}',
 				projectId: 1n,
 				auditor: "0x1111111111111111111111111111111111111111",
 			}),
@@ -176,10 +159,7 @@ describe("commit/reveal lifecycle state model", () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
 		}>();
-		const encryptDeferred = deferred<{
-			ciphertext: Uint8Array;
-			iv: Uint8Array;
-		}>();
+		const uploadDeferred = deferred<string>();
 
 		const publicClient = {
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
@@ -197,7 +177,7 @@ describe("commit/reveal lifecycle state model", () => {
 			publicClient,
 			isConnected: true,
 		});
-		mockAesGcmEncrypt.mockReturnValue(encryptDeferred.promise);
+		mockUploadEncryptedPoC.mockReturnValue(uploadDeferred.promise);
 		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
 
 		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
@@ -208,10 +188,9 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		await act(async () => {
-			encryptDeferred.resolve({
-				ciphertext: new Uint8Array([1, 2, 3]),
-				iv: new Uint8Array([4, 5, 6]),
-			});
+			uploadDeferred.resolve(
+				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+			);
 			await Promise.resolve();
 		});
 

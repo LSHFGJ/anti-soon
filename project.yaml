@@ -6,4 +6,3 @@ staging-settings:
     workflow-owner-address: ""
   workflows:
     - workflow: workflow/verify-poc/workflow.yaml
-    - workflow: workflow/project-keygen/workflow.yaml

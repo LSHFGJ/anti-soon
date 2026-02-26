@@ -10,8 +10,7 @@ describe('oasis upload helper', () => {
     }))
 
     const uri = await uploadEncryptedPoC({
-      ciphertext: '0x1234',
-      iv: '0xabcd',
+      poc: '{"target":"dummy"}',
       projectId: 7n,
       auditor: '0x2222222222222222222222222222222222222222',
       apiBaseUrl: 'https://api.example.com',
@@ -36,16 +35,14 @@ describe('oasis upload helper', () => {
     }))
 
     const uriA = await uploadEncryptedPoC({
-      ciphertext: '0x1234',
-      iv: '0xabcd',
+      poc: '{"target":"dummy"}',
       projectId: 1n,
       auditor: '0x1111111111111111111111111111111111111111',
       fetchImpl: fetchImpl as unknown as typeof fetch,
     })
 
     const uriB = await uploadEncryptedPoC({
-      ciphertext: '0x1234',
-      iv: '0xabcd',
+      poc: '{"target":"dummy"}',
       projectId: 1n,
       auditor: '0x1111111111111111111111111111111111111111',
       fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -64,9 +61,21 @@ describe('oasis upload helper', () => {
     }))
 
     await expect(uploadEncryptedPoC({
-      ciphertext: '0x1234',
-      iv: '0xabcd',
+      poc: '{"target":"dummy"}',
       fetchImpl: fetchImpl as unknown as typeof fetch,
     })).rejects.toThrow('Oasis write API failed with status 401: unauthorized')
+  })
+
+  it('throws when poc json is invalid', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ uri: 'oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-1#0xabc' }),
+    }))
+
+    await expect(uploadEncryptedPoC({
+      poc: '{invalid',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })).rejects.toThrow('PoC JSON must be valid JSON object')
   })
 })

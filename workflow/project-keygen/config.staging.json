@@ -1,9 +1,0 @@
-{
-  "chainSelectorName": "ethereum-testnet-sepolia",
-  "bountyHubAddress": "0x5321D42233E9C90287c9B8Af5ece082F70f225C0",
-  "forwarderAddress": "0x15fC6ae953E024d975e77382eEeC56A9101f9F88",
-  "gasLimit": "500000",
-  "keyProvisioningMode": "manual",
-  "keySecretPrefix": "PROJECT_KEY_",
-  "oasisChain": "oasis-sapphire-testnet"
-}

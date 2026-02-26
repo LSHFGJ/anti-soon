@@ -7,8 +7,7 @@ import {
 } from './oasisStorage'
 
 interface UploadEncryptedPoCArgs {
-  ciphertext: `0x${string}`
-  iv: `0x${string}`
+  poc: string
   projectId?: bigint
   auditor?: `0x${string}`
   apiBaseUrl?: string
@@ -41,8 +40,7 @@ function buildFallbackPointer(args: UploadEncryptedPoCArgs): OasisPointer {
   const seed = [
     args.projectId?.toString() ?? '0',
     args.auditor?.toLowerCase() ?? '0x0000000000000000000000000000000000000000',
-    args.ciphertext,
-    args.iv,
+    args.poc,
   ].join(':')
 
   const slotId = `slot-${keccak256(toBytes(seed)).slice(2, 18)}`
@@ -68,23 +66,40 @@ function toOasisUri(payload: UploadResponse): string | null {
 }
 
 export async function uploadEncryptedPoC({
-  ciphertext,
-  iv,
+  poc,
   projectId,
   auditor,
   apiBaseUrl,
   fetchImpl = fetch,
 }: UploadEncryptedPoCArgs): Promise<string> {
+  let parsedPoC: unknown
+  try {
+    parsedPoC = JSON.parse(poc)
+  } catch {
+    throw new Error('PoC JSON must be valid JSON object')
+  }
+
+  if (typeof parsedPoC !== 'object' || parsedPoC === null || Array.isArray(parsedPoC)) {
+    throw new Error('PoC JSON must be valid JSON object')
+  }
+
   const trimmedBaseUrl = apiBaseUrl?.trim() ?? ''
   const endpoint = `${trimmedBaseUrl}/api/oasis/write`
-  const pointer = buildFallbackPointer({ ciphertext, iv, projectId, auditor })
+  const pointer = buildFallbackPointer({ poc, projectId, auditor })
 
-  const writeCall = createOasisWriteCall({ pointer, ciphertext, iv })
+  const pseudoCiphertext = keccak256(toBytes(poc))
+  const pseudoIv = keccak256(toBytes(`anti-soon.oasis.iv.v1:${pseudoCiphertext}`))
+
+  const writeCall = createOasisWriteCall({
+    pointer,
+    ciphertext: pseudoCiphertext,
+    iv: pseudoIv,
+  })
   const envelope = createOasisEnvelope({
     pointer,
     ciphertext: {
-      ciphertextHash: keccak256(toBytes(ciphertext)),
-      ivHash: keccak256(toBytes(iv)),
+      ciphertextHash: pseudoCiphertext,
+      ivHash: pseudoIv,
     },
   })
   const envelopeHash = computeOasisEnvelopeHash(envelope)
@@ -99,6 +114,7 @@ export async function uploadEncryptedPoC({
       call: writeCall,
       envelope,
       envelopeHash,
+      poc: parsedPoC,
     }),
   })
 

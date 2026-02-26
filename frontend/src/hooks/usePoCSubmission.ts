@@ -3,29 +3,12 @@ import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { uploadEncryptedPoC } from "../lib/ipfsUpload";
-import { resolveProjectPublicKey } from "../lib/projectPublicKey";
 import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
-	aesGcmEncrypt,
 	computeCommitHash,
 	generateRandomSalt,
 } from "../utils/encryption";
 import { useWallet } from "./useWallet";
-
-function bytesToHex(bytes: Uint8Array): string {
-	return Array.from(bytes)
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-}
-
-function hexToBytes(hex: `0x${string}`): Uint8Array {
-	const clean = hex.slice(2);
-	const bytes = new Uint8Array(clean.length / 2);
-	for (let i = 0; i < clean.length; i += 2) {
-		bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16);
-	}
-	return bytes;
-}
 
 export const SUBMISSION_LIFECYCLE_PHASES = [
 	"idle",
@@ -90,41 +73,12 @@ export const usePoCSubmission = () => {
 					warning: undefined,
 				}));
 
-				const publicKey = await resolveProjectPublicKey({
-					projectId,
-					apiBaseUrl: import.meta.env.VITE_API_URL,
-					readProjectContract: async (id) => {
-						const projectData = await publicClient.readContract({
-							address: BOUNTY_HUB_ADDRESS,
-							abi: BOUNTY_HUB_V2_ABI,
-							functionName: "projects",
-							args: [id],
-						});
-
-						return projectData as readonly unknown[];
-					},
-				});
-
-				if (!publicKey) {
-					setFailed(
-						"Project public key is unavailable. Ensure the project is registered with a public key before submitting.",
-					);
-					return undefined;
-				}
-
-				const publicKeyBytes = hexToBytes(publicKey);
-				const { ciphertext, iv } = await aesGcmEncrypt(pocData, publicKeyBytes);
-
-				const ciphertextHex = `0x${bytesToHex(ciphertext)}` as `0x${string}`;
-				const ivHex = `0x${bytesToHex(iv)}` as `0x${string}`;
-
 				const salt = generateRandomSalt();
 
 				setState((s) => ({ ...s, phase: "committing" }));
 
 				const cipherURI = await uploadEncryptedPoC({
-					ciphertext: ciphertextHex,
-					iv: ivHex,
+					poc: pocData,
 					projectId,
 					auditor: address as `0x${string}`,
 					apiBaseUrl: import.meta.env.VITE_API_URL,
@@ -140,8 +94,6 @@ export const usePoCSubmission = () => {
 					...s,
 					phase: "committing",
 					salt,
-					iv: ivHex,
-					ciphertext: ciphertextHex,
 					cipherURI,
 					commitHash,
 				}));

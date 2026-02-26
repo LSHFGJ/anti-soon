@@ -57,7 +57,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				if (phase === "committed") {
 					success({
 						title: "PoC Committed",
-						description: "Your encrypted PoC has been submitted successfully.",
+						description: "Your PoC reference has been submitted successfully.",
 					});
 				} else if (phase === "queued") {
 					success({
@@ -216,10 +216,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 									<button
 										type="button"
 										onClick={commit}
-										className="px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
-									>
-										[ 1. COMMIT_ENCRYPTED_POC ]
-									</button>
+								className="px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
+							>
+									[ 1. COMMIT_POC_REFERENCE ]
+								</button>
 									<button
 										type="button"
 										onClick={() => setShowV1Fallback(true)}
@@ -233,11 +233,11 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					)}
 
 					{state.phase === "encrypting" && (
-						<Spinner>Encrypting PoC JSON...</Spinner>
+						<Spinner>Preparing Oasis payload...</Spinner>
 					)}
 
 					{state.phase === "committing" && (
-						<Spinner>Committing encrypted PoC to blockchain...</Spinner>
+						<Spinner>Committing PoC reference to blockchain...</Spinner>
 					)}
 
 					{state.phase === "committed" && (
