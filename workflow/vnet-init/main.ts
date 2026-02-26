@@ -43,6 +43,18 @@ type VnetResult = {
   baseSnapshotId: string // bytes32 as hex string
 }
 
+type TenderlyRpcEntry = {
+  name?: string
+  url?: string
+}
+
+type TenderlyVnetEntry = {
+  slug?: string
+  rpcs?: TenderlyRpcEntry[]
+  admin_rpc_url?: string
+  rpc_url?: string
+}
+
 // ═══════════════════ ABI Definitions ═══════════════════
 
 // Report format for setProjectVnet: (projectId, vnetRpcUrl, baseSnapshotId)
@@ -55,11 +67,118 @@ const VnetFailedParams = parseAbiParameters(
   "uint256 projectId, string reason"
 )
 
+const TypedReportEnvelopeParams = parseAbiParameters(
+  "bytes4 magic, uint8 reportType, bytes payload"
+)
+
+const REPORT_ENVELOPE_MAGIC = "0x41535250" as const
+const REPORT_TYPE_VNET_SUCCESS = 1
+const REPORT_TYPE_VNET_FAILED = 2
+
 // ═══════════════════ VNet Creation Logic ═══════════════════
 
 const MAX_RETRIES = 3
 const SEPOLIA_CHAIN_ID = 11155111
 const VNET_CHAIN_ID = 73571
+
+function encodeJsonBodyBase64(payload: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload))
+  return hexToBase64(bytesToHex(bytes))
+}
+
+function resolveAdminRpcUrl(rpcs: TenderlyRpcEntry[], fallback?: string): string | undefined {
+  const preferredRpc = rpcs.find((rpcEntry) => rpcEntry.name === "Admin RPC")
+  const preferredUrl =
+    typeof preferredRpc?.url === "string" && preferredRpc.url.length > 0
+      ? preferredRpc.url
+      : undefined
+
+  const firstUrl =
+    typeof rpcs[0]?.url === "string" && rpcs[0].url.length > 0
+      ? rpcs[0].url
+      : undefined
+
+  const fallbackUrl =
+    typeof fallback === "string" && fallback.length > 0
+      ? fallback
+      : undefined
+
+  return preferredUrl ?? firstUrl ?? fallbackUrl
+}
+
+function parseTenderlyVnetEntries(payload: unknown): TenderlyVnetEntry[] {
+  if (!payload || typeof payload !== "object") {
+    return []
+  }
+
+  const root = payload as Record<string, unknown>
+
+  if (Array.isArray(root.vnets)) {
+    return root.vnets as TenderlyVnetEntry[]
+  }
+
+  if (Array.isArray(root.virtual_networks)) {
+    return root.virtual_networks as TenderlyVnetEntry[]
+  }
+
+  if (Array.isArray(root.results)) {
+    return root.results as TenderlyVnetEntry[]
+  }
+
+  return []
+}
+
+function getExistingVnetRpcUrl(
+  nodeRuntime: NodeRuntime<Config>,
+  projectId: bigint
+): { success: boolean; adminRpcUrl?: string; error?: string } {
+  const confidentialHttpClient = new ConfidentialHTTPClient()
+  const config = nodeRuntime.config
+  const slug = `antisoon-project-${projectId}`
+
+  const listVnetsResp = confidentialHttpClient.sendRequest(nodeRuntime, {
+    request: {
+      url: `https://api.tenderly.co/api/v1/account/${config.tenderlyAccountSlug}/project/${config.tenderlyProjectSlug}/vnets`,
+      method: "GET",
+      multiHeaders: {
+        "X-Access-Key": { values: ["{{.TENDERLY_API_KEY}}"] },
+      },
+    },
+    vaultDonSecrets: [
+      { key: "TENDERLY_API_KEY", owner: config.owner },
+    ],
+    encryptOutput: false,
+  }).result()
+
+  if (listVnetsResp.statusCode !== 200) {
+    const errorBody = new TextDecoder().decode(listVnetsResp.body)
+    return {
+      success: false,
+      error: `Failed to list VNets (HTTP ${listVnetsResp.statusCode}): ${errorBody.slice(0, 200)}`,
+    }
+  }
+
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(listVnetsResp.body))
+    const entries = parseTenderlyVnetEntries(payload)
+    const matched = entries.find((entry) => entry.slug === slug)
+
+    if (!matched) {
+      return { success: false, error: `Existing VNet not found for slug ${slug}` }
+    }
+
+    const rpcs = Array.isArray(matched.rpcs) ? matched.rpcs : []
+    const adminRpcUrl = resolveAdminRpcUrl(rpcs, matched.admin_rpc_url ?? matched.rpc_url)
+
+    if (!adminRpcUrl) {
+      return { success: false, error: `Existing VNet found for ${slug}, but no RPC URL is available` }
+    }
+
+    return { success: true, adminRpcUrl }
+  } catch (e) {
+    return { success: false, error: `Failed to parse VNet list response: ${String(e)}` }
+  }
+}
 
 /**
  * Creates a Tenderly VNet with State Sync enabled and returns the RPC URL
@@ -98,20 +217,37 @@ function createVnet(
     },
     vaultDonSecrets: [
       { key: "TENDERLY_API_KEY", owner: config.owner },
-      { key: "san_marino_aes_gcm_encryption_key" },
     ],
-    encryptOutput: true,
+    encryptOutput: false,
   }).result()
 
   if (createVnetResp.statusCode !== 200 && createVnetResp.statusCode !== 201) {
+    if (createVnetResp.statusCode === 409) {
+      nodeRuntime.log(`VNet slug already exists for project ${projectId}, reusing existing VNet`)
+      const existingVnet = getExistingVnetRpcUrl(nodeRuntime, projectId)
+
+      if (existingVnet.success && existingVnet.adminRpcUrl) {
+        nodeRuntime.log(`Found existing VNet RPC URL: ${existingVnet.adminRpcUrl}`)
+        return { success: true, adminRpcUrl: existingVnet.adminRpcUrl }
+      }
+
+      const existingError = existingVnet.error || "Unknown VNet lookup error"
+      nodeRuntime.log(`Failed to reuse existing VNet: ${existingError}`)
+      return { success: false, error: existingError }
+    }
+
     const errorBody = new TextDecoder().decode(createVnetResp.body)
     nodeRuntime.log(`VNet creation failed (status ${createVnetResp.statusCode}): ${errorBody}`)
     return { success: false, error: `HTTP ${createVnetResp.statusCode}: ${errorBody.slice(0, 200)}` }
   }
 
-  const vnetData = JSON.parse(new TextDecoder().decode(createVnetResp.body))
-  const adminRpcUrl = vnetData.rpcs?.find((r: { name: string; url: string }) => r.name === "Admin RPC")?.url
-    || vnetData.rpcs?.[0]?.url
+  const vnetData = JSON.parse(new TextDecoder().decode(createVnetResp.body)) as {
+    rpcs?: Array<{ name?: string; url?: string }>
+    admin_rpc_url?: string
+    rpc_url?: string
+  }
+  const rpcs = Array.isArray(vnetData.rpcs) ? vnetData.rpcs : []
+  const adminRpcUrl = resolveAdminRpcUrl(rpcs, vnetData.admin_rpc_url ?? vnetData.rpc_url)
 
   if (!adminRpcUrl) {
     nodeRuntime.log("Failed to get Admin RPC URL from Tenderly response")
@@ -135,7 +271,7 @@ function createSnapshot(
     url: adminRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "evm_snapshot",
       params: [],
@@ -277,9 +413,15 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
       failureReason,
     ])
 
+    const typedReportData = encodeAbiParameters(TypedReportEnvelopeParams, [
+      REPORT_ENVELOPE_MAGIC,
+      REPORT_TYPE_VNET_FAILED,
+      reportData,
+    ])
+
     const report = runtime
       .report({
-        encodedPayload: hexToBase64(reportData),
+        encodedPayload: hexToBase64(typedReportData),
         encoderName: "evm",
         signingAlgo: "ecdsa",
         hashingAlgo: "keccak256",
@@ -312,9 +454,15 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
     result.baseSnapshotId as `0x${string}`,
   ])
 
+  const typedReportData = encodeAbiParameters(TypedReportEnvelopeParams, [
+    REPORT_ENVELOPE_MAGIC,
+    REPORT_TYPE_VNET_SUCCESS,
+    reportData,
+  ])
+
   const report = runtime
     .report({
-      encodedPayload: hexToBase64(reportData),
+      encodedPayload: hexToBase64(typedReportData),
       encoderName: "evm",
       signingAlgo: "ecdsa",
       hashingAlgo: "keccak256",
