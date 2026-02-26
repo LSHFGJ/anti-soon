@@ -6,8 +6,6 @@ const ENV =
 		.env ?? {};
 
 const AUTO_REVEAL_ENABLED = ENV.VITE_ENABLE_AUTO_REVEAL_QUEUE === "true";
-const ZERO_KEY =
-	"0x0000000000000000000000000000000000000000000000000000000000000000" as const;
 
 const QUEUE_REVEAL_BY_SIG_TYPES = {
 	QueueRevealBySig: [
@@ -33,6 +31,7 @@ export async function queueRevealIfEnabled({
 	projectId,
 	submissionId,
 	salt,
+	decryptionKey,
 }: {
 	publicClient: PublicClient;
 	walletClient: WalletClient;
@@ -40,6 +39,7 @@ export async function queueRevealIfEnabled({
 	projectId: bigint;
 	submissionId: bigint;
 	salt: `0x${string}`;
+	decryptionKey: `0x${string}`;
 }): Promise<`0x${string}` | null> {
 	if (!AUTO_REVEAL_ENABLED) {
 		return null;
@@ -80,7 +80,7 @@ export async function queueRevealIfEnabled({
 		message: {
 			auditor,
 			submissionId,
-			decryptionKey: ZERO_KEY,
+			decryptionKey,
 			salt,
 			nonce,
 			deadline: revealDeadline,
@@ -92,7 +92,7 @@ export async function queueRevealIfEnabled({
 		address: BOUNTY_HUB_ADDRESS,
 		abi: BOUNTY_HUB_V2_ABI,
 		functionName: "queueRevealBySig",
-		args: [auditor, submissionId, ZERO_KEY, salt, revealDeadline, signature],
+		args: [auditor, submissionId, decryptionKey, salt, revealDeadline, signature],
 	});
 
 	const txHash = await walletClient.writeContract(request);

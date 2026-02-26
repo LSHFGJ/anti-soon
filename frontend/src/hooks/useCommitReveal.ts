@@ -28,6 +28,7 @@ interface CommitState {
 	phase: SubmissionLifecyclePhase;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
+	decryptionKey?: `0x${string}`;
 	iv?: `0x${string}`;
 	cipherURI?: string;
 	commitHash?: `0x${string}`;
@@ -72,12 +73,12 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 			setState((s) => ({ ...s, phase: "committing" }));
 
-			const cipherURI = await uploadEncryptedPoC({
+			const uploadResult = await uploadEncryptedPoC({
 				poc: pocJson,
 				projectId,
 				auditor: address as `0x${string}`,
-				apiBaseUrl: import.meta.env.VITE_API_URL,
 			});
+			const { cipherURI, decryptionKey } = uploadResult;
 			const cipherHash = keccak256(toBytes(cipherURI));
 			const commitHash = computeCommitHash(
 				cipherHash,
@@ -89,6 +90,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				...s,
 				phase: "committing",
 				salt,
+				decryptionKey,
 				cipherURI,
 				commitHash,
 			}));
@@ -144,6 +146,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 					projectId,
 					submissionId,
 					salt,
+					decryptionKey,
 				});
 			} catch (queueErr: unknown) {
 				const queueMessage =
@@ -196,17 +199,16 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		try {
 			setState((s) => ({ ...s, phase: "revealing", error: undefined }));
 
-			// Vault DON manages the decryption key, so we pass zero
-			// The CRE workflow will decrypt using the DON's private key
-			const zeroKey =
-				"0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`;
+			if (!state.decryptionKey) {
+				throw new Error("Missing decryption key for reveal");
+			}
 
 			const { request } = await publicClient.simulateContract({
 				account: address,
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "revealPoC",
-				args: [state.submissionId, zeroKey, state.salt],
+				args: [state.submissionId, state.decryptionKey, state.salt],
 			});
 
 			const txHash = await walletClient.writeContract(request);
@@ -227,6 +229,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		publicClient,
 		address,
 		state.submissionId,
+		state.decryptionKey,
 		state.salt,
 		setFailed,
 	]);

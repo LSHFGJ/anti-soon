@@ -28,6 +28,7 @@ interface SubmissionState {
 	phase: SubmissionLifecyclePhase;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
+	decryptionKey?: `0x${string}`;
 	iv?: `0x${string}`;
 	cipherURI?: string;
 	commitHash?: `0x${string}`;
@@ -77,12 +78,12 @@ export const usePoCSubmission = () => {
 
 				setState((s) => ({ ...s, phase: "committing" }));
 
-				const cipherURI = await uploadEncryptedPoC({
+				const uploadResult = await uploadEncryptedPoC({
 					poc: pocData,
 					projectId,
 					auditor: address as `0x${string}`,
-					apiBaseUrl: import.meta.env.VITE_API_URL,
 				});
+				const { cipherURI, decryptionKey } = uploadResult;
 				const cipherHash = keccak256(toBytes(cipherURI));
 				const commitHash = computeCommitHash(
 					cipherHash,
@@ -94,6 +95,7 @@ export const usePoCSubmission = () => {
 					...s,
 					phase: "committing",
 					salt,
+					decryptionKey,
 					cipherURI,
 					commitHash,
 				}));
@@ -146,6 +148,7 @@ export const usePoCSubmission = () => {
 						projectId,
 						submissionId,
 						salt,
+						decryptionKey,
 					});
 				} catch (queueErr: unknown) {
 					const queueMessage =
@@ -183,18 +186,18 @@ export const usePoCSubmission = () => {
 					};
 				}
 
-				// Reveal phase - Vault DON manages the decryption key, so we pass zero
-				setState((s) => ({ ...s, phase: "revealing" }));
+				if (!decryptionKey) {
+					throw new Error("Missing decryption key from Sapphire upload result");
+				}
 
-				const zeroKey =
-					"0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`;
+				setState((s) => ({ ...s, phase: "revealing" }));
 
 				const { request: revealRequest } = await publicClient.simulateContract({
 					account: address,
 					address: BOUNTY_HUB_ADDRESS,
 					abi: BOUNTY_HUB_V2_ABI,
 					functionName: "revealPoC",
-					args: [submissionId, zeroKey, salt],
+					args: [submissionId, decryptionKey, salt],
 				});
 
 				const revealTxHash = await walletClient.writeContract(revealRequest);
