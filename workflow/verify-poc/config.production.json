@@ -4,10 +4,6 @@
   "gasLimit": "800000",
   "tenderlyAccountSlug": "LSHFGJ",
   "tenderlyProjectSlug": "anti-soon",
-  "llmApiUrl": "https://openrouter.ai/api/v1/chat/completions",
-  "llmModel": "x-ai/grok-code-fast-1",
   "oasisRpcUrl": "https://sapphire.oasis.io",
-  "skipLlm": true,
-  "skipStateVerification": false,
   "mainnetRpcUrl": "https://eth.drpc.org"
 }

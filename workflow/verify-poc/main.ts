@@ -1,7 +1,6 @@
 import {
   EVMClient,
   HTTPClient,
-  ConfidentialHTTPClient,
   handler,
   getNetwork,
   hexToBase64,
@@ -51,14 +50,9 @@ const configSchema = z.object({
   gasLimit: z.string(),
   tenderlyAccountSlug: z.string(),
   tenderlyProjectSlug: z.string(),
-  llmApiUrl: z.string(),
-  llmModel: z.string(),
   oasisRpcUrl: z.string().optional(),
   sepoliaRpcUrl: z.string().optional(),
-  skipLlm: z.boolean().optional().default(false),
-  mainnetRpcUrl: z.string().optional(),
-  skipStateVerification: z.boolean().optional().default(true),
-  owner: z.string(), // DON owner address for vaultDonSecrets
+  mainnetRpcUrl: z.string(),
 })
 
 type Config = z.infer<typeof configSchema>
@@ -315,23 +309,14 @@ function validateSetupOps(
   return { valid: true }
 }
 
-// ═══════════════════ Fork State Verification ═══════════════════
-
-/**
- * Verifies Tenderly fork state matches mainnet by comparing block hashes.
- * Returns true if verification passes or is skipped.
- * This prevents Tenderly admin tampering with fork state.
- */
 function verifyForkState(
   nodeRuntime: NodeRuntime<Config>,
   forkBlock: bigint,
   tenderlyAdminRpc: string,
-  mainnetRpcUrl: string | undefined,
-  skipMainnetCheck: boolean
-): { verified: boolean; forkBlockHash: string; mainnetBlockHash?: string } {
+  sourceChainRpcUrl?: string,
+): { verified: boolean; forkBlockHash: string; sourceBlockHash?: string } {
   const httpClient = new HTTPClient()
 
-  // ═══ Get fork block hash from Tenderly ═══
   const forkBlockResp = httpClient.sendRequest(nodeRuntime, {
     url: tenderlyAdminRpc,
     method: "POST" as const,
@@ -360,15 +345,13 @@ function verifyForkState(
     return { verified: false, forkBlockHash: "" }
   }
 
-  // ═══ Optionally verify against mainnet ═══
-  if (skipMainnetCheck || !mainnetRpcUrl) {
-    nodeRuntime.log(`Mainnet check skipped, fork hash: ${forkBlockHash}`)
+  if (!sourceChainRpcUrl) {
+    nodeRuntime.log("Source block comparison skipped (no sourceChainRpcUrl); fork hash presence verified")
     return { verified: true, forkBlockHash }
   }
 
-  // HTTP 5: Query mainnet RPC
-  const mainnetResp = httpClient.sendRequest(nodeRuntime, {
-    url: mainnetRpcUrl,
+  const sourceBlockResp = httpClient.sendRequest(nodeRuntime, {
+    url: sourceChainRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
     body: encodeJsonBodyBase64({
@@ -380,21 +363,21 @@ function verifyForkState(
     cacheSettings: { maxAge: "0s" },
   }).result()
 
-  let mainnetBlockHash = ""
-  if (mainnetResp.statusCode === 200) {
+  let sourceBlockHash = ""
+  if (sourceBlockResp.statusCode === 200) {
     try {
-      const blockData = JSON.parse(new TextDecoder().decode(mainnetResp.body))
-      mainnetBlockHash = blockData.result?.hash || ""
-      nodeRuntime.log(`Mainnet block ${forkBlock} hash: ${mainnetBlockHash}`)
+      const blockData = JSON.parse(new TextDecoder().decode(sourceBlockResp.body))
+      sourceBlockHash = blockData.result?.hash || ""
+      nodeRuntime.log(`Source block ${forkBlock} hash: ${sourceBlockHash}`)
     } catch (e) {
-      nodeRuntime.log(`Failed to parse mainnet block response: ${String(e)}`)
+      nodeRuntime.log(`Failed to parse source block response: ${String(e)}`)
     }
   }
 
-  const verified = forkBlockHash === mainnetBlockHash && forkBlockHash !== ""
+  const verified = forkBlockHash === sourceBlockHash && forkBlockHash !== ""
   nodeRuntime.log(`State verification: ${verified ? "PASSED" : "FAILED"}`)
 
-  return { verified, forkBlockHash, mainnetBlockHash }
+  return { verified, forkBlockHash, sourceBlockHash }
 }
 
 const verifyPoC = (
@@ -405,7 +388,6 @@ const verifyPoC = (
   rules: ProjectRules,
 ): VerificationResult => {
   const httpClient = new HTTPClient()
-  const confidentialHttpClient = new ConfidentialHTTPClient()
   const config = nodeRuntime.config
   const sepoliaRpcUrl = config.sepoliaRpcUrl ?? SEPOLIA_RPC_URL
 
@@ -499,18 +481,19 @@ const verifyPoC = (
 
   const adminRpcUrl = vnetRpcUrl
 
-  // Fork state verification (optional HTTP 5)
   const forkBlock = BigInt(pocJson.target.forkBlock)
+  const sourceChainRpcUrl = pocJson.target.chain === 1 ? config.mainnetRpcUrl : undefined
+
   const stateResult = verifyForkState(
     nodeRuntime,
     forkBlock,
     adminRpcUrl,
-    config.mainnetRpcUrl,
-    config.skipStateVerification ?? true
+    sourceChainRpcUrl
   )
 
   if (!stateResult.verified) {
-    nodeRuntime.log(`State verification failed, but continuing...`)
+    nodeRuntime.log("State verification failed; rejecting PoC result")
+    return { isValid: false, drainAmountWei: 0n }
   }
 
   // ═══ HTTP 3: Batch RPC — state isolation + setup + execute + state diff ═══
@@ -623,90 +606,9 @@ const verifyPoC = (
   nodeRuntime.log(`Pre-balance: ${balanceBefore}, Post-balance: ${balanceAfter}, Diff: ${balanceDiff}`)
   nodeRuntime.log(`TX results: ${txSuccesses.map((s, i) => `tx${i}=${s ? "OK" : "FAIL"}`).join(", ")}`)
 
-  // ═══ Calculate execution validity (needed before LLM section) ═══
-  const executionValid = allTxSucceeded && balanceDiff > 0n
+  const isValid = allTxSucceeded && balanceDiff > 0n
+  nodeRuntime.log(`Final verdict: execution=${isValid}`)
 
-  // ═══ HTTP 4: LLM Analysis (OPTIONAL) ═══
-
-
-  let llmValid = false
-  let llmSeverity = 0n
-  let llmPayout = 0n
-  let llmSummary = "LLM analysis skipped"
-
-  if (!nodeRuntime.config.skipLlm) {
-    const prompt = [
-      "Analyze this smart contract exploit simulation result.",
-      `Target contract: ${pocJson.target.contract} on chain ${pocJson.target.chain}`,
-      `Fork block: ${pocJson.target.forkBlock}`,
-      `Attack transactions: ${pocJson.transactions.length}`,
-      `All transactions succeeded: ${allTxSucceeded}`,
-      `Target balance before: ${balanceBefore.toString()} wei`,
-      `Target balance after: ${balanceAfter.toString()} wei`,
-      `Balance drained: ${balanceDiff.toString()} wei`,
-      `Expected impact: ${JSON.stringify(pocJson.expectedImpact)}`,
-      "",
-      "Determine:",
-      "1) Is this a valid vulnerability exploit? (the attack must succeed AND cause measurable impact)",
-      "2) Severity score 0-100",
-      "3) Suggested bounty payout in wei (proportional to impact)",
-      "",
-      'Respond ONLY in JSON: {"valid":true/false,"severity":0-100,"payout":"wei_string","summary":"one line"}',
-    ].join("\n")
-
-    const llmResp = confidentialHttpClient.sendRequest(nodeRuntime, {
-      request: {
-        url: config.llmApiUrl,
-        method: "POST",
-        multiHeaders: {
-          "Content-Type": { values: ["application/json"] },
-          "Authorization": { values: ["Bearer {{.LLM_API_KEY}}"] },
-        },
-        bodyString: JSON.stringify({
-          model: config.llmModel,
-          messages: [{ role: "user", content: prompt }],
-          response_format: { type: "json_object" },
-          temperature: 0,
-          max_tokens: 300,
-        }),
-      },
-      vaultDonSecrets: [
-        { key: "LLM_API_KEY", owner: config.owner },
-      ],
-      encryptOutput: false,
-    }).result()
-
-    if (llmResp.statusCode === 200) {
-      try {
-        const llmData = JSON.parse(new TextDecoder().decode(llmResp.body))
-        const analysis = JSON.parse(llmData.choices[0].message.content)
-        llmValid = analysis.valid === true
-        llmSeverity = BigInt(analysis.severity || 0)
-        llmPayout = BigInt(analysis.payout || "0")
-        llmSummary = analysis.summary || "No summary"
-        nodeRuntime.log(`LLM verdict: valid=${llmValid}, severity=${llmSeverity}, summary="${llmSummary}"`)
-      } catch (e) {
-        nodeRuntime.log(`LLM response parse error: ${String(e)}`)
-      }
-    } else {
-      nodeRuntime.log(`LLM API failed: status ${llmResp.statusCode}`)
-    }
-  } else {
-    // When LLM is skipped, use execution result only
-    llmValid = executionValid
-    llmSummary = "Execution-only validation (LLM skipped)"
-    nodeRuntime.log(`LLM skipped, using execution result: ${executionValid}`)
-  }
-
-  // ═══ Dual Validation: Execution AND LLM must agree ═══
-  // When LLM is skipped, only use execution result
-  const isValid = nodeRuntime.config.skipLlm
-    ? executionValid
-    : (executionValid && llmValid)
-
-  nodeRuntime.log(`Final verdict: execution=${executionValid}, llm=${llmValid}, combined=${isValid}`)
-
-  // Return drain amount - contract calculates severity from thresholds
   return {
     isValid,
     drainAmountWei: isValid ? balanceDiff : 0n,
