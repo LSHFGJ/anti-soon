@@ -16,12 +16,12 @@ import {
   toBytes,
 } from "viem"
 import { z } from "zod"
-import elliptic from "elliptic"
 import {
   buildProjectKeyProvisioningMetadata,
   createSafeProvisioningLogs,
   validatePrivateKeyHex,
 } from "./src/provisioning"
+import { generateDeterministicECDHKeyPair } from "./src/keypair"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -44,42 +44,6 @@ type Config = z.infer<typeof configSchema>
 const KeygenReportParams = parseAbiParameters(
   "uint256 projectId, bytes publicKey"
 )
-
-// ═══════════════════ ECDH Key Generation ═══════════════════
-
-const EC = elliptic.ec
-const curve = new EC("p256") // P-256 curve for ECDH
-
-/**
- * Generates an ECDH key pair using the P-256 curve
- * @returns {privateKey: hex string, publicKey: 64-byte uncompressed hex}
- */
-function generateECDHKeyPair(): { privateKey: string; publicKey: string } {
-  // Generate random key pair
-  const keyPair = curve.genKeyPair()
-  
-  // Get private key as 32-byte hex
-  const privateKey = keyPair.getPrivate("hex").padStart(64, "0")
-  
-  // Get public key as uncompressed 64-byte (X || Y, without 0x04 prefix)
-  const pubPoint = keyPair.getPublic()
-  const pubX = pubPoint.getX().toString("hex").padStart(64, "0")
-  const pubY = pubPoint.getY().toString("hex").padStart(64, "0")
-  const publicKey = pubX + pubY // 128 hex chars = 64 bytes
-  
-  return { privateKey, publicKey }
-}
-
-/**
- * Derives the ECDH shared secret from a private key and another public key
- * Used for decrypting POC ciphertexts
- */
-function deriveSharedSecret(privateKeyHex: string, publicKeyHex: string): string {
-  const keyPair = curve.keyFromPrivate(privateKeyHex, "hex")
-  const pubPoint = curve.keyFromPublic(publicKeyHex, "hex").getPublic()
-  const shared = keyPair.derive(pubPoint)
-  return shared.toString("hex").padStart(64, "0")
-}
 
 // ═══════════════════ Vault DON Storage ═══════════════════
 
@@ -119,7 +83,7 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
   runtime.log(`ProjectRegisteredV2: projectId=${projectId}, owner=${owner}, mode=${mode}`)
   
   // Generate ECDH keypair
-  const { privateKey, publicKey } = generateECDHKeyPair()
+  const { privateKey, publicKey } = generateDeterministicECDHKeyPair(projectId, owner)
   runtime.log(`Generated ECDH keypair for project ${projectId} (pubkey: ${publicKey.slice(0, 16)}...)`)
   
   // Store private key in Vault DON with owner binding
