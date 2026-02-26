@@ -41,6 +41,7 @@ import {
   resolveOasisRpcTxHash,
   validateOasisRpcPayload,
 } from "./src/oasisRpcRead"
+import { gcm } from "@noble/ciphers/aes.js"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -99,6 +100,24 @@ type PoCData = {
     description: string
   }
 }
+
+const hexBytesSchema = z
+  .string()
+  .regex(/^0x[0-9a-fA-F]+$/, "must be 0x-prefixed hex")
+
+const oasisTxPayloadV2Schema = z
+  .object({
+    ok: z.literal(true),
+    version: z.literal("anti-soon.oasis-tx.v2"),
+    encryptedPoc: z
+      .object({
+        algorithm: z.literal("aes-256-gcm"),
+        ciphertextHex: hexBytesSchema,
+        ivHex: hexBytesSchema,
+      })
+      .strict(),
+  })
+  .passthrough()
 
 // ═══════════════════ ABI Definitions ═══════════════════
 
@@ -193,10 +212,52 @@ function decodeHexUtf8(hexInput: string): string {
   return new TextDecoder().decode(bytes)
 }
 
+function decodeHexBytes(hexInput: string): Uint8Array {
+  const hex = hexInput.startsWith("0x") ? hexInput.slice(2) : hexInput
+  if (hex.length % 2 !== 0) {
+    throw new Error("Hex payload length must be even")
+  }
+
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let index = 0; index < hex.length; index += 2) {
+    const byte = Number.parseInt(hex.slice(index, index + 2), 16)
+    if (Number.isNaN(byte)) {
+      throw new Error("Invalid hex payload")
+    }
+    bytes[index / 2] = byte
+  }
+  return bytes
+}
+
+function tryDecodeEncryptedPayload(
+  payload: unknown,
+  decryptionKey: `0x${string}`,
+): PoCData | null {
+  const parsed = oasisTxPayloadV2Schema.safeParse(payload)
+  if (!parsed.success) {
+    return null
+  }
+
+  if (decryptionKey === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+    throw new Error("Encrypted Oasis payload cannot be decrypted with zero reveal key")
+  }
+
+  const keyBytes = decodeHexBytes(decryptionKey)
+  const ivBytes = decodeHexBytes(parsed.data.encryptedPoc.ivHex)
+  const ciphertextBytes = decodeHexBytes(parsed.data.encryptedPoc.ciphertextHex)
+
+  const plaintextBytes = gcm(keyBytes, ivBytes).decrypt(ciphertextBytes)
+  const plaintext = new TextDecoder().decode(plaintextBytes)
+  const decryptedPayload = JSON.parse(plaintext)
+
+  return parsePoCData(decryptedPayload)
+}
+
 function readPoCFromOasisRpc(
   nodeRuntime: NodeRuntime<Config>,
   reference: OasisReference,
   submissionId: bigint,
+  decryptionKey: `0x${string}`,
   oasisRpcUrl: string,
 ): PoCData {
   const txHash = resolveOasisRpcTxHash(reference)
@@ -235,6 +296,12 @@ function readPoCFromOasisRpc(
 
   const rawJson = decodeHexUtf8(txInput)
   const parsedPayload = JSON.parse(rawJson)
+
+  const encryptedPoC = tryDecodeEncryptedPayload(parsedPayload, decryptionKey)
+  if (encryptedPoC) {
+    return encryptedPoC
+  }
+
   const validated = validateOasisRpcPayload({
     reference,
     submissionId,
@@ -385,6 +452,7 @@ const verifyPoC = (
   submissionId: bigint,
   projectId: bigint,
   cipherURI: string,
+  decryptionKey: `0x${string}`,
   rules: ProjectRules,
 ): VerificationResult => {
   const httpClient = new HTTPClient()
@@ -415,6 +483,7 @@ const verifyPoC = (
       nodeRuntime,
       reference,
       submissionId,
+      decryptionKey,
       config.oasisRpcUrl,
     )
   } catch (e) {
@@ -524,14 +593,14 @@ const verifyPoC = (
         jsonrpc: "2.0",
         id: callId++,
         method: "tenderly_setBalance",
-        params: [[step.address], "0x" + BigInt(step.value).toString(16)],
+        params: [[step.address], `0x${BigInt(step.value).toString(16)}`],
       })
     } else if (step.type === "setTimestamp") {
       batchCalls.push({
         jsonrpc: "2.0",
         id: callId++,
         method: "evm_setNextBlockTimestamp",
-        params: ["0x" + BigInt(step.value).toString(16)],
+        params: [`0x${BigInt(step.value).toString(16)}`],
       })
     }
   }
@@ -560,7 +629,7 @@ const verifyPoC = (
         from: attackerAddress,
         to: tx.to,
         data: tx.data,
-        value: tx.value && tx.value !== "0" ? "0x" + BigInt(tx.value).toString(16) : "0x0",
+        value: tx.value && tx.value !== "0" ? `0x${BigInt(tx.value).toString(16)}` : "0x0",
         gas: "0x7A1200",
       }],
     })
@@ -619,7 +688,7 @@ const verifyPoC = (
 
 const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
   const topic1 = bytesToHex(log.topics[1])
-  const submissionId = BigInt(topic1.startsWith("0x") ? topic1 : "0x" + topic1)
+  const submissionId = BigInt(topic1.startsWith("0x") ? topic1 : `0x${topic1}`)
 
   runtime.log(`PoC Revealed #${submissionId}`)
 
@@ -629,7 +698,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       consensusIdenticalAggregation<ChainSubmissionRecord>()
     )(submissionId)
     .result()
-  const { cipherURI, projectId } = submission
+  const { cipherURI, projectId, decryptionKey } = submission
 
   const idempotencySource = log as unknown as Record<string, unknown>
   const idempotencyKey = deriveVerifyPocIdempotencyKey({
@@ -681,7 +750,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       .runInNodeMode(
         verifyPoC,
         consensusIdenticalAggregation<VerificationResult>()
-      )(submissionId, projectId, cipherURI, defaultRules)
+      )(submissionId, projectId, cipherURI, decryptionKey, defaultRules)
       .result()
 
     runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
