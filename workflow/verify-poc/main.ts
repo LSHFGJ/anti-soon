@@ -36,8 +36,12 @@ import {
 import {
   parseOasisReferenceUri,
   type OasisReference,
-  validateOasisAttestationPayload,
 } from "./src/oasisAttestation"
+import { encodeJsonBodyBase64 } from "./src/httpBody"
+import {
+  resolveOasisRpcTxHash,
+  validateOasisRpcPayload,
+} from "./src/oasisRpcRead"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -49,7 +53,8 @@ const configSchema = z.object({
   tenderlyProjectSlug: z.string(),
   llmApiUrl: z.string(),
   llmModel: z.string(),
-  oasisApiBaseUrl: z.string().optional(),
+  oasisRpcUrl: z.string().optional(),
+  sepoliaRpcUrl: z.string().optional(),
   skipLlm: z.boolean().optional().default(false),
   mainnetRpcUrl: z.string().optional(),
   skipStateVerification: z.boolean().optional().default(true),
@@ -112,7 +117,7 @@ const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
 const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 
 const ProjectStructAbi = parseAbiParameters(
-  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt"
+  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
 )
 
 type ProjectVnetInfo = {
@@ -128,7 +133,8 @@ function encodeProjectCall(projectId: bigint): string {
 }
 
 function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
-  const decoded = decodeAbiParameters(ProjectStructAbi, hexResult as `0x${string}`)
+  const projectResult = normalizeProjectReadResult(hexResult)
+  const decoded = decodeAbiParameters(ProjectStructAbi, projectResult)
   return {
     vnetRpcUrl: decoded[13] as string,
     baseSnapshotId: decoded[14] as string,
@@ -136,9 +142,19 @@ function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
   }
 }
 
-type OasisReadPayload = {
-  ok: true
-  poc: PoCData
+function normalizeProjectReadResult(hexResult: string): `0x${string}` {
+  const normalized = hexResult.startsWith("0x") ? hexResult.toLowerCase() : `0x${hexResult.toLowerCase()}`
+
+  if (normalized.length < 66) {
+    throw new Error("Invalid project read result: too short")
+  }
+
+  const headWord = BigInt(`0x${normalized.slice(2, 66)}`)
+  if (headWord === 32n) {
+    return `0x${normalized.slice(66)}` as `0x${string}`
+  }
+
+  return normalized as `0x${string}`
 }
 
 function parsePoCData(value: unknown): PoCData {
@@ -165,38 +181,79 @@ function parsePoCData(value: unknown): PoCData {
   return candidate as PoCData
 }
 
-function parseOasisReadPayload(rawData: string): OasisReadPayload {
-  try {
-    const parsed = JSON.parse(rawData) as {
-      ok?: unknown
-      poc?: unknown
-      plaintext?: unknown
-      ciphertext?: unknown
-      iv?: unknown
-    }
-
-    if (parsed.ok === true && parsed.poc !== undefined) {
-      return {
-        ok: true,
-        poc: parsePoCData(parsed.poc),
-      }
-    }
-
-    if (parsed.ok === true && typeof parsed.plaintext === "string") {
-      return {
-        ok: true,
-        poc: parsePoCData(JSON.parse(parsed.plaintext)),
-      }
-    }
-
-    if (parsed.ok === true && (typeof parsed.ciphertext === "string" || typeof parsed.iv === "string")) {
-      throw new Error("Oasis read returned encrypted payload; oasis-only mode requires decrypted PoC payload")
-    }
-
-    throw new Error("Invalid Oasis read payload shape")
-  } catch (e) {
-    throw new Error(`Failed to parse Oasis read payload: ${String(e)}`)
+function decodeHexUtf8(hexInput: string): string {
+  const hex = hexInput.startsWith("0x") ? hexInput.slice(2) : hexInput
+  if (hex.length % 2 !== 0) {
+    throw new Error("Hex payload length must be even")
   }
+
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let index = 0; index < hex.length; index += 2) {
+    const byte = Number.parseInt(hex.slice(index, index + 2), 16)
+    if (Number.isNaN(byte)) {
+      throw new Error("Invalid hex payload")
+    }
+    bytes[index / 2] = byte
+  }
+
+  return new TextDecoder().decode(bytes)
+}
+
+function readPoCFromOasisRpc(
+  nodeRuntime: NodeRuntime<Config>,
+  reference: OasisReference,
+  submissionId: bigint,
+  oasisRpcUrl: string,
+): PoCData {
+  const txHash = resolveOasisRpcTxHash(reference)
+  const httpClient = new HTTPClient()
+
+  const txResp = httpClient.sendRequest(nodeRuntime, {
+    url: oasisRpcUrl,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: encodeJsonBodyBase64({
+      jsonrpc: "2.0",
+      method: "eth_getTransactionByHash",
+      params: [txHash],
+      id: 27,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (txResp.statusCode !== 200) {
+    throw new Error(`Oasis RPC eth_getTransactionByHash failed: status ${txResp.statusCode}`)
+  }
+
+  const txPayload = JSON.parse(new TextDecoder().decode(txResp.body)) as {
+    result?: { input?: string } | null
+    error?: { message?: string }
+  }
+
+  if (txPayload.error) {
+    throw new Error(`Oasis RPC error: ${txPayload.error.message ?? "unknown error"}`)
+  }
+
+  const txInput = txPayload.result?.input
+  if (typeof txInput !== "string" || txInput.length < 2) {
+    throw new Error("Oasis RPC transaction payload missing input data")
+  }
+
+  const rawJson = decodeHexUtf8(txInput)
+  const parsedPayload = JSON.parse(rawJson)
+  const validated = validateOasisRpcPayload({
+    reference,
+    submissionId,
+    payload: parsedPayload,
+  })
+
+  if (!validated.ok) {
+    throw new Error(
+      `Oasis RPC payload validation failed (${validated.error.kind}): ${validated.error.message}`
+    )
+  }
+
+  return parsePoCData(validated.data.poc)
 }
 
 // ═══════════════════ Verification Logic ═══════════════════
@@ -279,7 +336,7 @@ function verifyForkState(
     url: tenderlyAdminRpc,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "eth_getBlockByNumber",
       params: [`0x${forkBlock.toString(16)}`, false],
@@ -314,7 +371,7 @@ function verifyForkState(
     url: mainnetRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "eth_getBlockByNumber",
       params: [`0x${forkBlock.toString(16)}`, false],
@@ -350,14 +407,15 @@ const verifyPoC = (
   const httpClient = new HTTPClient()
   const confidentialHttpClient = new ConfidentialHTTPClient()
   const config = nodeRuntime.config
+  const sepoliaRpcUrl = config.sepoliaRpcUrl ?? SEPOLIA_RPC_URL
 
   if (!cipherURI.startsWith("oasis://")) {
     nodeRuntime.log("Rejected non-oasis cipherURI in oasis-only mode")
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  if (!config.oasisApiBaseUrl) {
-    nodeRuntime.log("Oasis reference provided but oasisApiBaseUrl is not configured")
+  if (!config.oasisRpcUrl) {
+    nodeRuntime.log("Oasis reference provided but oasisRpcUrl is not configured")
     return { isValid: false, drainAmountWei: 0n }
   }
 
@@ -369,63 +427,16 @@ const verifyPoC = (
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  const attestationResp = httpClient.sendRequest(nodeRuntime, {
-    url: `${config.oasisApiBaseUrl}/api/oasis/attestation`,
-    method: "POST" as const,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pointer: reference.pointer,
-      submissionId: submissionId.toString(),
-    }),
-    cacheSettings: { maxAge: "0s" },
-  }).result()
-
-  if (attestationResp.statusCode !== 200) {
-    nodeRuntime.log(`Oasis attestation fetch failed: status ${attestationResp.statusCode}`)
-    return { isValid: false, drainAmountWei: 0n }
-  }
-
-  let attestationPayload: unknown
-  try {
-    attestationPayload = JSON.parse(new TextDecoder().decode(attestationResp.body))
-  } catch (e) {
-    nodeRuntime.log(`Failed to parse Oasis attestation payload: ${String(e)}`)
-    return { isValid: false, drainAmountWei: 0n }
-  }
-
-  const attestationValidation = validateOasisAttestationPayload({
-    reference,
-    payload: attestationPayload,
-    submissionId,
-  })
-
-  if (!attestationValidation.ok) {
-    nodeRuntime.log(
-      `Oasis attestation validation failed (${attestationValidation.error.kind}): ${attestationValidation.error.message}`
-    )
-    return { isValid: false, drainAmountWei: 0n }
-  }
-
-  const readResp = httpClient.sendRequest(nodeRuntime, {
-    url: `${config.oasisApiBaseUrl}/api/oasis/read`,
-    method: "POST" as const,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pointer: reference.pointer,
-    }),
-    cacheSettings: { maxAge: "0s" },
-  }).result()
-
-  if (readResp.statusCode !== 200) {
-    nodeRuntime.log(`Oasis read fetch failed: status ${readResp.statusCode}`)
-    return { isValid: false, drainAmountWei: 0n }
-  }
-
   let pocJson: PoCData
   try {
-    pocJson = parseOasisReadPayload(new TextDecoder().decode(readResp.body)).poc
+    pocJson = readPoCFromOasisRpc(
+      nodeRuntime,
+      reference,
+      submissionId,
+      config.oasisRpcUrl,
+    )
   } catch (e) {
-    nodeRuntime.log(`Failed to parse Oasis PoC payload: ${String(e)}`)
+    nodeRuntime.log(`Failed to read Oasis PoC payload from Sapphire RPC: ${String(e)}`)
     return { isValid: false, drainAmountWei: 0n }
   }
 
@@ -445,10 +456,10 @@ const verifyPoC = (
 
   const projectCallData = encodeProjectCall(projectId)
   const projectCallResp = httpClient.sendRequest(nodeRuntime, {
-    url: `https://rpc.sepolia.org`,
+    url: sepoliaRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "eth_call",
       params: [{
@@ -585,7 +596,7 @@ const verifyPoC = (
     url: adminRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(batchCalls),
+    body: encodeJsonBodyBase64(batchCalls),
   }).result()
 
   if (batchResp.statusCode !== 200) {
@@ -661,9 +672,8 @@ const verifyPoC = (
       },
       vaultDonSecrets: [
         { key: "LLM_API_KEY", owner: config.owner },
-        { key: "san_marino_aes_gcm_encryption_key" },
       ],
-      encryptOutput: true,
+      encryptOutput: false,
     }).result()
 
     if (llmResp.statusCode === 200) {
@@ -829,12 +839,13 @@ function readSubmissionInNode(
 ): ChainSubmissionRecord {
   const httpClient = new HTTPClient()
   const callData = encodeSubmissionReadCall(submissionId)
+  const sepoliaRpcUrl = nodeRuntime.config.sepoliaRpcUrl ?? SEPOLIA_RPC_URL
 
   const callResp = httpClient.sendRequest(nodeRuntime, {
-    url: SEPOLIA_RPC_URL,
+    url: sepoliaRpcUrl,
     method: "POST" as const,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "eth_call",
       params: [
