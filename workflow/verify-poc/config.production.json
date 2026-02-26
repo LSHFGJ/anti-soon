@@ -6,7 +6,7 @@
   "tenderlyProjectSlug": "anti-soon",
   "llmApiUrl": "https://openrouter.ai/api/v1/chat/completions",
   "llmModel": "x-ai/grok-code-fast-1",
-  "oasisApiBaseUrl": "https://api.example.com",
+  "oasisRpcUrl": "https://sapphire.oasis.io",
   "skipLlm": true,
   "skipStateVerification": false,
   "mainnetRpcUrl": "https://eth.drpc.org"
