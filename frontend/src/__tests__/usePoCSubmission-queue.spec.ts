@@ -57,7 +57,14 @@ describe("usePoCSubmission queue fallback", () => {
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
 		mockUploadEncryptedPoC.mockResolvedValue(
-			"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+			{
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+				decryptionKey:
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				oasisTxHash:
+					"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			},
 		);
 		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});

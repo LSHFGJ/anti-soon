@@ -55,7 +55,14 @@ describe("commit/reveal lifecycle state model", () => {
 
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
-		mockUploadEncryptedPoC.mockResolvedValue("oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc");
+		mockUploadEncryptedPoC.mockResolvedValue({
+			cipherURI:
+				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+			decryptionKey:
+				"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			oasisTxHash:
+				"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		});
 		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});
 
@@ -88,7 +95,11 @@ describe("commit/reveal lifecycle state model", () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
 		}>();
-		const uploadDeferred = deferred<string>();
+		const uploadDeferred = deferred<{
+			cipherURI: string;
+			decryptionKey: `0x${string}`;
+			oasisTxHash: `0x${string}`;
+		}>();
 
 		const publicClient = {
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
@@ -119,7 +130,14 @@ describe("commit/reveal lifecycle state model", () => {
 
 		await act(async () => {
 			uploadDeferred.resolve(
-				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+				{
+					cipherURI:
+						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+					decryptionKey:
+						"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					oasisTxHash:
+						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				},
 			);
 			await Promise.resolve();
 		});
@@ -159,7 +177,11 @@ describe("commit/reveal lifecycle state model", () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
 		}>();
-		const uploadDeferred = deferred<string>();
+		const uploadDeferred = deferred<{
+			cipherURI: string;
+			decryptionKey: `0x${string}`;
+			oasisTxHash: `0x${string}`;
+		}>();
 
 		const publicClient = {
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
@@ -189,7 +211,14 @@ describe("commit/reveal lifecycle state model", () => {
 
 		await act(async () => {
 			uploadDeferred.resolve(
-				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+				{
+					cipherURI:
+						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+					decryptionKey:
+						"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					oasisTxHash:
+						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				},
 			);
 			await Promise.resolve();
 		});
