@@ -61,7 +61,6 @@ contract BountyHub is ReceiverTemplate {
         uint256 revealDeadline;      // MULTI: reveal deadline (0 = no limit)
         uint256 disputeWindow;       // Seconds for dispute resolution
         bytes32 rulesHash;           // keccak256(abi.encode(ProjectRules))
-        bytes projectPublicKey;      // ECDH public key for POC encryption (64 bytes)
         // VNet fields
         VnetStatus vnetStatus;       // VNet creation status
         string vnetRpcUrl;           // Tenderly VNet RPC URL
@@ -172,7 +171,6 @@ contract BountyHub is ReceiverTemplate {
     event DisputeRaised(uint256 indexed submissionId, address indexed challenger, uint256 bond);
     event DisputeResolved(uint256 indexed submissionId, bool overturned);
     event BountyFinalized(uint256 indexed submissionId);
-    event ProjectPublicKeyUpdated(uint256 indexed projectId, bytes publicKey);
     event ProjectVnetCreated(uint256 indexed projectId, string vnetRpcUrl, bytes32 baseSnapshotId);
     event ProjectVnetFailed(uint256 indexed projectId, string reason);
     event UniqueRevealCandidateSet(uint256 indexed projectId, uint256 indexed submissionId);
@@ -232,7 +230,6 @@ contract BountyHub is ReceiverTemplate {
         p.revealDeadline = _revealDeadline;
         p.disputeWindow = _disputeWindow;
         p.rulesHash = keccak256(abi.encode(_rules));
-        p.projectPublicKey = "";  // Empty until filled by CRE workflow
 
         projectRules[projectId] = _rules;
 
@@ -285,7 +282,6 @@ contract BountyHub is ReceiverTemplate {
         p.revealDeadline = _revealDeadline;
         p.disputeWindow = _disputeWindow;
         p.rulesHash = keccak256(abi.encode(_rules));
-        p.projectPublicKey = "";  // Empty until filled by CRE workflow
         p.repoUrl = _repoUrl;
 
         projectRules[projectId] = _rules;
@@ -307,16 +303,6 @@ contract BountyHub is ReceiverTemplate {
     function topUpBounty(uint256 _projectId) external payable {
         require(_projects[_projectId].owner == msg.sender, "Not owner");
         _projects[_projectId].bountyPool += msg.value;
-    }
-
-    /// @notice Update project public key (CRE Forwarder only)
-    /// @dev Only the CRE Forwarder can call this to set the ECDH public key after key generation
-    /// @param _projectId The project ID to update
-    /// @param _publicKey The ECDH public key (64 bytes)
-    function updateProjectPublicKey(uint256 _projectId, bytes calldata _publicKey) external {
-        require(msg.sender == getForwarderAddress(), "Not authorized");
-        _projects[_projectId].projectPublicKey = _publicKey;
-        emit ProjectPublicKeyUpdated(_projectId, _publicKey);
     }
 
     /// @notice Set VNet info after successful creation (CRE Forwarder only)
@@ -395,7 +381,6 @@ contract BountyHub is ReceiverTemplate {
             revealDeadline: 0,
             disputeWindow: 0,
             rulesHash: bytes32(0),
-            projectPublicKey: "",
             vnetStatus: VnetStatus.Pending,
             vnetRpcUrl: "",
             baseSnapshotId: bytes32(0),

@@ -842,49 +842,7 @@ contract BountyHubTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    // ============ ENCRYPTION TESTS ============
-
-    function test_updateProjectPublicKey_onlyForwarder() public {
-        uint256 projectId = hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
-        bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"; // 64 bytes
-
-        // Non-forwarder should fail
-        vm.expectRevert("Not authorized");
-        hub.updateProjectPublicKey(projectId, publicKey);
-
-        // Forwarder should succeed
-        vm.prank(address(hub.getForwarderAddress()));
-        hub.updateProjectPublicKey(projectId, publicKey);
-    }
-
-    function test_updateProjectPublicKey_emitsEvent() public {
-        uint256 projectId = hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
-        bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"; // 64 bytes
-
-        vm.prank(address(hub.getForwarderAddress()));
-        vm.expectEmit(true, true, false, true);
-        emit BountyHub.ProjectPublicKeyUpdated(projectId, publicKey);
-        hub.updateProjectPublicKey(projectId, publicKey);
-    }
-
-    function test_updateProjectPublicKey_storesKey() public {
-        uint256 projectId = hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
-        bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"; // 64 bytes
-
-        // Get project before update
-        bytes memory initialKey = hub.projects(projectId).projectPublicKey;
-        assertEq(initialKey.length, 0, "Initial key should be empty");
-
-        // Update key
-        vm.prank(address(hub.getForwarderAddress()));
-        hub.updateProjectPublicKey(projectId, publicKey);
-
-        // Verify key is stored
-        bytes memory storedKey = hub.projects(projectId).projectPublicKey;
-        assertEq(storedKey, publicKey, "Public key should be stored correctly");
-    }
-
-    function test_commitReveal_withProjectPublicKey() public {
+    function test_commitReveal_oasisFlow() public {
         // 1. Register project V2
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
         BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
@@ -892,16 +850,7 @@ contract BountyHubTest is Test {
             TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules
         );
 
-        // 2. Update projectPublicKey via Forwarder
-        bytes memory publicKey = hex"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
-        vm.prank(address(hub.getForwarderAddress()));
-        hub.updateProjectPublicKey(projectId, publicKey);
-
-        // Verify key is stored
-        bytes memory storedKey = hub.projects(projectId).projectPublicKey;
-        assertEq(storedKey, publicKey, "Public key should be stored");
-
-        // 3. Commit PoC
+        // 2. Commit PoC
         bytes32 salt = keccak256("salt");
         string memory cipherURI = "ipfs://encrypted-poc";
         bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
@@ -917,13 +866,13 @@ contract BountyHubTest is Test {
         assertEq(sub.cipherURI, cipherURI, "Cipher URI should match");
         assertEq(sub.auditor, auditor, "Auditor should be set");
 
-        // 4. Reveal PoC
+        // 3. Reveal PoC
         bytes32 decryptionKey = ZERO_KEY;
         vm.warp(block.timestamp + 1); // Ensure reveal after commit
         vm.prank(auditor);
         hub.revealPoC(submissionId, decryptionKey, salt);
 
-        // 5. Verify submission state after reveal
+        // 4. Verify submission state after reveal
         sub = _getSubmission(submissionId);
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "Status should be Revealed");
         assertEq(sub.decryptionKey, ZERO_KEY, "Decryption key should remain zero");
