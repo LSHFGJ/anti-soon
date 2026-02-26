@@ -8,6 +8,9 @@ contract BountyHubVNetTest is Test {
     BountyHub public hub;
     address constant FORWARDER = address(0xF0);
     address constant TARGET = address(0xBEEF);
+    bytes4 constant REPORT_ENVELOPE_MAGIC = 0x41535250;
+    uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
+    uint8 constant REPORT_TYPE_VNET_FAILED = 2;
     address owner = address(this);
     address otherUser = address(0xA2);
 
@@ -203,5 +206,70 @@ contract BountyHubVNetTest is Test {
         vm.expectEmit(true, false, false, true);
         emit BountyHub.ProjectVnetFailed(projectId, reason);
         hub.markVnetFailed(projectId, reason);
+    }
+
+    function test_onReport_vnetSuccessEnvelope_updatesProjectVnet() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 1 ether}(
+            TARGET,
+            0.5 ether,
+            12345,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 7 days,
+            block.timestamp + 14 days,
+            3 days,
+            rules
+        );
+
+        string memory vnetRpcUrl = "https://rpc.tenderly.co/from-report";
+        bytes32 baseSnapshotId = keccak256("report-snapshot");
+        bytes memory payload = abi.encode(projectId, vnetRpcUrl, baseSnapshotId);
+        bytes memory report = _buildTypedReport(REPORT_TYPE_VNET_SUCCESS, payload);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", report);
+
+        BountyHub.Project memory p = hub.projects(projectId);
+        assertEq(uint8(p.vnetStatus), uint8(BountyHub.VnetStatus.Active), "VNet status should be Active");
+        assertEq(p.vnetRpcUrl, vnetRpcUrl, "RPC URL should match report payload");
+        assertEq(p.baseSnapshotId, baseSnapshotId, "Snapshot ID should match report payload");
+    }
+
+    function test_onReport_vnetFailedEnvelope_marksFailed() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 1 ether}(
+            TARGET,
+            0.5 ether,
+            12345,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 7 days,
+            block.timestamp + 14 days,
+            3 days,
+            rules
+        );
+
+        bytes memory payload = abi.encode(projectId, "vnet failed in workflow");
+        bytes memory report = _buildTypedReport(REPORT_TYPE_VNET_FAILED, payload);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", report);
+
+        assertEq(uint8(hub.projects(projectId).vnetStatus), uint8(BountyHub.VnetStatus.Failed), "VNet status should be Failed");
+    }
+
+    function test_onReport_unknownTypedReport_reverts() public {
+        bytes memory report = _buildTypedReport(99, abi.encode(uint256(1)));
+
+        vm.expectRevert("Unknown report type");
+        vm.prank(FORWARDER);
+        hub.onReport("", report);
+    }
+
+    function _buildTypedReport(uint8 reportType, bytes memory payload) internal pure returns (bytes memory) {
+        return abi.encode(REPORT_ENVELOPE_MAGIC, reportType, payload);
     }
 }

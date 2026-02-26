@@ -150,6 +150,9 @@ contract BountyHub is ReceiverTemplate {
     bytes32 private constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
     bytes32 private constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes32 private constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes4 private constant REPORT_ENVELOPE_MAGIC = 0x41535250;
+    uint8 private constant REPORT_TYPE_VNET_SUCCESS = 1;
+    uint8 private constant REPORT_TYPE_VNET_FAILED = 2;
 
     // ═══════════ Events ═══════════
 
@@ -323,6 +326,20 @@ contract BountyHub is ReceiverTemplate {
         bytes32 _baseSnapshotId
     ) external {
         require(msg.sender == getForwarderAddress(), "Not authorized");
+        _applyProjectVnet(_projectId, _vnetRpcUrl, _baseSnapshotId);
+    }
+
+    /// @notice Mark VNet creation as failed (CRE Forwarder only)
+    function markVnetFailed(uint256 _projectId, string calldata _reason) external {
+        require(msg.sender == getForwarderAddress(), "Not authorized");
+        _applyVnetFailed(_projectId, _reason);
+    }
+
+    function _applyProjectVnet(
+        uint256 _projectId,
+        string memory _vnetRpcUrl,
+        bytes32 _baseSnapshotId
+    ) internal {
         require(_projectId < nextProjectId, "Invalid project");
         require(bytes(_vnetRpcUrl).length > 0, "Empty RPC URL");
 
@@ -337,9 +354,7 @@ contract BountyHub is ReceiverTemplate {
         emit ProjectVnetCreated(_projectId, _vnetRpcUrl, _baseSnapshotId);
     }
 
-    /// @notice Mark VNet creation as failed (CRE Forwarder only)
-    function markVnetFailed(uint256 _projectId, string calldata _reason) external {
-        require(msg.sender == getForwarderAddress(), "Not authorized");
+    function _applyVnetFailed(uint256 _projectId, string memory _reason) internal {
         require(_projectId < nextProjectId, "Invalid project");
         _projects[_projectId].vnetStatus = VnetStatus.Failed;
         emit ProjectVnetFailed(_projectId, _reason);
@@ -723,9 +738,46 @@ contract BountyHub is ReceiverTemplate {
     // ═══════════ CRE Report Processing (V2) ═══════════
 
     /// @notice Process verification report from CRE
-    /// @dev V2 format: (submissionId, isValid, drainAmountWei)
+    /// @dev Legacy V2 verification format: (submissionId, isValid, drainAmountWei)
     /// @param report Encoded report data from CRE
     function _processReport(bytes calldata report) internal override {
+        if (_isTypedReport(report)) {
+            (bytes4 magic, uint8 reportType, bytes memory payload) = abi.decode(report, (bytes4, uint8, bytes));
+            require(magic == REPORT_ENVELOPE_MAGIC, "Invalid report magic");
+
+            if (reportType == REPORT_TYPE_VNET_SUCCESS) {
+                (uint256 projectId, string memory vnetRpcUrl, bytes32 baseSnapshotId) =
+                    abi.decode(payload, (uint256, string, bytes32));
+                _applyProjectVnet(projectId, vnetRpcUrl, baseSnapshotId);
+                return;
+            }
+
+            if (reportType == REPORT_TYPE_VNET_FAILED) {
+                (uint256 projectId, string memory reason) = abi.decode(payload, (uint256, string));
+                _applyVnetFailed(projectId, reason);
+                return;
+            }
+
+            revert("Unknown report type");
+        }
+
+        _processVerificationReport(report);
+    }
+
+    function _isTypedReport(bytes calldata report) internal pure returns (bool) {
+        if (report.length < 32) {
+            return false;
+        }
+
+        bytes4 reportMagic;
+        assembly {
+            reportMagic := calldataload(report.offset)
+        }
+
+        return reportMagic == REPORT_ENVELOPE_MAGIC;
+    }
+
+    function _processVerificationReport(bytes calldata report) internal {
         (uint256 submissionId, bool isValid, uint256 drainAmountWei) = 
             abi.decode(report, (uint256, bool, uint256));
 
