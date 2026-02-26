@@ -111,7 +111,7 @@ const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
 const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 
 const ProjectStructAbi = parseAbiParameters(
-  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
+  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
 )
 
 type ProjectVnetInfo = {
@@ -130,9 +130,9 @@ function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
   const projectResult = normalizeProjectReadResult(hexResult)
   const decoded = decodeAbiParameters(ProjectStructAbi, projectResult)
   return {
-    vnetRpcUrl: decoded[13] as string,
-    baseSnapshotId: decoded[14] as string,
-    vnetStatus: Number(decoded[12]),
+    vnetRpcUrl: decoded[12] as string,
+    baseSnapshotId: decoded[13] as string,
+    vnetStatus: Number(decoded[11]),
   }
 }
 

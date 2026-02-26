@@ -44,8 +44,7 @@ echo "Project ID: $PROJECT_ID"
 # Check vnetStatus (should be 1 = Pending)
 PROJECT_DATA=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID --rpc-url $RPC_URL)
 
-# vnetStatus is at hex string positions 833-834 (including 0x prefix)
-VNET_STATUS_HEX=$(echo "$PROJECT_DATA" | cut -c 833-834)
+VNET_STATUS_HEX=$(echo "$PROJECT_DATA" | cut -c 769-770)
 VNET_STATUS=$((16#$VNET_STATUS_HEX))
 echo "VNet Status: $VNET_STATUS (1=Pending)"
 

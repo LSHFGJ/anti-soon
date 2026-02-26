@@ -223,11 +223,11 @@ export const BOUNTY_HUB_V2_ABI = [
 			{ name: "revealDeadline", type: "uint256" },
 			{ name: "disputeWindow", type: "uint256" },
 			{ name: "rulesHash", type: "bytes32" },
-			{ name: "projectPublicKey", type: "bytes" },
 			{ name: "vnetStatus", type: "uint8" },
 			{ name: "vnetRpcUrl", type: "string" },
 			{ name: "baseSnapshotId", type: "bytes32" },
 			{ name: "vnetCreatedAt", type: "uint256" },
+			{ name: "repoUrl", type: "string" },
 		],
 	},
 	{
@@ -364,24 +364,6 @@ export const BOUNTY_HUB_V2_ABI = [
 		inputs: [
 			{ name: "projectId", type: "uint256", indexed: true },
 			{ name: "submissionId", type: "uint256", indexed: true },
-		],
-	},
-	{
-		name: "updateProjectPublicKey",
-		type: "function",
-		stateMutability: "nonpayable",
-		inputs: [
-			{ name: "_projectId", type: "uint256" },
-			{ name: "_publicKey", type: "bytes" },
-		],
-		outputs: [],
-	},
-	{
-		name: "ProjectPublicKeyUpdated",
-		type: "event",
-		inputs: [
-			{ name: "projectId", type: "uint256", indexed: true },
-			{ name: "publicKey", type: "bytes", indexed: false },
 		],
 	},
 ] as const;

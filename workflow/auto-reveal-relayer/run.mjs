@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const bountyHubAbi = parseAbi([
   'function queuedReveals(uint256) view returns (address auditor, bytes32 decryptionKey, bytes32 salt, uint256 deadline, bool queued)',
   'function submissions(uint256) view returns (address auditor, uint256 projectId, bytes32 commitHash, string cipherURI, bytes32 decryptionKey, bytes32 salt, uint256 commitTimestamp, uint256 revealTimestamp, uint8 status, uint256 drainAmountWei, uint8 severity, uint256 payoutAmount, uint256 disputeDeadline, bool challenged, address challenger, uint256 challengeBond)',
-  'function projects(uint256) view returns (address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl)',
+  'function projects(uint256) view returns (address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl)',
   'function executeQueuedReveal(uint256 _submissionId)',
   'event RevealQueued(uint256 indexed submissionId, address indexed auditor, uint256 deadline)',
 ])
