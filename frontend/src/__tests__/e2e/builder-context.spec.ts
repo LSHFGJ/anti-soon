@@ -16,7 +16,7 @@ const PROJECT_ID_1_SUFFIX = '1'.padStart(64, '0')
 const ZERO_BYTES32 = ('0x' + '00'.repeat(32)) as `0x${string}`
 
 const mockedProjectResult = encodeAbiParameters(
-  parseAbiParameters('address,uint256,uint256,address,uint256,bool,uint8,uint256,uint256,uint256,bytes32,bytes'),
+  parseAbiParameters('address,uint256,uint256,address,uint256,bool,uint8,uint256,uint256,uint256,bytes32,uint8,string,bytes32,uint256,string'),
   [
     '0x1111111111111111111111111111111111111111',
     10_000_000_000_000_000n,
@@ -29,7 +29,11 @@ const mockedProjectResult = encodeAbiParameters(
     0n,
     0n,
     ZERO_BYTES32,
-    '0x01'
+    2,
+    'https://rpc.tenderly.co/fork/mock',
+    ZERO_BYTES32,
+    1_900_000_000n,
+    'https://github.com/mock/repo'
   ]
 )
 

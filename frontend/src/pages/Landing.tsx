@@ -25,11 +25,11 @@ type ProjectTuple = readonly [
   revealDeadline: bigint,
   disputeWindow: bigint,
   rulesHash: `0x${string}`,
-  projectPublicKey: `0x${string}`,
   vnetStatus: number,
   vnetRpcUrl: string,
   baseSnapshotId: `0x${string}`,
   vnetCreatedAt: bigint,
+  repoUrl: string,
 ]
 
 const AnimatedSection = ({ 

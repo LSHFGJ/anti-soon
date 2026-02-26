@@ -35,7 +35,11 @@ function buildTuple(params: { id: bigint; active: boolean; mode: number; bountyP
     0n,
     0n,
     `0x${'0'.repeat(64)}` as `0x${string}`,
+    2,
+    'https://rpc.tenderly.co/fork/mock',
     `0x${'a'.repeat(64)}` as `0x${string}`,
+    1_900_000_000n,
+    `https://github.com/mock/repo-${params.id.toString()}`,
   ] as const
 }
 
