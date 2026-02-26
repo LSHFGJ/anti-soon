@@ -164,18 +164,21 @@ contract BountyHubTest is Test {
         hub.revealPoC(0, key, salt);
     }
 
-    function test_revealPoC_rejectsNonZeroKey() public {
+    function test_revealPoC_acceptsNonZeroKey() public {
         hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
         bytes32 salt = keccak256("salt-non-zero-key");
         string memory cipherURI = "uri";
         bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+        bytes32 decryptionKey = keccak256("real-key");
 
         vm.prank(auditor);
         uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
 
-        vm.expectRevert("Key must be zero");
         vm.prank(auditor);
-        hub.revealPoC(submissionId, keccak256("real-key"), salt);
+        hub.revealPoC(submissionId, decryptionKey, salt);
+
+        BountyHub.Submission memory sub = _getSubmission(submissionId);
+        assertEq(sub.decryptionKey, decryptionKey, "decryption key should be stored");
     }
 
     function test_uniqueCandidateBlocksSecondRevealUntilCandidateResolved() public {
@@ -350,7 +353,7 @@ contract BountyHubTest is Test {
 
         BountyHub.Submission memory sub = _getSubmission(submissionId);
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "status should be revealed");
-        assertEq(sub.decryptionKey, ZERO_KEY, "key should remain zero");
+        assertEq(sub.decryptionKey, decryptionKey, "key should be stored");
         assertEq(hub.sigNonces(bySigAuditor), revealNonce + 1, "nonce should increment");
     }
 
@@ -875,7 +878,7 @@ contract BountyHubTest is Test {
         // 4. Verify submission state after reveal
         sub = _getSubmission(submissionId);
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "Status should be Revealed");
-        assertEq(sub.decryptionKey, ZERO_KEY, "Decryption key should remain zero");
+        assertEq(sub.decryptionKey, decryptionKey, "Decryption key should be stored");
         assertEq(sub.salt, salt, "Salt should be set");
         assertGt(sub.revealTimestamp, 0, "Reveal timestamp should be set");
         assertGt(sub.revealTimestamp, sub.commitTimestamp, "Reveal should be after commit");

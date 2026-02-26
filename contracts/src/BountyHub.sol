@@ -564,8 +564,6 @@ contract BountyHub is ReceiverTemplate {
 
         _requireValidSignature(_auditor, structHash, _signature);
         sigNonces[_auditor] = nonce + 1;
-        require(_decryptionKey == bytes32(0), "Key must be zero");
-
         queuedReveals[_submissionId] = QueuedReveal({
             auditor: _auditor,
             decryptionKey: _decryptionKey,
@@ -615,7 +613,6 @@ contract BountyHub is ReceiverTemplate {
         bytes32 computedCommit = keccak256(abi.encodePacked(cipherHash, _auditor, _salt));
         require(computedCommit == sub.commitHash, "Invalid reveal");
         require(_salt != bytes32(0), "Salt required");
-        require(_decryptionKey == bytes32(0), "Key must be zero");
 
         if (p.mode == CompetitionMode.UNIQUE) {
             UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
@@ -637,13 +634,13 @@ contract BountyHub is ReceiverTemplate {
             }
         }
 
-        sub.decryptionKey = bytes32(0);
+        sub.decryptionKey = _decryptionKey;
         sub.salt = _salt;
         sub.revealTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Revealed;
         delete queuedReveals[_submissionId];
 
-        emit PoCRevealed(_submissionId, bytes32(0));
+        emit PoCRevealed(_submissionId, _decryptionKey);
     }
 
     function _requireValidSignature(
