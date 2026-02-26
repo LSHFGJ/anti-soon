@@ -1,81 +1,72 @@
 import { describe, expect, it, vi } from 'vitest'
 import { uploadEncryptedPoC } from '../lib/ipfsUpload'
 
-describe('oasis upload helper', () => {
-  it('returns uri directly when API returns oasis uri', async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ uri: 'oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-1#0xabc' }),
-    }))
+type ProviderRequest = {
+  method: string
+  params?: unknown[]
+}
 
-    const uri = await uploadEncryptedPoC({
-      poc: '{"target":"dummy"}',
+function createMockProvider(txHash: `0x${string}`) {
+  const calls: ProviderRequest[] = []
+  const provider = {
+    request: vi.fn(async ({ method, params }: ProviderRequest) => {
+      calls.push({ method, params })
+      if (method === 'eth_chainId') return '0x5aff'
+      if (method === 'eth_sendTransaction') return txHash
+      if (method === 'eth_getTransactionReceipt') {
+        return {
+          status: '0x1',
+          transactionHash: txHash,
+        }
+      }
+      if (method === 'wallet_switchEthereumChain') return null
+      if (method === 'wallet_addEthereumChain') return null
+      throw new Error(`Unexpected method: ${method}`)
+    }),
+  }
+
+  return { provider, calls }
+}
+
+function decodeTxData(data: string): string {
+  const hex = data.startsWith('0x') ? data.slice(2) : data
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16)
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+describe('oasis upload helper', () => {
+  it('encrypts poc payload before sapphire tx submission', async () => {
+    const txHash = `0x${'a'.repeat(64)}` as const
+    const { provider, calls } = createMockProvider(txHash)
+
+    const result = await uploadEncryptedPoC({
+      poc: '{"target":"dummy","secret":"super-sensitive-poc"}',
       projectId: 7n,
       auditor: '0x2222222222222222222222222222222222222222',
-      apiBaseUrl: 'https://api.example.com',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      ethereumProvider: provider as unknown,
     })
 
-    expect(uri.startsWith('oasis://')).toBe(true)
-    expect(fetchImpl).toHaveBeenCalledWith('https://api.example.com/api/oasis/write', expect.any(Object))
-  })
+    const sendTxCall = calls.find((entry) => entry.method === 'eth_sendTransaction')
+    const tx = (sendTxCall?.params?.[0] ?? {}) as { data?: string }
+    const rawInput = decodeTxData(tx.data ?? '0x')
 
-  it('builds deterministic oasis reference when API returns pointer only', async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        pointer: {
-          chain: 'oasis-sapphire-testnet',
-          contract: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-          slotId: 'slot-42',
-        },
-      }),
-    }))
-
-    const uriA = await uploadEncryptedPoC({
-      poc: '{"target":"dummy"}',
-      projectId: 1n,
-      auditor: '0x1111111111111111111111111111111111111111',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    })
-
-    const uriB = await uploadEncryptedPoC({
-      poc: '{"target":"dummy"}',
-      projectId: 1n,
-      auditor: '0x1111111111111111111111111111111111111111',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    })
-
-    expect(uriA.startsWith('oasis://')).toBe(true)
-    expect(uriA).toBe(uriB)
-    expect(fetchImpl).toHaveBeenCalledWith('/api/oasis/write', expect.any(Object))
-  })
-
-  it('throws useful error when API returns non-ok response', async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: false,
-      status: 401,
-      text: async () => 'unauthorized',
-    }))
-
-    await expect(uploadEncryptedPoC({
-      poc: '{"target":"dummy"}',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    })).rejects.toThrow('Oasis write API failed with status 401: unauthorized')
+    expect(rawInput.includes('super-sensitive-poc')).toBe(false)
+    expect(rawInput.includes('encryptedPoc')).toBe(true)
+    expect(result.cipherURI).toContain(`#${txHash}`)
+    expect(result.decryptionKey.length).toBe(66)
   })
 
   it('throws when poc json is invalid', async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ uri: 'oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-1#0xabc' }),
-    }))
+    const { provider } = createMockProvider(`0x${'b'.repeat(64)}` as const)
 
     await expect(uploadEncryptedPoC({
       poc: '{invalid',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      projectId: 1n,
+      auditor: '0x1111111111111111111111111111111111111111',
+      ethereumProvider: provider as unknown,
     })).rejects.toThrow('PoC JSON must be valid JSON object')
   })
 })
