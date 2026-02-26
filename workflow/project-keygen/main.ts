@@ -17,6 +17,11 @@ import {
 } from "viem"
 import { z } from "zod"
 import elliptic from "elliptic"
+import {
+  buildProjectKeyProvisioningMetadata,
+  createSafeProvisioningLogs,
+  validatePrivateKeyHex,
+} from "./src/provisioning"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -25,16 +30,12 @@ const configSchema = z.object({
   bountyHubAddress: z.string(),
   forwarderAddress: z.string(),
   gasLimit: z.string(),
+  keyProvisioningMode: z.literal("manual").optional().default("manual"),
+  keySecretPrefix: z.string().optional().default("PROJECT_KEY_"),
+  oasisChain: z.string().optional().default("oasis-sapphire-testnet"),
 })
 
 type Config = z.infer<typeof configSchema>
-
-// ═══════════════════ Types ═══════════════════
-
-type KeygenResult = {
-  projectId: bigint
-  publicKeyBytes: string // hex string of 64 bytes
-}
 
 // ═══════════════════ ABI Definitions ═══════════════════
 
@@ -82,36 +83,25 @@ function deriveSharedSecret(privateKeyHex: string, publicKeyHex: string): string
 
 // ═══════════════════ Vault DON Storage ═══════════════════
 
-/**
- * Stores the private key in Vault DON with owner-based access control
- * 
- * NOTE: CRE SDK currently exposes runtime.getSecret() for retrieval but not
- * a direct runtime.setSecret() for dynamic storage. This implementation
- * uses a placeholder approach that can be extended to:
- * 
- * 1. Use HTTP capability to call an external secret management service
- * 2. Use DON threshold encryption (requires DON-level configuration)
- * 3. Use a dedicated secret storage contract
- * 
- * For the hackathon demo, we log the key hash for verification.
- */
 function storePrivateKeyInVault(
   runtime: Runtime<Config>,
   projectId: bigint,
   owner: string,
   privateKey: string
 ): void {
-  // Compute key hash for verification (never log the actual private key)
-  const keyHash = keccak256(toBytes(privateKey))
-  
-  // Log for demo purposes - in production, this would use proper Vault DON storage
-  runtime.log(`Keygen: Project ${projectId} private key stored (hash: ${keyHash})`)
-  runtime.log(`Keygen: Owner ${owner} has access to this key`)
-  
-  // TODO: Production implementation would use one of:
-  // 1. HTTP capability to external secret store with owner authentication
-  // 2. DON threshold encryption with owner-bound decryption
-  // 3. On-chain encrypted storage with owner-controlled decryption
+  if (!validatePrivateKeyHex(privateKey)) {
+    throw new Error(`Invalid private key generated for project ${projectId}`)
+  }
+
+  const provisioning = buildProjectKeyProvisioningMetadata(projectId, owner, {
+    keyProvisioningMode: runtime.config.keyProvisioningMode,
+    keySecretPrefix: runtime.config.keySecretPrefix,
+    oasisChain: runtime.config.oasisChain,
+  })
+
+  for (const line of createSafeProvisioningLogs(provisioning)) {
+    runtime.log(line)
+  }
 }
 
 // ═══════════════════ Main Handler ═══════════════════
@@ -200,9 +190,7 @@ const initWorkflow = (config: Config) => {
   
   // Event: ProjectRegisteredV2(uint256 indexed projectId, address indexed owner, uint8 mode)
   // Note: indexed uint8 mode becomes topic[3]
-  const projectRegisteredHash = keccak256(
-    toBytes("ProjectRegisteredV2(uint256,uint256,uint8)")
-  )
+  const projectRegisteredHash = keccak256(toBytes("ProjectRegisteredV2(uint256,address,uint8)"))
   
   return [
     handler(
@@ -221,6 +209,3 @@ export async function main() {
   const runner = await Runner.newRunner<Config>()
   await runner.run(initWorkflow)
 }
-
-// Export for testing
-export { generateECDHKeyPair, deriveSharedSecret }

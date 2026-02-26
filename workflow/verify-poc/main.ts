@@ -21,7 +21,23 @@ import {
   decodeAbiParameters,
 } from "viem"
 import { z } from "zod"
-import { gcm } from "@noble/ciphers/aes.js"
+import {
+  claimVerifyPocIdempotencySlot,
+  deriveVerifyPocIdempotencyKey,
+  markVerifyPocIdempotencyCompleted,
+  releaseVerifyPocIdempotencySlot,
+  type VerifyPocIdempotencyStatus,
+} from "./src/idempotency"
+import {
+  decodeSubmissionReadResult,
+  encodeSubmissionReadCall,
+  type ChainSubmissionRecord,
+} from "./src/submissionReader"
+import {
+  parseOasisReferenceUri,
+  type OasisReference,
+  validateOasisAttestationPayload,
+} from "./src/oasisAttestation"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -33,7 +49,7 @@ const configSchema = z.object({
   tenderlyProjectSlug: z.string(),
   llmApiUrl: z.string(),
   llmModel: z.string(),
-  ipfsGateway: z.string(),
+  oasisApiBaseUrl: z.string().optional(),
   skipLlm: z.boolean().optional().default(false),
   mainnetRpcUrl: z.string().optional(),
   skipStateVerification: z.boolean().optional().default(true),
@@ -92,6 +108,8 @@ const BountyResultParamsV2 = parseAbiParameters(
 )
 
 const VNET_STATUS_ACTIVE = 2
+const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
+const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 
 const ProjectStructAbi = parseAbiParameters(
   "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, bytes projectPublicKey, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt"
@@ -118,62 +136,66 @@ function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
   }
 }
 
-// ═══════════════════ AES-GCM Decryption Helpers ═══════════════════
+type OasisReadPayload = {
+  ok: true
+  poc: PoCData
+}
 
-/**
- * Convert hex string to Uint8Array
- */
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
-  const bytes = new Uint8Array(clean.length / 2)
-  for (let i = 0; i < clean.length; i += 2) {
-    bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16)
+function parsePoCData(value: unknown): PoCData {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("PoC payload must be an object")
   }
-  return bytes
+
+  const candidate = value as Partial<PoCData>
+  if (
+    !candidate.target ||
+    typeof candidate.target.contract !== "string" ||
+    typeof candidate.target.chain !== "number" ||
+    typeof candidate.target.forkBlock !== "number" ||
+    !Array.isArray(candidate.setup) ||
+    !Array.isArray(candidate.transactions) ||
+    !candidate.expectedImpact ||
+    typeof candidate.expectedImpact.type !== "string" ||
+    typeof candidate.expectedImpact.estimatedLoss !== "string" ||
+    typeof candidate.expectedImpact.description !== "string"
+  ) {
+    throw new Error("PoC payload shape is invalid")
+  }
+
+  return candidate as PoCData
 }
 
-/**
- * AES-256-GCM decryption using pure JS implementation from @noble/ciphers.
- * Compatible with CRE WASM runtime (no Web Crypto API needed).
- *
- * @param ciphertext - Ciphertext with auth tag appended (as hex string)
- * @param iv - 12-byte initialization vector as hex string
- * @param key - 32-byte AES key as hex string
- * @returns Decrypted plaintext string
- */
-function aesGcmDecrypt(
-  ciphertext: string,
-  iv: string,
-  key: string
-): string {
-  const keyBytes = hexToBytes(key)
-  const ivBytes = hexToBytes(iv)
-  const ciphertextBytes = hexToBytes(ciphertext)
-
-  // @noble/ciphers GCM: ciphertext includes the 16-byte auth tag at the end
-  const decrypted = gcm(keyBytes, ivBytes).decrypt(ciphertextBytes)
-
-  return new TextDecoder().decode(decrypted)
-}
-
-/**
- * Parse encrypted PoC data from IPFS.
- * Frontend format: { ciphertext: hex, iv: hex }
- */
-type EncryptedPoC = {
-  ciphertext: string
-  iv: string
-}
-
-function parseEncryptedPoC(rawData: string): EncryptedPoC {
+function parseOasisReadPayload(rawData: string): OasisReadPayload {
   try {
-    const parsed = JSON.parse(rawData)
-    if (typeof parsed.ciphertext === "string" && typeof parsed.iv === "string") {
-      return parsed
+    const parsed = JSON.parse(rawData) as {
+      ok?: unknown
+      poc?: unknown
+      plaintext?: unknown
+      ciphertext?: unknown
+      iv?: unknown
     }
-    throw new Error("Invalid encrypted PoC format: missing ciphertext or iv")
+
+    if (parsed.ok === true && parsed.poc !== undefined) {
+      return {
+        ok: true,
+        poc: parsePoCData(parsed.poc),
+      }
+    }
+
+    if (parsed.ok === true && typeof parsed.plaintext === "string") {
+      return {
+        ok: true,
+        poc: parsePoCData(JSON.parse(parsed.plaintext)),
+      }
+    }
+
+    if (parsed.ok === true && (typeof parsed.ciphertext === "string" || typeof parsed.iv === "string")) {
+      throw new Error("Oasis read returned encrypted payload; oasis-only mode requires decrypted PoC payload")
+    }
+
+    throw new Error("Invalid Oasis read payload shape")
   } catch (e) {
-    throw new Error(`Failed to parse encrypted PoC: ${e}`)
+    throw new Error(`Failed to parse Oasis read payload: ${String(e)}`)
   }
 }
 
@@ -323,40 +345,87 @@ const verifyPoC = (
   submissionId: bigint,
   projectId: bigint,
   cipherURI: string,
-  projectKey: string,
   rules: ProjectRules,
 ): VerificationResult => {
   const httpClient = new HTTPClient()
   const confidentialHttpClient = new ConfidentialHTTPClient()
   const config = nodeRuntime.config
 
-  // ═══ HTTP 1: Fetch encrypted PoC from IPFS or HTTP ═══
-  let pocUrl: string
-  if (cipherURI.startsWith("ipfs://")) {
-    pocUrl = `${config.ipfsGateway}${cipherURI.replace("ipfs://", "")}`
-  } else {
-    pocUrl = cipherURI // Direct HTTP(S) URL
-  }
-  const cipherResp = httpClient.sendRequest(nodeRuntime, {
-    url: pocUrl,
-    method: "GET" as const,
-  }).result()
-
-  if (cipherResp.statusCode !== 200) {
-    nodeRuntime.log(`Ciphertext fetch failed: status ${cipherResp.statusCode}`)
+  if (!cipherURI.startsWith("oasis://")) {
+    nodeRuntime.log("Rejected non-oasis cipherURI in oasis-only mode")
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  const ciphertextRaw = new TextDecoder().decode(cipherResp.body)
+  if (!config.oasisApiBaseUrl) {
+    nodeRuntime.log("Oasis reference provided but oasisApiBaseUrl is not configured")
+    return { isValid: false, drainAmountWei: 0n }
+  }
 
-  // Decrypt using AES-GCM with project key (fetched from Vault DON in DON mode)
+  let reference: OasisReference
+  try {
+    reference = parseOasisReferenceUri(cipherURI)
+  } catch (e) {
+    nodeRuntime.log(`Invalid Oasis reference: ${String(e)}`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  const attestationResp = httpClient.sendRequest(nodeRuntime, {
+    url: `${config.oasisApiBaseUrl}/api/oasis/attestation`,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pointer: reference.pointer,
+      submissionId: submissionId.toString(),
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (attestationResp.statusCode !== 200) {
+    nodeRuntime.log(`Oasis attestation fetch failed: status ${attestationResp.statusCode}`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  let attestationPayload: unknown
+  try {
+    attestationPayload = JSON.parse(new TextDecoder().decode(attestationResp.body))
+  } catch (e) {
+    nodeRuntime.log(`Failed to parse Oasis attestation payload: ${String(e)}`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  const attestationValidation = validateOasisAttestationPayload({
+    reference,
+    payload: attestationPayload,
+    submissionId,
+  })
+
+  if (!attestationValidation.ok) {
+    nodeRuntime.log(
+      `Oasis attestation validation failed (${attestationValidation.error.kind}): ${attestationValidation.error.message}`
+    )
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
+  const readResp = httpClient.sendRequest(nodeRuntime, {
+    url: `${config.oasisApiBaseUrl}/api/oasis/read`,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pointer: reference.pointer,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (readResp.statusCode !== 200) {
+    nodeRuntime.log(`Oasis read fetch failed: status ${readResp.statusCode}`)
+    return { isValid: false, drainAmountWei: 0n }
+  }
+
   let pocJson: PoCData
   try {
-    const encryptedPoC = parseEncryptedPoC(ciphertextRaw)
-    const plaintext = aesGcmDecrypt(encryptedPoC.ciphertext, encryptedPoC.iv, projectKey)
-    pocJson = JSON.parse(plaintext)
+    pocJson = parseOasisReadPayload(new TextDecoder().decode(readResp.body)).poc
   } catch (e) {
-    nodeRuntime.log(`Decryption failed: ${String(e)}`)
+    nodeRuntime.log(`Failed to parse Oasis PoC payload: ${String(e)}`)
     return { isValid: false, drainAmountWei: 0n }
   }
 
@@ -642,82 +711,164 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
   runtime.log(`PoC Revealed #${submissionId}`)
 
-  const cipherURI = extractCipherURI(runtime, submissionId)
-  const projectId = extractProjectId(runtime, submissionId)
-
-  const projectKey = runtime.getSecret({ id: `PROJECT_KEY_${projectId}` }).result().value
-
-  const defaultRules: ProjectRules = {
-    maxAttackerSeedWei: 1000000000000000000000n,
-    maxWarpSeconds: 365n * 24n * 60n * 60n,
-    allowImpersonation: true,
-    thresholds: {
-      criticalDrainWei: 1000000000000000000000n,
-      highDrainWei: 100000000000000000000n,
-      mediumDrainWei: 10000000000000000000n,
-      lowDrainWei: 1000000000000000000n,
-    }
-  }
-
-  const verifyResult = runtime
+  const submission = runtime
     .runInNodeMode(
-      verifyPoC,
-      consensusIdenticalAggregation<VerificationResult>()
-    )(submissionId, projectId, cipherURI, projectKey, defaultRules)
+      readSubmissionInNode,
+      consensusIdenticalAggregation<ChainSubmissionRecord>()
+    )(submissionId)
     .result()
+  const { cipherURI, projectId } = submission
 
-  runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
-
-  const network = getNetwork({
-    chainFamily: "evm",
+  const idempotencySource = log as unknown as Record<string, unknown>
+  const idempotencyKey = deriveVerifyPocIdempotencyKey({
     chainSelectorName: runtime.config.chainSelectorName,
-    isTestnet: true,
+    bountyHubAddress: runtime.config.bountyHubAddress,
+    projectId,
+    submissionId,
+    txHash:
+      typeof idempotencySource.transactionHash === "string"
+        ? idempotencySource.transactionHash
+        : typeof idempotencySource.txHash === "string"
+          ? idempotencySource.txHash
+          : undefined,
+    logIndex:
+      typeof idempotencySource.logIndex === "bigint" ||
+      typeof idempotencySource.logIndex === "number" ||
+      typeof idempotencySource.logIndex === "string"
+        ? idempotencySource.logIndex
+        : undefined,
   })
 
-  if (!network) {
-    throw new Error(`Network not found: ${runtime.config.chainSelectorName}`)
+  const idempotencyDecision = claimVerifyPocIdempotencySlot(
+    processedRevealIdempotency,
+    idempotencyKey
+  )
+  if (!idempotencyDecision.shouldProcess) {
+    runtime.log(
+      `Skipping duplicate PoCRevealed. key=${idempotencyKey}, reason=${idempotencyDecision.reason}`
+    )
+    return idempotencyKey
   }
 
-  const evmClient = new EVMClient(network.chainSelector.selector)
+  runtime.log(`Idempotency accepted. key=${idempotencyKey}`)
 
-  const reportData = encodeAbiParameters(BountyResultParamsV2, [
-    submissionId,
-    verifyResult.isValid,
-    verifyResult.drainAmountWei,
-  ])
+  try {
+    const defaultRules: ProjectRules = {
+      maxAttackerSeedWei: 1000000000000000000000n,
+      maxWarpSeconds: 365n * 24n * 60n * 60n,
+      allowImpersonation: true,
+      thresholds: {
+        criticalDrainWei: 1000000000000000000000n,
+        highDrainWei: 100000000000000000000n,
+        mediumDrainWei: 10000000000000000000n,
+        lowDrainWei: 1000000000000000000n,
+      }
+    }
 
-  const report = runtime
-    .report({
-      encodedPayload: hexToBase64(reportData),
-      encoderName: "evm",
-      signingAlgo: "ecdsa",
-      hashingAlgo: "keccak256",
+    const verifyResult = runtime
+      .runInNodeMode(
+        verifyPoC,
+        consensusIdenticalAggregation<VerificationResult>()
+      )(submissionId, projectId, cipherURI, defaultRules)
+      .result()
+
+    runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
+
+    const network = getNetwork({
+      chainFamily: "evm",
+      chainSelectorName: runtime.config.chainSelectorName,
+      isTestnet: true,
     })
-    .result()
 
-  const writeResult = evmClient
-    .writeReport(runtime, {
-      receiver: runtime.config.bountyHubAddress,
-      report,
-      gasConfig: { gasLimit: runtime.config.gasLimit },
-    })
-    .result()
+    if (!network) {
+      throw new Error(`Network not found: ${runtime.config.chainSelectorName}`)
+    }
 
-  if (writeResult.txStatus === TxStatus.SUCCESS) {
-    const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32))
-    runtime.log(`Result written on-chain. tx=${txHash}`)
-    return txHash
+    const evmClient = new EVMClient(network.chainSelector.selector)
+
+    const reportData = encodeAbiParameters(BountyResultParamsV2, [
+      submissionId,
+      verifyResult.isValid,
+      verifyResult.drainAmountWei,
+    ])
+
+    const report = runtime
+      .report({
+        encodedPayload: hexToBase64(reportData),
+        encoderName: "evm",
+        signingAlgo: "ecdsa",
+        hashingAlgo: "keccak256",
+      })
+      .result()
+
+    const writeResult = evmClient
+      .writeReport(runtime, {
+        receiver: runtime.config.bountyHubAddress,
+        report,
+        gasConfig: { gasLimit: runtime.config.gasLimit },
+      })
+      .result()
+
+    if (writeResult.txStatus === TxStatus.SUCCESS) {
+      const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32))
+      markVerifyPocIdempotencyCompleted(processedRevealIdempotency, idempotencyKey)
+      runtime.log(`Result written on-chain. tx=${txHash}`)
+      return txHash
+    }
+
+    throw new Error(`EVM Write failed: ${writeResult.txStatus}`)
+  } catch (error) {
+    releaseVerifyPocIdempotencySlot(processedRevealIdempotency, idempotencyKey)
+    throw error
+  }
+}
+
+function readSubmissionInNode(
+  nodeRuntime: NodeRuntime<Config>,
+  submissionId: bigint
+): ChainSubmissionRecord {
+  const httpClient = new HTTPClient()
+  const callData = encodeSubmissionReadCall(submissionId)
+
+  const callResp = httpClient.sendRequest(nodeRuntime, {
+    url: SEPOLIA_RPC_URL,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [
+        {
+          to: nodeRuntime.config.bountyHubAddress,
+          data: callData,
+        },
+        "latest",
+      ],
+      id: 7,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (callResp.statusCode !== 200) {
+    throw new Error(`Failed to read submission ${submissionId}: status ${callResp.statusCode}`)
   }
 
-  throw new Error(`EVM Write failed: ${writeResult.txStatus}`)
-}
+  const callResult = JSON.parse(new TextDecoder().decode(callResp.body)) as {
+    result?: string
+    error?: { message?: string }
+  }
 
-const extractCipherURI = (_runtime: Runtime<Config>, _submissionId: bigint): string => {
-  return "ipfs://placeholder"
-}
+  if (callResult.error) {
+    throw new Error(
+      `Failed to read submission ${submissionId}: ${callResult.error.message ?? "eth_call error"}`
+    )
+  }
 
-const extractProjectId = (_runtime: Runtime<Config>, _submissionId: bigint): bigint => {
-  return 1n // TODO: Fetch from BountyHub contract using eth_call
+  if (typeof callResult.result !== "string") {
+    throw new Error(`Failed to read submission ${submissionId}: invalid eth_call response`)
+  }
+
+  return decodeSubmissionReadResult(callResult.result)
 }
 
 // ═══════════════════ Workflow Init ═══════════════════

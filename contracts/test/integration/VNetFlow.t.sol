@@ -11,6 +11,7 @@ contract VNetFlowTest is Test {
     address owner = address(this);
     address auditor = address(0xA1);
     address auditor2 = address(0xA2);
+    bytes32 constant ZERO_KEY = bytes32(0);
 
     function setUp() public {
         vm.warp(1000);
@@ -111,7 +112,7 @@ contract VNetFlowTest is Test {
 
         vm.warp(block.timestamp + 1);
         vm.prank(auditor);
-        hub.revealPoC(submissionId, keccak256("key"), salt);
+        hub.revealPoC(submissionId, ZERO_KEY, salt);
 
         // Verify submission is revealed
         (address subAuditor, uint256 subProjectId, bytes32 subCommitHash, string memory subCipherURI, , , uint256 commitTime, , BountyHub.SubmissionStatus status, , , , , , , ) = hub.submissions(submissionId);
@@ -168,9 +169,9 @@ contract VNetFlowTest is Test {
             TARGET,
             1 ether,
             0,
-            BountyHub.CompetitionMode.UNIQUE,
-            0,
-            0,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 1 days,
+            block.timestamp + 2 days,
             1 days,
             rules
         );
@@ -188,10 +189,6 @@ contract VNetFlowTest is Test {
         vm.prank(auditor);
         uint256 submissionId1 = hub.commitPoC(projectId, commitHash1, "uri1");
 
-        vm.warp(block.timestamp + 1);
-        vm.prank(auditor);
-        hub.revealPoC(submissionId1, keccak256("key1"), salt1);
-
         // Submit PoC from auditor2
         bytes32 salt2 = keccak256("salt2");
         bytes32 commitHash2 = keccak256(abi.encodePacked(keccak256("uri2"), auditor2, salt2));
@@ -199,9 +196,12 @@ contract VNetFlowTest is Test {
         vm.prank(auditor2);
         uint256 submissionId2 = hub.commitPoC(projectId, commitHash2, "uri2");
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(auditor);
+        hub.revealPoC(submissionId1, ZERO_KEY, salt1);
+
         vm.prank(auditor2);
-        hub.revealPoC(submissionId2, keccak256("key2"), salt2);
+        hub.revealPoC(submissionId2, ZERO_KEY, salt2);
 
         // Verify both submissions are revealed
         (address subAuditor1, , , , , , , , BountyHub.SubmissionStatus status1, , , , , , , ) = hub.submissions(submissionId1);

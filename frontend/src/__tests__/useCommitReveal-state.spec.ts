@@ -69,7 +69,7 @@ describe("commit/reveal lifecycle state model", () => {
 
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
-		mockUploadEncryptedPoC.mockResolvedValue("ipfs://bafytestcid");
+		mockUploadEncryptedPoC.mockResolvedValue("oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc");
 		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});
 
@@ -150,9 +150,16 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		expect(mockComputeCommitHash).toHaveBeenCalledWith(
-			keccak256(toBytes("ipfs://bafytestcid")),
+			keccak256(toBytes("oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc")),
 			"0x1111111111111111111111111111111111111111",
 			"0x1234",
+		);
+
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 1n,
+				auditor: "0x1111111111111111111111111111111111111111",
+			}),
 		);
 
 		expect(result.current.state.phase).toBe("committed");

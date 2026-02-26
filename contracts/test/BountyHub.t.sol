@@ -12,6 +12,7 @@ contract BountyHubTest is Test {
     bytes32 constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
     bytes32 constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes32 constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes32 constant ZERO_KEY = bytes32(0);
     address owner = address(this);
     address auditor = address(0xA1);
     address otherUser = address(0xA2);
@@ -115,18 +116,176 @@ contract BountyHubTest is Test {
         assertTrue(hub.commitHashUsed(commitHash));
     }
 
+    function test_commitPoC_setsSubmissionMetadataHash() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-metadata");
+        string memory cipherURI = "ipfs://oasis/metadata-pointer";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        assertEq(
+            hub.submissionMetadataHash(submissionId),
+            keccak256(bytes(cipherURI)),
+            "Metadata hash should track cipher URI hash"
+        );
+    }
+
+    function test_commitPoC_emitsMetadataEventWithLegacyCommitEvent() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+
+        bytes32 salt = keccak256("salt-metadata-event");
+        string memory cipherURI = "ipfs://oasis/metadata-event";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+        bytes32 metadataHash = keccak256(bytes(cipherURI));
+
+        vm.expectEmit(true, true, true, true);
+        emit BountyHub.PoCCommitted(0, 0, auditor, commitHash);
+        vm.expectEmit(true, false, false, true);
+        emit BountyHub.PoCCommitMetadata(0, metadataHash);
+
+        vm.prank(auditor);
+        hub.commitPoC(0, commitHash, cipherURI);
+    }
+
     function test_revealPoC() public {
         hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
         bytes32 salt = keccak256("salt");
         string memory cipherURI = "uri";
         bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
-        bytes32 key = keccak256("key");
+        bytes32 key = ZERO_KEY;
 
         vm.prank(auditor);
         hub.commitPoC(0, commitHash, cipherURI);
 
         vm.prank(auditor);
         hub.revealPoC(0, key, salt);
+    }
+
+    function test_revealPoC_rejectsNonZeroKey() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+        bytes32 salt = keccak256("salt-non-zero-key");
+        string memory cipherURI = "uri";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        vm.expectRevert("Key must be zero");
+        vm.prank(auditor);
+        hub.revealPoC(submissionId, keccak256("real-key"), salt);
+    }
+
+    function test_uniqueCandidateBlocksSecondRevealUntilCandidateResolved() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        uint256 projectId = hub.registerProjectV2{value: 2 ether}(
+            TARGET,
+            1 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            rules
+        );
+
+        bytes32 saltA = keccak256("candidate-salt-a");
+        bytes32 saltB = keccak256("candidate-salt-b");
+        string memory uriA = "ipfs://candidate-a";
+        string memory uriB = "ipfs://candidate-b";
+
+        vm.prank(auditor);
+        uint256 submissionA = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriA)), auditor, saltA)),
+            uriA
+        );
+
+        vm.prank(otherUser);
+        uint256 submissionB = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriB)), otherUser, saltB)),
+            uriB
+        );
+
+        vm.prank(auditor);
+        hub.revealPoC(submissionA, ZERO_KEY, saltA);
+
+        vm.expectRevert("Candidate pending");
+        vm.prank(otherUser);
+        hub.revealPoC(submissionB, ZERO_KEY, saltB);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionA, false, 0));
+
+        vm.prank(otherUser);
+        hub.revealPoC(submissionB, ZERO_KEY, saltB);
+    }
+
+    function test_uniqueWinnerLocksAfterValidVerification() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        uint256 projectId = hub.registerProjectV2{value: 2 ether}(
+            TARGET,
+            1 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            rules
+        );
+
+        bytes32 saltA = keccak256("winner-salt-a");
+        bytes32 saltB = keccak256("winner-salt-b");
+        string memory uriA = "ipfs://winner-a";
+        string memory uriB = "ipfs://winner-b";
+
+        vm.prank(auditor);
+        uint256 submissionA = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriA)), auditor, saltA)),
+            uriA
+        );
+
+        vm.prank(otherUser);
+        uint256 submissionB = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriB)), otherUser, saltB)),
+            uriB
+        );
+
+        vm.prank(auditor);
+        hub.revealPoC(submissionA, ZERO_KEY, saltA);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionA, true, 1 ether));
+
+        vm.expectRevert("Winner locked");
+        vm.prank(otherUser);
+        hub.revealPoC(submissionB, ZERO_KEY, saltB);
+
+        (bool hasCandidate,, bool winnerLocked, uint256 winnerSubmissionId) = hub.uniqueRevealStateByProject(projectId);
+        assertTrue(!hasCandidate, "candidate should clear after winner lock");
+        assertTrue(winnerLocked, "winner must be locked");
+        assertEq(winnerSubmissionId, submissionA, "winner should be first valid candidate");
+    }
+
+    function test_commitHashBinding_preventsCopyClaimReuse() public {
+        hub.registerProject{value: 1 ether}(TARGET, 0.5 ether, 0);
+        bytes32 salt = keccak256("copy-claim-salt");
+        string memory cipherURI = "ipfs://copy-claim";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+
+        vm.prank(auditor);
+        hub.commitPoC(0, commitHash, cipherURI);
+
+        vm.expectRevert("Duplicate commit");
+        vm.prank(otherUser);
+        hub.commitPoC(0, commitHash, cipherURI);
     }
 
     function test_commitPoCBySig_relayerCanCommitForAuditor() public {
@@ -180,7 +339,7 @@ contract BountyHubTest is Test {
         vm.prank(otherUser);
         uint256 submissionId = hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, commitDeadline, commitSig);
 
-        bytes32 decryptionKey = keccak256("reveal-key");
+        bytes32 decryptionKey = ZERO_KEY;
         uint256 revealNonce = hub.sigNonces(bySigAuditor);
         uint256 revealDeadline = block.timestamp + 1 days;
         bytes memory revealSig = _signRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, revealNonce, revealDeadline);
@@ -191,7 +350,7 @@ contract BountyHubTest is Test {
 
         BountyHub.Submission memory sub = _getSubmission(submissionId);
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "status should be revealed");
-        assertEq(sub.decryptionKey, decryptionKey, "key should match");
+        assertEq(sub.decryptionKey, ZERO_KEY, "key should remain zero");
         assertEq(hub.sigNonces(bySigAuditor), revealNonce + 1, "nonce should increment");
     }
 
@@ -209,7 +368,7 @@ contract BountyHubTest is Test {
         uint256 submissionId = hub.commitPoCBySig(bySigAuditor, 0, commitHash, cipherURI, commitDeadline, commitSig);
 
         uint256 wrongPk = 0xB0B;
-        bytes32 decryptionKey = keccak256("reveal-key");
+        bytes32 decryptionKey = ZERO_KEY;
         uint256 revealNonce = hub.sigNonces(bySigAuditor);
         uint256 revealDeadline = block.timestamp + 1 days;
         bytes memory revealSig = _signRevealBySig(wrongPk, bySigAuditor, submissionId, decryptionKey, salt, revealNonce, revealDeadline);
@@ -242,7 +401,7 @@ contract BountyHubTest is Test {
         vm.prank(bySigAuditor);
         uint256 submissionId = hub.commitPoC(projectId, commitHash, cipherURI);
 
-        bytes32 decryptionKey = keccak256("queued-key");
+        bytes32 decryptionKey = ZERO_KEY;
         uint256 nonce = hub.sigNonces(bySigAuditor);
         bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, nonce, revealDeadline);
 
@@ -278,11 +437,11 @@ contract BountyHubTest is Test {
 
         uint256 nonce = hub.sigNonces(bySigAuditor);
         uint256 deadline = block.timestamp + 1 days;
-        bytes memory revealSig = _signQueueRevealBySig(0xB0B, bySigAuditor, submissionId, keccak256("queued-key"), salt, nonce, deadline);
+        bytes memory revealSig = _signQueueRevealBySig(0xB0B, bySigAuditor, submissionId, ZERO_KEY, salt, nonce, deadline);
 
         vm.expectRevert("Invalid signer");
         vm.prank(otherUser);
-        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+        hub.queueRevealBySig(bySigAuditor, submissionId, ZERO_KEY, salt, deadline, revealSig);
     }
 
     function test_queueRevealBySig_rejectsRevealSignatureType() public {
@@ -300,7 +459,7 @@ contract BountyHubTest is Test {
             bySigAuditorPk,
             bySigAuditor,
             submissionId,
-            keccak256("queued-key"),
+            ZERO_KEY,
             salt,
             nonce,
             deadline
@@ -308,7 +467,7 @@ contract BountyHubTest is Test {
 
         vm.expectRevert("Invalid signer");
         vm.prank(otherUser);
-        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+        hub.queueRevealBySig(bySigAuditor, submissionId, ZERO_KEY, salt, deadline, revealSig);
     }
 
     function test_executeQueuedReveal_respectsSignatureDeadline() public {
@@ -322,10 +481,10 @@ contract BountyHubTest is Test {
 
         uint256 nonce = hub.sigNonces(bySigAuditor);
         uint256 deadline = block.timestamp + 120;
-        bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, keccak256("queued-key"), salt, nonce, deadline);
+        bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, ZERO_KEY, salt, nonce, deadline);
 
         vm.prank(otherUser);
-        hub.queueRevealBySig(bySigAuditor, submissionId, keccak256("queued-key"), salt, deadline, revealSig);
+        hub.queueRevealBySig(bySigAuditor, submissionId, ZERO_KEY, salt, deadline, revealSig);
 
         vm.warp(deadline + 1);
         vm.expectRevert("Signature expired");
@@ -342,7 +501,7 @@ contract BountyHubTest is Test {
         vm.prank(bySigAuditor);
         uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
 
-        bytes32 decryptionKey = keccak256("queued-key");
+        bytes32 decryptionKey = ZERO_KEY;
         uint256 nonce = hub.sigNonces(bySigAuditor);
         uint256 deadline = block.timestamp + 1 days;
         bytes memory revealSig = _signQueueRevealBySig(bySigAuditorPk, bySigAuditor, submissionId, decryptionKey, salt, nonce, deadline);
@@ -394,7 +553,7 @@ contract BountyHubTest is Test {
         vm.prank(auditor);
         hub.commitPoC(0, commitHash, "uri");
         vm.prank(auditor);
-        hub.revealPoC(0, keccak256("key"), salt);
+        hub.revealPoC(0, ZERO_KEY, salt);
 
         vm.prank(FORWARDER);
         hub.onReport("", _buildReportV2(0, true, 10 ether));
@@ -410,7 +569,7 @@ contract BountyHubTest is Test {
         vm.prank(auditor);
         hub.commitPoC(0, commitHash, "uri");
         vm.prank(auditor);
-        hub.revealPoC(0, keccak256("key"), salt);
+        hub.revealPoC(0, ZERO_KEY, salt);
 
         vm.prank(FORWARDER);
         hub.onReport("", _buildReportV2(0, true, 10 ether));
@@ -430,7 +589,7 @@ contract BountyHubTest is Test {
         vm.prank(auditor);
         hub.commitPoC(0, commitHash, "uri");
         vm.prank(auditor);
-        hub.revealPoC(0, keccak256("key"), salt);
+        hub.revealPoC(0, ZERO_KEY, salt);
 
         vm.prank(FORWARDER);
         hub.onReport("", _buildReportV2(0, true, 10 ether));
@@ -556,6 +715,48 @@ contract BountyHubTest is Test {
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Disputed), "Status should be Disputed");
     }
 
+    function test_submissionMetadataHash_disputeAndFinalizeFlowUnchanged() public {
+        (uint256 pid, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        bytes32 expectedMetadataHash = keccak256(bytes("uri"));
+
+        assertEq(hub.submissionMetadataHash(subId), expectedMetadataHash, "Metadata hash should persist after reveal");
+
+        vm.prank(FORWARDER);
+        hub.onReport("", abi.encode(subId, true, 1 ether));
+
+        vm.deal(otherUser, 1 ether);
+        vm.prank(otherUser);
+        hub.challenge{value: 0.1 ether}(subId);
+
+        BountyHub.Submission memory disputed = _getSubmission(subId);
+        assertEq(uint8(disputed.status), uint8(BountyHub.SubmissionStatus.Disputed), "Should remain disputable");
+        assertEq(
+            hub.submissionMetadataHash(subId),
+            expectedMetadataHash,
+            "Metadata hash should persist during dispute"
+        );
+
+        hub.resolveDispute(subId, false);
+
+        BountyHub.Submission memory resolved = _getSubmission(subId);
+        assertEq(
+            uint8(resolved.status),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            "Owner resolution should keep payout flow"
+        );
+
+        vm.warp(resolved.disputeDeadline + 1);
+        uint256 auditorBalBefore = auditor.balance;
+        hub.finalize(subId);
+
+        assertGt(auditor.balance, auditorBalBefore, "Finalize payout should remain unchanged");
+        assertEq(
+            hub.submissionMetadataHash(subId),
+            expectedMetadataHash,
+            "Metadata hash should persist after finalize"
+        );
+    }
+
     // ============ HELPER FUNCTIONS ============
 
     function _registerCommitAndReveal(uint256 bounty, uint256 maxPayout) internal returns (uint256 pid, uint256 subId) {
@@ -569,7 +770,7 @@ contract BountyHubTest is Test {
 
         vm.warp(block.timestamp + 1); // Ensure reveal after commit
         vm.prank(auditor);
-        hub.revealPoC(subId, keccak256("key"), keccak256("salt"));
+        hub.revealPoC(subId, ZERO_KEY, keccak256("salt"));
     }
 
     function _getSubmission(uint256 subId) internal view returns (BountyHub.Submission memory sub) {
@@ -717,7 +918,7 @@ contract BountyHubTest is Test {
         assertEq(sub.auditor, auditor, "Auditor should be set");
 
         // 4. Reveal PoC
-        bytes32 decryptionKey = keccak256("key");
+        bytes32 decryptionKey = ZERO_KEY;
         vm.warp(block.timestamp + 1); // Ensure reveal after commit
         vm.prank(auditor);
         hub.revealPoC(submissionId, decryptionKey, salt);
@@ -725,7 +926,7 @@ contract BountyHubTest is Test {
         // 5. Verify submission state after reveal
         sub = _getSubmission(submissionId);
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "Status should be Revealed");
-        assertEq(sub.decryptionKey, decryptionKey, "Decryption key should be set");
+        assertEq(sub.decryptionKey, ZERO_KEY, "Decryption key should remain zero");
         assertEq(sub.salt, salt, "Salt should be set");
         assertGt(sub.revealTimestamp, 0, "Reveal timestamp should be set");
         assertGt(sub.revealTimestamp, sub.commitTimestamp, "Reveal should be after commit");

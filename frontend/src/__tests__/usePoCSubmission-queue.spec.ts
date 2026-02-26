@@ -68,7 +68,9 @@ describe("usePoCSubmission queue fallback", () => {
 		mockGenerateRandomSalt.mockReturnValue("0x1234");
 		mockHashCiphertext.mockReturnValue("0x5678");
 		mockComputeCommitHash.mockReturnValue("0x9abc");
-		mockUploadEncryptedPoC.mockResolvedValue("ipfs://bafytestcid");
+		mockUploadEncryptedPoC.mockResolvedValue(
+			"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+		);
 		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});
 
@@ -122,5 +124,11 @@ describe("usePoCSubmission queue fallback", () => {
 
 		expect(result.current.state.phase).toBe("committed");
 		expect(submitResult?.commitTxHash).toBe("0xcommit");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 1n,
+				auditor: "0x1111111111111111111111111111111111111111",
+			}),
+		);
 	});
 });

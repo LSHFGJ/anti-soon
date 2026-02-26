@@ -125,6 +125,8 @@ export const usePoCSubmission = () => {
 				const cipherURI = await uploadEncryptedPoC({
 					ciphertext: ciphertextHex,
 					iv: ivHex,
+					projectId,
+					auditor: address as `0x${string}`,
 					apiBaseUrl: import.meta.env.VITE_API_URL,
 				});
 				const cipherHash = keccak256(toBytes(cipherURI));

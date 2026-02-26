@@ -254,6 +254,25 @@ export const BOUNTY_HUB_V2_ABI = [
 			{ name: "challengeBond", type: "uint256" },
 		],
 	},
+	{
+		name: "submissionMetadataHash",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "uint256" }],
+		outputs: [{ name: "", type: "bytes32" }],
+	},
+	{
+		name: "uniqueRevealStateByProject",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "uint256" }],
+		outputs: [
+			{ name: "hasCandidate", type: "bool" },
+			{ name: "candidateSubmissionId", type: "uint256" },
+			{ name: "winnerLocked", type: "bool" },
+			{ name: "winnerSubmissionId", type: "uint256" },
+		],
+	},
 	// Events
 	{
 		name: "ProjectRegisteredV2",
@@ -272,6 +291,14 @@ export const BOUNTY_HUB_V2_ABI = [
 			{ name: "projectId", type: "uint256", indexed: true },
 			{ name: "auditor", type: "address", indexed: true },
 			{ name: "commitHash", type: "bytes32", indexed: false },
+		],
+	},
+	{
+		name: "PoCCommitMetadata",
+		type: "event",
+		inputs: [
+			{ name: "submissionId", type: "uint256", indexed: true },
+			{ name: "metadataHash", type: "bytes32", indexed: false },
 		],
 	},
 	{
@@ -314,6 +341,30 @@ export const BOUNTY_HUB_V2_ABI = [
 		name: "BountyFinalized",
 		type: "event",
 		inputs: [{ name: "submissionId", type: "uint256", indexed: true }],
+	},
+	{
+		name: "UniqueRevealCandidateSet",
+		type: "event",
+		inputs: [
+			{ name: "projectId", type: "uint256", indexed: true },
+			{ name: "submissionId", type: "uint256", indexed: true },
+		],
+	},
+	{
+		name: "UniqueRevealCandidateCleared",
+		type: "event",
+		inputs: [
+			{ name: "projectId", type: "uint256", indexed: true },
+			{ name: "submissionId", type: "uint256", indexed: true },
+		],
+	},
+	{
+		name: "UniqueWinnerLocked",
+		type: "event",
+		inputs: [
+			{ name: "projectId", type: "uint256", indexed: true },
+			{ name: "submissionId", type: "uint256", indexed: true },
+		],
 	},
 	{
 		name: "updateProjectPublicKey",

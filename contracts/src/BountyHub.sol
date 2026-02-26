@@ -100,6 +100,14 @@ contract BountyHub is ReceiverTemplate {
         bool queued;
     }
 
+    /// @notice UNIQUE mode reveal arbitration state (first reveal candidate, then winner lock on valid verification)
+    struct UniqueRevealState {
+        bool hasCandidate;
+        uint256 candidateSubmissionId;
+        bool winnerLocked;
+        uint256 winnerSubmissionId;
+    }
+
     // V1 Submission struct for backward compatibility
     struct SubmissionV1 {
         address auditor;
@@ -122,10 +130,12 @@ contract BountyHub is ReceiverTemplate {
     mapping(uint256 => QueuedReveal) public queuedReveals;
     mapping(uint256 => ProjectRules) public projectRules;
     mapping(uint256 => ContractScope[]) public projectScopes;  // V4: multi-contract support
+    mapping(uint256 => UniqueRevealState) public uniqueRevealStateByProject;
 
     // V1 mappings for backward compatibility
     mapping(bytes32 => bool) public pocHashUsed;           // V1: duplicate PoC check
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
+    mapping(uint256 => bytes32) public submissionMetadataHash; // V2+: deterministic bridge linkage metadata
     mapping(address => mapping(uint256 => uint256)) public lastSubmitTime;  // V1 cooldown
     mapping(address => mapping(uint256 => uint256)) public lastCommitTime;  // V2 cooldown
     mapping(address => uint256) public sigNonces;          // bySig replay protection
@@ -151,6 +161,7 @@ contract BountyHub is ReceiverTemplate {
     // V2 Events
     event ProjectRegisteredV2(uint256 indexed projectId, address indexed owner, CompetitionMode mode);
     event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash);
+    event PoCCommitMetadata(uint256 indexed submissionId, bytes32 metadataHash);
     event PoCRevealed(uint256 indexed submissionId, bytes32 decryptionKey);
     event RevealQueued(uint256 indexed submissionId, address indexed auditor, uint256 deadline);
     event QueuedRevealExecuted(uint256 indexed submissionId, address indexed executor);
@@ -161,6 +172,9 @@ contract BountyHub is ReceiverTemplate {
     event ProjectPublicKeyUpdated(uint256 indexed projectId, bytes publicKey);
     event ProjectVnetCreated(uint256 indexed projectId, string vnetRpcUrl, bytes32 baseSnapshotId);
     event ProjectVnetFailed(uint256 indexed projectId, string reason);
+    event UniqueRevealCandidateSet(uint256 indexed projectId, uint256 indexed submissionId);
+    event UniqueRevealCandidateCleared(uint256 indexed projectId, uint256 indexed submissionId);
+    event UniqueWinnerLocked(uint256 indexed projectId, uint256 indexed submissionId);
 
     // V3 Events
     event ProjectRegisteredV3(
@@ -463,8 +477,11 @@ contract BountyHub is ReceiverTemplate {
         sub.cipherURI = _cipherURI;
         sub.commitTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Committed;
+        bytes32 metadataHash = keccak256(bytes(_cipherURI));
+        submissionMetadataHash[submissionId] = metadataHash;
 
         emit PoCCommitted(submissionId, _projectId, _auditor, _commitHash);
+        emit PoCCommitMetadata(submissionId, metadataHash);
     }
 
     /// @notice Phase 2: Auditor reveals the decryption key
@@ -547,6 +564,7 @@ contract BountyHub is ReceiverTemplate {
 
         _requireValidSignature(_auditor, structHash, _signature);
         sigNonces[_auditor] = nonce + 1;
+        require(_decryptionKey == bytes32(0), "Key must be zero");
 
         queuedReveals[_submissionId] = QueuedReveal({
             auditor: _auditor,
@@ -596,6 +614,20 @@ contract BountyHub is ReceiverTemplate {
         bytes32 cipherHash = keccak256(bytes(sub.cipherURI));
         bytes32 computedCommit = keccak256(abi.encodePacked(cipherHash, _auditor, _salt));
         require(computedCommit == sub.commitHash, "Invalid reveal");
+        require(_salt != bytes32(0), "Salt required");
+        require(_decryptionKey == bytes32(0), "Key must be zero");
+
+        if (p.mode == CompetitionMode.UNIQUE) {
+            UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
+            require(!uniqueState.winnerLocked, "Winner locked");
+            if (!uniqueState.hasCandidate) {
+                uniqueState.hasCandidate = true;
+                uniqueState.candidateSubmissionId = _submissionId;
+                emit UniqueRevealCandidateSet(sub.projectId, _submissionId);
+            } else {
+                require(uniqueState.candidateSubmissionId == _submissionId, "Candidate pending");
+            }
+        }
 
         // MULTI mode: check reveal window
         if (p.mode == CompetitionMode.MULTI) {
@@ -605,13 +637,13 @@ contract BountyHub is ReceiverTemplate {
             }
         }
 
-        sub.decryptionKey = _decryptionKey;
+        sub.decryptionKey = bytes32(0);
         sub.salt = _salt;
         sub.revealTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Revealed;
         delete queuedReveals[_submissionId];
 
-        emit PoCRevealed(_submissionId, _decryptionKey);
+        emit PoCRevealed(_submissionId, bytes32(0));
     }
 
     function _requireValidSignature(
@@ -701,6 +733,10 @@ contract BountyHub is ReceiverTemplate {
         require(sub.status == SubmissionStatus.Revealed, "Not revealed");
 
         Project storage p = _projects[sub.projectId];
+        UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
+        if (p.mode == CompetitionMode.UNIQUE && sub.salt != bytes32(0)) {
+            require(uniqueState.hasCandidate && uniqueState.candidateSubmissionId == submissionId, "Not active candidate");
+        }
         sub.drainAmountWei = drainAmountWei;
 
         if (isValid && drainAmountWei > 0) {
@@ -719,9 +755,21 @@ contract BountyHub is ReceiverTemplate {
                 sub.disputeDeadline = block.timestamp + p.disputeWindow;
             }
 
+            if (p.mode == CompetitionMode.UNIQUE) {
+                uniqueState.hasCandidate = false;
+                uniqueState.winnerLocked = true;
+                uniqueState.winnerSubmissionId = submissionId;
+                emit UniqueWinnerLocked(sub.projectId, submissionId);
+            }
+
             emit PoCVerified(submissionId, true, drainAmountWei, uint8(sub.severity));
         } else {
             sub.status = SubmissionStatus.Invalid;
+            if (p.mode == CompetitionMode.UNIQUE) {
+                uniqueState.hasCandidate = false;
+                uniqueState.candidateSubmissionId = 0;
+                emit UniqueRevealCandidateCleared(sub.projectId, submissionId);
+            }
             emit PoCVerified(submissionId, false, 0, uint8(Severity.NONE));
         }
     }
@@ -876,6 +924,15 @@ contract BountyHub is ReceiverTemplate {
         if (sub.auditor != msg.sender) return false;
 
         Project storage p = _projects[sub.projectId];
+        if (p.mode == CompetitionMode.UNIQUE) {
+            UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
+            if (uniqueState.winnerLocked) {
+                return false;
+            }
+            if (uniqueState.hasCandidate && uniqueState.candidateSubmissionId != _submissionId) {
+                return false;
+            }
+        }
         if (p.mode == CompetitionMode.MULTI && p.commitDeadline > 0) {
             return block.timestamp > p.commitDeadline;
         }

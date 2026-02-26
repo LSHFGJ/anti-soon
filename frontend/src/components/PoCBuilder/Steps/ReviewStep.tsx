@@ -267,8 +267,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							)}
 
 							<div className="mt-4 p-4 bg-neutral-900/80 rounded text-xs text-[var(--color-text-dim)]">
-								Your PoC is encrypted on IPFS. Keys are securely managed by the
-								protocol. Reveal when ready to trigger verification.
+								Your PoC is encrypted and stored via Oasis confidential storage.
+								Reveal when ready to trigger verification.
 							</div>
 
 							<button
@@ -314,7 +314,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					)}
 
 					{state.phase === "revealing" && (
-						<Spinner>Revealing decryption key...</Spinner>
+						<Spinner>Submitting reveal authorization...</Spinner>
 					)}
 
 					{state.phase === "revealed" && (
@@ -328,7 +328,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							</div>
 
 							<ol className="m-0 pl-6 text-[var(--color-text-dim)] text-sm leading-relaxed">
-								<li>Decrypt your PoC using the revealed key</li>
+								<li>Resolve your encrypted PoC from Oasis storage</li>
 								<li>Create Tenderly fork at specified block</li>
 								<li>Execute the exploit in sandbox</li>
 								<li>Measure impact and classify severity</li>
