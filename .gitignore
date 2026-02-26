@@ -46,6 +46,11 @@ demo-data-bak/
 test-poc.json
 tmp.js
 tmp.wasm
+generate_test.py
+test.svg
+logo/
+workflow/**/.cre_build_tmp.js
+workflow/**/tmp-min.*
 
 # Logs
 *.log
