@@ -9,7 +9,7 @@ import { z } from "zod"
 
 const configSchema = z.object({
   etherscanApiUrl: z.string().default("https://api-sepolia.etherscan.io/api"),
-  ipfsUploadApiUrl: z.string(),
+  metadataUploadApiUrl: z.string(),
   githubApiUrl: z.string().default("https://api.github.com"),
   owner: z.string(),
 })
@@ -34,9 +34,9 @@ export type DeployOutput = {
     name: string
     address: string
   }[]
-  ipfsCids?: {
+  metadataRefs?: {
     address: string
-    cid: string
+    contentId: string
   }[]
   verificationStatus?: {
     address: string
@@ -206,14 +206,12 @@ function verifyOnEtherscan(
   }
 }
 
-// ═══════════════════ IPFS Upload ═══════════════════
-
-type IpfsResult = {
+type MetadataUploadResult = {
   address: string
-  cid: string
+  contentId: string
 }
 
-function extractCid(payload: unknown): string | null {
+function extractContentId(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") {
     return null
   }
@@ -224,20 +222,21 @@ function extractCid(payload: unknown): string | null {
     return data.cid
   }
 
-  if (typeof data.IpfsHash === "string" && data.IpfsHash.length > 0) {
-    return data.IpfsHash
+  if (typeof data.contentId === "string" && data.contentId.length > 0) {
+    return data.contentId
   }
 
   const uriCandidate =
     typeof data.uri === "string"
       ? data.uri
-      : typeof data.ipfsUri === "string"
-        ? data.ipfsUri
+      : typeof data.contentUri === "string"
+        ? data.contentUri
         : null
 
-  if (uriCandidate?.startsWith("ipfs://")) {
-    const cid = uriCandidate.slice("ipfs://".length)
-    return cid.length > 0 ? cid : null
+  if (uriCandidate && uriCandidate.includes("://")) {
+    const slashIndex = uriCandidate.indexOf("://") + 3
+    const contentId = uriCandidate.slice(slashIndex).split(/[/?#]/)[0]
+    return contentId?.length ? contentId : null
   }
 
   const gatewayCandidate =
@@ -248,22 +247,26 @@ function extractCid(payload: unknown): string | null {
         : null
 
   if (gatewayCandidate) {
-    const match = gatewayCandidate.match(/\/ipfs\/([^/?#]+)/)
-    if (match?.[1]) {
-      return match[1]
+    const segments = gatewayCandidate.split("/").filter(Boolean)
+    const tail = segments[segments.length - 1]
+    if (tail) {
+      const contentId = tail.split(/[?#]/)[0]
+      if (contentId) {
+        return contentId
+      }
     }
   }
 
   return null
 }
 
-function uploadToIpfs(
+function uploadMetadata(
   nodeRuntime: NodeRuntime<Config>,
   contractAddress: string,
   contractName: string,
   sourceCode: string,
   repoUrl: string
-): IpfsResult | null {
+): MetadataUploadResult | null {
   const confidentialHttpClient = new ConfidentialHTTPClient()
   const config = nodeRuntime.config
 
@@ -278,11 +281,11 @@ function uploadToIpfs(
 
   const resp = confidentialHttpClient.sendRequest(nodeRuntime, {
     request: {
-      url: config.ipfsUploadApiUrl,
+      url: config.metadataUploadApiUrl,
       method: "POST",
       multiHeaders: {
         "Content-Type": { values: ["application/json"] },
-        "Authorization": { values: ["Bearer {{.IPFS_UPLOAD_TOKEN}}"] },
+        "Authorization": { values: ["Bearer {{.METADATA_UPLOAD_TOKEN}}"] },
       },
       bodyString: JSON.stringify({
         payloadType: "contract-metadata",
@@ -290,32 +293,32 @@ function uploadToIpfs(
       }),
     },
     vaultDonSecrets: [
-      { key: "IPFS_UPLOAD_TOKEN", owner: config.owner },
+      { key: "METADATA_UPLOAD_TOKEN", owner: config.owner },
       { key: "san_marino_aes_gcm_encryption_key" },
     ],
     encryptOutput: true,
   }).result()
 
   if (resp.statusCode !== 200 && resp.statusCode !== 201) {
-    nodeRuntime.log(`IPFS upload failed: ${resp.statusCode}`)
+    nodeRuntime.log(`Metadata upload failed: ${resp.statusCode}`)
     return null
   }
 
   try {
     const result = JSON.parse(new TextDecoder().decode(resp.body))
-    const cid = extractCid(result)
-    if (!cid) {
-      nodeRuntime.log(`IPFS upload response missing CID`)
+    const contentId = extractContentId(result)
+    if (!contentId) {
+      nodeRuntime.log(`Metadata upload response missing content id`)
       return null
     }
 
-    nodeRuntime.log(`IPFS uploaded: CID=${cid}`)
+    nodeRuntime.log(`Metadata uploaded: contentId=${contentId}`)
     return {
       address: contractAddress,
-      cid,
+      contentId,
     }
   } catch (e) {
-    nodeRuntime.log(`Failed to parse IPFS response: ${String(e)}`)
+    nodeRuntime.log(`Failed to parse metadata upload response: ${String(e)}`)
     return null
   }
 }
@@ -341,7 +344,7 @@ export function postDeployVerify(
   const sources = fetchContractSources(nodeRuntime, repoUrl, contractNames, githubToken)
 
   const verificationResults: VerificationResult[] = []
-  const ipfsCids: IpfsResult[] = []
+  const metadataRefs: MetadataUploadResult[] = []
 
   for (const contract of deployedContracts) {
     const source = sources.find(s => s.name === contract.name)
@@ -364,15 +367,15 @@ export function postDeployVerify(
     )
     verificationResults.push(verifyResult)
 
-    const ipfsResult = uploadToIpfs(
+    const metadataResult = uploadMetadata(
       nodeRuntime,
       contract.address,
       contract.name,
       source.content,
       repoUrl
     )
-    if (ipfsResult) {
-      ipfsCids.push(ipfsResult)
+    if (metadataResult) {
+      metadataRefs.push(metadataResult)
     }
   }
 
@@ -386,7 +389,7 @@ export function postDeployVerify(
       verified: v.verified,
       explorerUrl: v.explorerUrl,
     })),
-    ipfsCids: ipfsCids.length > 0 ? ipfsCids : undefined,
+    metadataRefs: metadataRefs.length > 0 ? metadataRefs : undefined,
   }
 }
 
