@@ -2,6 +2,8 @@ import { encodeAbiParameters, keccak256, parseAbiParameters } from "viem"
 
 export const VERIFY_POC_IDEMPOTENCY_VERSION =
   "anti-soon.verify-poc.idempotency.v1" as const
+export const VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR =
+  "VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT" as const
 
 export type VerifyPocIdempotencyStatus = "processing" | "completed"
 
@@ -11,6 +13,8 @@ export type VerifyPocIdempotencyDecision = {
 }
 
 export type VerifyPocIdempotencyInput = {
+  mappingVersion: string
+  mappingMode: string
   chainSelectorName: string
   bountyHubAddress: string
   projectId: bigint
@@ -19,8 +23,21 @@ export type VerifyPocIdempotencyInput = {
   logIndex?: bigint | number | string
 }
 
+export type VerifyPocIdempotencyMappingState = {
+  mappingFingerprint: `0x${string}`
+  idempotencyKey: `0x${string}`
+}
+
 const idempotencyKeyParams = parseAbiParameters(
-  "string version, string chainSelectorName, address bountyHubAddress, uint256 projectId, uint256 submissionId, bytes32 eventTxHash, uint256 eventLogIndex"
+  "string version, string mappingVersion, string mappingMode, string chainSelectorName, address bountyHubAddress, uint256 projectId, uint256 submissionId, bytes32 eventTxHash, uint256 eventLogIndex"
+)
+
+const sourceEventKeyParams = parseAbiParameters(
+  "string chainSelectorName, address bountyHubAddress, uint256 projectId, uint256 submissionId, bytes32 eventTxHash, uint256 eventLogIndex"
+)
+
+const mappingFingerprintParams = parseAbiParameters(
+  "string mappingVersion, string mappingMode"
 )
 
 const ZERO_BYTES32 =
@@ -58,11 +75,8 @@ function toLogIndexBigInt(value: VerifyPocIdempotencyInput["logIndex"]): bigint 
   return 0n
 }
 
-export function deriveVerifyPocIdempotencyKey(
-  input: VerifyPocIdempotencyInput
-): `0x${string}` {
-  const encoded = encodeAbiParameters(idempotencyKeyParams, [
-    VERIFY_POC_IDEMPOTENCY_VERSION,
+function encodeSourceEventIdentity(input: VerifyPocIdempotencyInput): `0x${string}` {
+  return encodeAbiParameters(sourceEventKeyParams, [
     input.chainSelectorName,
     normalizeHex(input.bountyHubAddress) as `0x${string}`,
     input.projectId,
@@ -70,8 +84,88 @@ export function deriveVerifyPocIdempotencyKey(
     normalizeBytes32(input.txHash),
     toLogIndexBigInt(input.logIndex),
   ])
+}
+
+export function deriveVerifyPocSourceEventKey(
+  input: VerifyPocIdempotencyInput
+): `0x${string}` {
+  return keccak256(encodeSourceEventIdentity(input))
+}
+
+export function deriveVerifyPocMappingFingerprint(
+  input: Pick<VerifyPocIdempotencyInput, "mappingVersion" | "mappingMode">
+): `0x${string}` {
+  const encoded = encodeAbiParameters(mappingFingerprintParams, [
+    input.mappingVersion,
+    input.mappingMode,
+  ])
+  return keccak256(encoded)
+}
+
+export function deriveVerifyPocIdempotencyKey(
+  input: VerifyPocIdempotencyInput
+): `0x${string}` {
+  const encoded = encodeAbiParameters(idempotencyKeyParams, [
+    VERIFY_POC_IDEMPOTENCY_VERSION,
+    input.mappingVersion,
+    input.mappingMode,
+    ...decodeSourceEventIdentity(input),
+  ])
 
   return keccak256(encoded)
+}
+
+function decodeSourceEventIdentity(
+  input: VerifyPocIdempotencyInput
+): [
+  string,
+  `0x${string}`,
+  bigint,
+  bigint,
+  `0x${string}`,
+  bigint,
+] {
+  return [
+    input.chainSelectorName,
+    normalizeHex(input.bountyHubAddress) as `0x${string}`,
+    input.projectId,
+    input.submissionId,
+    normalizeBytes32(input.txHash),
+    toLogIndexBigInt(input.logIndex),
+  ]
+}
+
+export function assertVerifyPocIdempotencyMappingStable(
+  mappingStateBySourceEvent: Map<string, VerifyPocIdempotencyMappingState>,
+  input: VerifyPocIdempotencyInput
+): {
+  sourceEventKey: `0x${string}`
+  idempotencyKey: `0x${string}`
+  mappingFingerprint: `0x${string}`
+} {
+  const sourceEventKey = deriveVerifyPocSourceEventKey(input)
+  const mappingFingerprint = deriveVerifyPocMappingFingerprint(input)
+  const idempotencyKey = deriveVerifyPocIdempotencyKey(input)
+
+  const current = mappingStateBySourceEvent.get(sourceEventKey)
+  if (!current) {
+    mappingStateBySourceEvent.set(sourceEventKey, {
+      mappingFingerprint,
+      idempotencyKey,
+    })
+    return { sourceEventKey, idempotencyKey, mappingFingerprint }
+  }
+
+  if (
+    current.mappingFingerprint !== mappingFingerprint ||
+    current.idempotencyKey !== idempotencyKey
+  ) {
+    throw new Error(
+      `${VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR}: sourceEventKey=${sourceEventKey} expectedFingerprint=${current.mappingFingerprint} gotFingerprint=${mappingFingerprint} expectedIdempotencyKey=${current.idempotencyKey} gotIdempotencyKey=${idempotencyKey}`
+    )
+  }
+
+  return { sourceEventKey, idempotencyKey, mappingFingerprint }
 }
 
 export function claimVerifyPocIdempotencySlot(

@@ -97,9 +97,31 @@ type OasisClientConfig = {
 type InternalRequest = {
   path: string
   body: JsonRecord
+  requiresAuthenticatedRead?: boolean
 }
 
 const noopSleep = async (_ms: number): Promise<void> => Promise.resolve()
+
+const AUTH_FAILURE_TOKENS = [
+  "invalid auth",
+  "auth failed",
+  "authentication failed",
+  "unauthorized",
+  "forbidden",
+  "permission denied",
+  "invalid signature",
+  "invalid token",
+  "invalid api key",
+] as const
+
+function buildAuthHttpError(statusCode: number): OasisClientError {
+  return {
+    kind: "auth",
+    retriable: false,
+    statusCode,
+    message: `oasis auth failed with status ${statusCode}`,
+  }
+}
 
 function normalizePointer(pointer: OasisPointer): OasisPointer {
   return {
@@ -142,12 +164,7 @@ export function createDeterministicRetrySchedule(policy: OasisRetryPolicy): numb
 
 export function classifyOasisHttpError(statusCode: number): OasisClientError {
   if (statusCode === 401 || statusCode === 403) {
-    return {
-      kind: "auth",
-      retriable: false,
-      statusCode,
-      message: `oasis auth failed with status ${statusCode}`,
-    }
+    return buildAuthHttpError(statusCode)
   }
 
   if (statusCode === 404) {
@@ -183,6 +200,27 @@ export function classifyOasisHttpError(statusCode: number): OasisClientError {
     statusCode,
     message: `oasis request failed with status ${statusCode}`,
   }
+}
+
+function hasInvalidAuthSignal(responseBodyText: string): boolean {
+  if (responseBodyText.length === 0) {
+    return false
+  }
+
+  const candidates: string[] = [responseBodyText]
+  const parsed = parseJsonObject(responseBodyText)
+  if (parsed) {
+    const keys = ["error", "message", "reason", "detail"]
+    for (const key of keys) {
+      const value = parsed[key]
+      if (typeof value === "string" && value.length > 0) {
+        candidates.push(value)
+      }
+    }
+  }
+
+  const normalized = candidates.join(" ").toLowerCase()
+  return AUTH_FAILURE_TOKENS.some((token) => normalized.includes(token))
 }
 
 function classifyOasisNetworkError(error: unknown): OasisClientError {
@@ -344,7 +382,11 @@ async function requestWithRetry(
     }
 
     if (!response.ok) {
-      const classified = classifyOasisHttpError(response.status)
+      const responseBodyText = await response.text()
+      const classified =
+        request.requiresAuthenticatedRead && hasInvalidAuthSignal(responseBodyText)
+          ? buildAuthHttpError(response.status)
+          : classifyOasisHttpError(response.status)
       if (classified.retriable && attempt < config.retryPolicy.maxAttempts) {
         lastRetriableError = classified
         continue
@@ -421,6 +463,7 @@ export function createOasisClient(config: OasisClientConfig) {
           body: {
             pointer,
           },
+          requiresAuthenticatedRead: true,
         },
         resolvedConfig
       )

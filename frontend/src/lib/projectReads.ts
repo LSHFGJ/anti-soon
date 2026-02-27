@@ -1,9 +1,8 @@
 import {
 	BOUNTY_HUB_ADDRESS,
-	BOUNTY_HUB_PROJECTS_LEGACY_ABI,
 	BOUNTY_HUB_PROJECTS_V4_ABI,
 } from '../config'
-import { mapProjectTupleLegacy, mapProjectTupleV4, type ProjectLegacyOnChain, type ProjectV4OnChain } from './projectMapping'
+import { mapProjectTupleV4, type ProjectV4OnChain } from './projectMapping'
 import { publicClient } from './publicClient'
 import type { Project } from '../types'
 
@@ -11,15 +10,6 @@ function buildV4Contracts(projectIds: readonly bigint[]) {
   return projectIds.map((projectId) => ({
     address: BOUNTY_HUB_ADDRESS,
     abi: BOUNTY_HUB_PROJECTS_V4_ABI,
-    functionName: 'projects' as const,
-    args: [projectId] as const,
-  }))
-}
-
-function buildLegacyContracts(projectIds: readonly bigint[]) {
-  return projectIds.map((projectId) => ({
-    address: BOUNTY_HUB_ADDRESS,
-    abi: BOUNTY_HUB_PROJECTS_LEGACY_ABI,
     functionName: 'projects' as const,
     args: [projectId] as const,
   }))
@@ -41,11 +31,8 @@ export async function readProjectsByIds(projectIds: readonly bigint[]): Promise<
 			allowFailure: false,
 		}) as ProjectV4OnChain[]
 		return v4.map((row, index) => mapProjectTupleV4(projectIds[index], row))
-	} catch {
-		const legacy = await publicClient.multicall({
-			contracts: buildLegacyContracts(projectIds),
-			allowFailure: false,
-		}) as ProjectLegacyOnChain[]
-		return legacy.map((row, index) => mapProjectTupleLegacy(projectIds[index], row))
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error)
+		throw new Error(`PROJECT_READ_V4_ONLY_FAILED: ${reason}`)
 	}
 }

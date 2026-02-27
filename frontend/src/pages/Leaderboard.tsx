@@ -32,7 +32,6 @@ type SubmissionTuple = readonly [
   projectId: bigint,
   commitHash: `0x${string}`,
   cipherURI: string,
-  decryptionKey: `0x${string}`,
   salt: `0x${string}`,
   commitTimestamp: bigint,
   revealTimestamp: bigint,
@@ -127,7 +126,7 @@ export function Leaderboard() {
       
       const severityMap = new Map<bigint, number>()
       submissions.forEach((sub, index) => {
-        severityMap.set(submissionIds[index], sub[10])
+        severityMap.set(submissionIds[index], sub[9])
       })
 
       const payoutRows = payoutLogs

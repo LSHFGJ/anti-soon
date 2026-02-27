@@ -14,7 +14,6 @@ import {
 } from "@chainlink/cre-sdk"
 import {
   decodeFunctionResult,
-  decodeEventLog,
   encodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
@@ -25,10 +24,12 @@ import {
 } from "viem"
 import { z } from "zod"
 import {
+  assertVerifyPocIdempotencyMappingStable,
   claimVerifyPocIdempotencySlot,
   deriveVerifyPocIdempotencyKey,
   markVerifyPocIdempotencyCompleted,
   releaseVerifyPocIdempotencySlot,
+  type VerifyPocIdempotencyMappingState,
   type VerifyPocIdempotencyStatus,
 } from "./src/idempotency"
 import {
@@ -42,11 +43,8 @@ import {
 } from "./src/oasisAttestation"
 import { encodeJsonBodyBase64 } from "./src/httpBody"
 import {
-  resolveOasisRpcTxHash,
   validateOasisRpcPayload,
-  type OasisRpcPayload,
 } from "./src/oasisRpcRead"
-import { gcm } from "@noble/ciphers/aes.js"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -114,6 +112,11 @@ const BountyResultParamsV2 = parseAbiParameters(
 
 const VNET_STATUS_ACTIVE = 2
 const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
+const processedRevealIdempotencyMappingBySourceEvent =
+  new Map<string, VerifyPocIdempotencyMappingState>()
+const VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_VERSION =
+  "anti-soon.verify-poc.revealed-map.v1"
+const VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_MODE = "poc_revealed"
 const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 
 const ProjectStructAbi = parseAbiParameters(
@@ -122,11 +125,40 @@ const ProjectStructAbi = parseAbiParameters(
 
 const OasisPoCStoreReadAbi = parseAbi([
   "function read(string slotId) view returns (string payload)",
+  "function readMeta(string slotId) view returns (address writer, uint256 storedAt)",
 ])
 
-const OasisPoCStoreEventAbi = parseAbi([
-  "event PoCStored(string slotId, bytes32 indexed slotKey, address indexed writer, string payload)",
-])
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+export function decodeAuthorizedReadCaller(metaResult: `0x${string}`): `0x${string}` {
+  const [writer] = decodeFunctionResult({
+    abi: OasisPoCStoreReadAbi,
+    functionName: "readMeta",
+    data: metaResult,
+  })
+
+  const authorizedCaller = writer as `0x${string}`
+  if (authorizedCaller.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error("Oasis storage metadata missing writer for slot")
+  }
+
+  return authorizedCaller
+}
+
+export function buildAuthorizedReadCallParams(
+  contract: string,
+  callData: `0x${string}`,
+  authorizedCaller: `0x${string}`,
+): [{ to: string; data: `0x${string}`; from: `0x${string}` }, "latest"] {
+  return [
+    {
+      to: contract,
+      data: callData,
+      from: authorizedCaller,
+    },
+    "latest",
+  ]
+}
 
 type ProjectVnetInfo = {
   vnetRpcUrl: string
@@ -189,202 +221,12 @@ function parsePoCData(value: unknown): PoCData {
   return candidate as PoCData
 }
 
-function decodeHexUtf8(hexInput: string): string {
-  const hex = hexInput.startsWith("0x") ? hexInput.slice(2) : hexInput
-  if (hex.length % 2 !== 0) {
-    throw new Error("Hex payload length must be even")
+function parseValidatedPoCPayload(payload: unknown): PoCData {
+  if (typeof payload !== "object" || payload === null || !("poc" in payload)) {
+    throw new Error("Oasis payload does not include PoC data")
   }
 
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let index = 0; index < hex.length; index += 2) {
-    const byte = Number.parseInt(hex.slice(index, index + 2), 16)
-    if (Number.isNaN(byte)) {
-      throw new Error("Invalid hex payload")
-    }
-    bytes[index / 2] = byte
-  }
-
-  return new TextDecoder().decode(bytes)
-}
-
-function decodeHexBytes(hexInput: string): Uint8Array {
-  const hex = hexInput.startsWith("0x") ? hexInput.slice(2) : hexInput
-  if (hex.length % 2 !== 0) {
-    throw new Error("Hex payload length must be even")
-  }
-
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let index = 0; index < hex.length; index += 2) {
-    const byte = Number.parseInt(hex.slice(index, index + 2), 16)
-    if (Number.isNaN(byte)) {
-      throw new Error("Invalid hex payload")
-    }
-    bytes[index / 2] = byte
-  }
-  return bytes
-}
-
-function decodeEncryptedPoC(
-  encryptedPoc: NonNullable<OasisRpcPayload["encryptedPoc"]>,
-  decryptionKey: `0x${string}`,
-): PoCData {
-  if (decryptionKey === "0x0000000000000000000000000000000000000000000000000000000000000000") {
-    throw new Error("Encrypted Oasis payload cannot be decrypted with zero reveal key")
-  }
-
-  const keyBytes = decodeHexBytes(decryptionKey)
-  const ivBytes = decodeHexBytes(encryptedPoc.ivHex)
-  const ciphertextBytes = decodeHexBytes(encryptedPoc.ciphertextHex)
-
-  const plaintextBytes = gcm(keyBytes, ivBytes).decrypt(ciphertextBytes)
-  const plaintext = new TextDecoder().decode(plaintextBytes)
-  const decryptedPayload = JSON.parse(plaintext)
-
-  return parsePoCData(decryptedPayload)
-}
-
-function extractPoCFromValidatedPayload(
-  payload: OasisRpcPayload,
-  decryptionKey: `0x${string}`,
-): PoCData {
-  if (payload.encryptedPoc) {
-    return decodeEncryptedPoC(payload.encryptedPoc, decryptionKey)
-  }
-  if (payload.poc !== undefined) {
-    return parsePoCData(payload.poc)
-  }
-  throw new Error("Oasis payload does not include PoC data")
-}
-
-function readTxPayloadFromOasisRpc(
-  nodeRuntime: NodeRuntime<Config>,
-  reference: OasisReference,
-  oasisRpcUrl: string,
-): unknown | null {
-  const txHash = resolveOasisRpcTxHash(reference)
-  const httpClient = new HTTPClient()
-
-  const txResp = httpClient.sendRequest(nodeRuntime, {
-    url: oasisRpcUrl,
-    method: "POST" as const,
-    headers: { "Content-Type": "application/json" },
-    body: encodeJsonBodyBase64({
-      jsonrpc: "2.0",
-      method: "eth_getTransactionByHash",
-      params: [txHash],
-      id: 27,
-    }),
-    cacheSettings: { maxAge: "0s" },
-  }).result()
-
-  if (txResp.statusCode !== 200) {
-    throw new Error(`Oasis RPC eth_getTransactionByHash failed: status ${txResp.statusCode}`)
-  }
-
-  const txPayload = JSON.parse(new TextDecoder().decode(txResp.body)) as {
-    result?: { input?: string } | null
-    error?: { message?: string }
-  }
-
-  if (txPayload.error) {
-    throw new Error(`Oasis RPC error: ${txPayload.error.message ?? "unknown error"}`)
-  }
-
-  const txInput = txPayload.result?.input
-  if (typeof txInput !== "string" || txInput.length < 2) {
-    return null
-  }
-
-  try {
-    return JSON.parse(decodeHexUtf8(txInput))
-  } catch {
-    return null
-  }
-}
-
-function readPayloadFromOasisReceiptLog(
-  nodeRuntime: NodeRuntime<Config>,
-  reference: OasisReference,
-  oasisRpcUrl: string,
-): unknown | null {
-  const txHash = resolveOasisRpcTxHash(reference)
-  const httpClient = new HTTPClient()
-  const receiptResp = httpClient.sendRequest(nodeRuntime, {
-    url: oasisRpcUrl,
-    method: "POST" as const,
-    headers: { "Content-Type": "application/json" },
-    body: encodeJsonBodyBase64({
-      jsonrpc: "2.0",
-      method: "eth_getTransactionReceipt",
-      params: [txHash],
-      id: 31,
-    }),
-    cacheSettings: { maxAge: "0s" },
-  }).result()
-
-  if (receiptResp.statusCode !== 200) {
-    throw new Error(`Oasis RPC eth_getTransactionReceipt failed: status ${receiptResp.statusCode}`)
-  }
-
-  const receiptPayload = JSON.parse(new TextDecoder().decode(receiptResp.body)) as {
-    result?: {
-      logs?: Array<{ address?: string; topics?: string[]; data?: string }>
-    } | null
-    error?: { message?: string }
-  }
-
-  if (receiptPayload.error) {
-    throw new Error(`Oasis RPC receipt error: ${receiptPayload.error.message ?? "unknown error"}`)
-  }
-
-  const logs = receiptPayload.result?.logs
-  if (!logs || logs.length === 0) {
-    return null
-  }
-
-  const targetContract = reference.pointer.contract.toLowerCase()
-  for (const log of logs) {
-    if (!log.address || log.address.toLowerCase() !== targetContract) {
-      continue
-    }
-    if (
-      !log.topics ||
-      log.topics.length === 0 ||
-      typeof log.topics[0] !== "string" ||
-      typeof log.data !== "string"
-    ) {
-      continue
-    }
-
-    const topics = log.topics as [`0x${string}`, ...`0x${string}`[]]
-
-    try {
-      const decoded = decodeEventLog({
-        abi: OasisPoCStoreEventAbi,
-        data: log.data as `0x${string}`,
-        topics,
-        strict: false,
-      })
-
-      if (decoded.eventName !== "PoCStored") {
-        continue
-      }
-      if (decoded.args.slotId !== reference.pointer.slotId) {
-        continue
-      }
-
-      const payloadText = decoded.args.payload
-      if (typeof payloadText !== "string") {
-        continue
-      }
-
-      return JSON.parse(payloadText)
-    } catch {
-      continue
-    }
-  }
-
-  return null
+  return parsePoCData((payload as { poc: unknown }).poc)
 }
 
 function readStoredPayloadFromOasisContract(
@@ -393,6 +235,43 @@ function readStoredPayloadFromOasisContract(
   oasisRpcUrl: string,
 ): unknown {
   const httpClient = new HTTPClient()
+  const metaCallData = encodeFunctionData({
+    abi: OasisPoCStoreReadAbi,
+    functionName: "readMeta",
+    args: [reference.pointer.slotId],
+  })
+
+  const metaResp = httpClient.sendRequest(nodeRuntime, {
+    url: oasisRpcUrl,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: encodeJsonBodyBase64({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: reference.pointer.contract, data: metaCallData }, "latest"],
+      id: 28,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (metaResp.statusCode !== 200) {
+    throw new Error(`Oasis RPC readMeta eth_call failed: status ${metaResp.statusCode}`)
+  }
+
+  const metaPayload = JSON.parse(new TextDecoder().decode(metaResp.body)) as {
+    result?: `0x${string}`
+    error?: { message?: string }
+  }
+
+  if (metaPayload.error) {
+    throw new Error(`Oasis storage readMeta failed: ${metaPayload.error.message ?? "unknown error"}`)
+  }
+  if (!metaPayload.result || metaPayload.result === "0x") {
+    throw new Error("Oasis storage readMeta returned empty payload")
+  }
+
+  const authorizedCaller = decodeAuthorizedReadCaller(metaPayload.result)
+
   const callData = encodeFunctionData({
     abi: OasisPoCStoreReadAbi,
     functionName: "read",
@@ -406,7 +285,7 @@ function readStoredPayloadFromOasisContract(
     body: encodeJsonBodyBase64({
       jsonrpc: "2.0",
       method: "eth_call",
-      params: [{ to: reference.pointer.contract, data: callData }, "latest"],
+      params: buildAuthorizedReadCallParams(reference.pointer.contract, callData, authorizedCaller),
       id: 29,
     }),
     cacheSettings: { maxAge: "0s" },
@@ -441,43 +320,9 @@ function readPoCFromOasisRpc(
   nodeRuntime: NodeRuntime<Config>,
   reference: OasisReference,
   submissionId: bigint,
-  decryptionKey: `0x${string}`,
   oasisRpcUrl: string,
 ): PoCData {
-  let parsedPayload: unknown | null = null
-  let txReadError: Error | null = null
-  let receiptReadError: Error | null = null
-
-  try {
-    parsedPayload = readTxPayloadFromOasisRpc(nodeRuntime, reference, oasisRpcUrl)
-  } catch (error) {
-    txReadError = error instanceof Error ? error : new Error(String(error))
-  }
-
-  if (parsedPayload === null) {
-    try {
-      parsedPayload = readPayloadFromOasisReceiptLog(nodeRuntime, reference, oasisRpcUrl)
-    } catch (error) {
-      receiptReadError = error instanceof Error ? error : new Error(String(error))
-    }
-  }
-
-  if (parsedPayload === null) {
-    try {
-      parsedPayload = readStoredPayloadFromOasisContract(nodeRuntime, reference, oasisRpcUrl)
-    } catch (storageError) {
-      const storageMessage =
-        storageError instanceof Error ? storageError.message : String(storageError)
-      if (txReadError || receiptReadError) {
-        const txMessage = txReadError ? txReadError.message : "n/a"
-        const receiptMessage = receiptReadError ? receiptReadError.message : "n/a"
-        throw new Error(
-          `Failed to read Oasis payload from tx, receipt logs, and storage contract: tx=${txMessage}; receipt=${receiptMessage}; storage=${storageMessage}`,
-        )
-      }
-      throw new Error(`Failed to read Oasis payload from storage contract: ${storageMessage}`)
-    }
-  }
+  const parsedPayload = readStoredPayloadFromOasisContract(nodeRuntime, reference, oasisRpcUrl)
 
   const validated = validateOasisRpcPayload({
     reference,
@@ -491,7 +336,7 @@ function readPoCFromOasisRpc(
     )
   }
 
-  return extractPoCFromValidatedPayload(validated.data, decryptionKey)
+  return parseValidatedPoCPayload(validated.data)
 }
 
 // ═══════════════════ Verification Logic ═══════════════════
@@ -629,7 +474,6 @@ const verifyPoC = (
   submissionId: bigint,
   projectId: bigint,
   cipherURI: string,
-  decryptionKey: `0x${string}`,
   rules: ProjectRules,
 ): VerificationResult => {
   const httpClient = new HTTPClient()
@@ -660,7 +504,6 @@ const verifyPoC = (
       nodeRuntime,
       reference,
       submissionId,
-      decryptionKey,
       config.oasisRpcUrl,
     )
   } catch (e) {
@@ -668,7 +511,6 @@ const verifyPoC = (
     return { isValid: false, drainAmountWei: 0n }
   }
 
-  nodeRuntime.log(`Decrypted PoC: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
   nodeRuntime.log(`PoC ready: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
 
   // Validate setup operations against rules
@@ -875,10 +717,12 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       consensusIdenticalAggregation<ChainSubmissionRecord>()
     )(submissionId)
     .result()
-  const { cipherURI, projectId, decryptionKey } = submission
+  const { cipherURI, projectId } = submission
 
   const idempotencySource = log as unknown as Record<string, unknown>
-  const idempotencyKey = deriveVerifyPocIdempotencyKey({
+  const idempotencyInput = {
+    mappingVersion: VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_VERSION,
+    mappingMode: VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_MODE,
     chainSelectorName: runtime.config.chainSelectorName,
     bountyHubAddress: runtime.config.bountyHubAddress,
     projectId,
@@ -895,7 +739,13 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       typeof idempotencySource.logIndex === "string"
         ? idempotencySource.logIndex
         : undefined,
-  })
+  }
+
+  const idempotencyKey = deriveVerifyPocIdempotencyKey(idempotencyInput)
+  assertVerifyPocIdempotencyMappingStable(
+    processedRevealIdempotencyMappingBySourceEvent,
+    idempotencyInput
+  )
 
   const idempotencyDecision = claimVerifyPocIdempotencySlot(
     processedRevealIdempotency,
@@ -905,7 +755,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     runtime.log(
       `Skipping duplicate PoCRevealed. key=${idempotencyKey}, reason=${idempotencyDecision.reason}`
     )
-    return idempotencyKey
+    return `idempotency_skip:${idempotencyDecision.reason}:${idempotencyKey}`
   }
 
   runtime.log(`Idempotency accepted. key=${idempotencyKey}`)
@@ -927,7 +777,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       .runInNodeMode(
         verifyPoC,
         consensusIdenticalAggregation<VerificationResult>()
-      )(submissionId, projectId, cipherURI, decryptionKey, defaultRules)
+      )(submissionId, projectId, cipherURI, defaultRules)
       .result()
 
     runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
@@ -1046,7 +896,7 @@ const initWorkflow = (config: Config) => {
   const evmClient = new EVMClient(network.chainSelector.selector)
 
   const pocRevealedHash = keccak256(
-    toBytes("PoCRevealed(uint256,bytes32)")
+    toBytes("PoCRevealed(uint256)")
   )
 
   return [

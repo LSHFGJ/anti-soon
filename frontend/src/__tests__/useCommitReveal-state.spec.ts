@@ -58,8 +58,6 @@ describe("commit/reveal lifecycle state model", () => {
 		mockUploadEncryptedPoC.mockResolvedValue({
 			cipherURI:
 				"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
-			decryptionKey:
-				"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			oasisTxHash:
 				"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		});
@@ -116,6 +114,39 @@ describe("commit/reveal lifecycle state model", () => {
 				auditor: "0x1111111111111111111111111111111111111111",
 			}),
 		);
+	});
+
+	it("submits ACL-only upload payload without legacy key fields", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledTimes(1);
+		const payload = mockUploadEncryptedPoC.mock.calls[0]?.[0] as Record<string, unknown>;
+		expect(Object.keys(payload).sort()).toEqual(["auditor", "poc", "projectId"]);
+		expect(payload).not.toHaveProperty("ciphertext");
+		expect(payload).not.toHaveProperty("iv");
+	});
+
+	it("fails closed against legacy lifecycle phase drift", () => {
+		expect(SUBMISSION_LIFECYCLE_PHASES).not.toContain("decrypting");
+		expect(SUBMISSION_LIFECYCLE_PHASES).not.toContain("submitted");
+		expect(SUBMISSION_LIFECYCLE_PHASES).not.toContain("revealing_with_key");
 	});
 
 	it("resolves wallet address from walletClient.getAddresses when hook address is malformed", async () => {
@@ -200,7 +231,6 @@ describe("commit/reveal lifecycle state model", () => {
 		}>();
 		const uploadDeferred = deferred<{
 			cipherURI: string;
-			decryptionKey: `0x${string}`;
 			oasisTxHash: `0x${string}`;
 		}>();
 
@@ -236,8 +266,6 @@ describe("commit/reveal lifecycle state model", () => {
 				{
 					cipherURI:
 						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
-					decryptionKey:
-						"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					oasisTxHash:
 						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				},
@@ -282,7 +310,6 @@ describe("commit/reveal lifecycle state model", () => {
 		}>();
 		const uploadDeferred = deferred<{
 			cipherURI: string;
-			decryptionKey: `0x${string}`;
 			oasisTxHash: `0x${string}`;
 		}>();
 
@@ -317,8 +344,6 @@ describe("commit/reveal lifecycle state model", () => {
 				{
 					cipherURI:
 						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
-					decryptionKey:
-						"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					oasisTxHash:
 						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 				},

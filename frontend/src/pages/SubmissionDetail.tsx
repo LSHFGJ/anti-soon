@@ -23,7 +23,6 @@ type SubmissionTuple = readonly [
   projectId: bigint,
   commitHash: `0x${string}`,
   cipherURI: string,
-  decryptionKey: `0x${string}`,
   salt: `0x${string}`,
   commitTimestamp: bigint,
   revealTimestamp: bigint,
@@ -71,18 +70,17 @@ export function SubmissionDetail() {
           projectId: subData[1],
           commitHash: subData[2],
           cipherURI: subData[3],
-          decryptionKey: subData[4],
-          salt: subData[5],
-          commitTimestamp: subData[6],
-          revealTimestamp: subData[7],
-          status: subData[8],
-          drainAmountWei: subData[9],
-          severity: subData[10],
-          payoutAmount: subData[11],
-          disputeDeadline: subData[12],
-          challenged: subData[13],
-          challenger: subData[14],
-          challengeBond: subData[15]
+          salt: subData[4],
+          commitTimestamp: subData[5],
+          revealTimestamp: subData[6],
+          status: subData[7],
+          drainAmountWei: subData[8],
+          severity: subData[9],
+          payoutAmount: subData[10],
+          disputeDeadline: subData[11],
+          challenged: subData[12],
+          challenger: subData[13],
+          challengeBond: subData[14]
         }
         setSubmission(fetchedSubmission)
 

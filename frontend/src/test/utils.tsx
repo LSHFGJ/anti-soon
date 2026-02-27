@@ -67,7 +67,6 @@ export function createMockSubmission(overrides: Partial<Submission> = {}): Submi
     projectId: 0n,
     commitHash: '0x1111111111111111111111111111111111111111111111111111111111111111' as `0x${string}`,
     cipherURI: 'oasis://test/mock-submission',
-    decryptionKey: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
     salt: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
     commitTimestamp: now - ONE_HOUR_SECONDS,
     revealTimestamp: 0n,

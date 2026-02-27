@@ -82,7 +82,6 @@ export function buildPreviewSubmission(
     projectId,
     commitHash: ZERO_HASH,
     cipherURI: 'oasis://preview/fallback',
-    decryptionKey: ZERO_HASH,
     salt: ZERO_HASH,
     commitTimestamp: now - 3_600n,
     revealTimestamp: now - 1_800n,

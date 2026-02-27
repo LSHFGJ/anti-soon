@@ -11,7 +11,6 @@ contract VNetFlowTest is Test {
     address owner = address(this);
     address auditor = address(0xA1);
     address auditor2 = address(0xA2);
-    bytes32 constant ZERO_KEY = bytes32(0);
 
     function setUp() public {
         vm.warp(1000);
@@ -112,10 +111,10 @@ contract VNetFlowTest is Test {
 
         vm.warp(block.timestamp + 1);
         vm.prank(auditor);
-        hub.revealPoC(submissionId, ZERO_KEY, salt);
+        hub.revealPoC(submissionId, salt);
 
         // Verify submission is revealed
-        (address subAuditor, uint256 subProjectId, bytes32 subCommitHash, string memory subCipherURI, , , uint256 commitTime, , BountyHub.SubmissionStatus status, , , , , , , ) = hub.submissions(submissionId);
+        (address subAuditor, uint256 subProjectId, bytes32 subCommitHash, string memory subCipherURI, , uint256 commitTime, , BountyHub.SubmissionStatus status, , , , , , , ) = hub.submissions(submissionId);
         assertEq(subAuditor, auditor, "Auditor should match");
         assertEq(subProjectId, projectId, "Project ID should match");
         assertEq(uint8(status), uint8(BountyHub.SubmissionStatus.Revealed), "Status should be Revealed");
@@ -125,7 +124,7 @@ contract VNetFlowTest is Test {
         hub.onReport("", abi.encode(submissionId, true, 10 ether));
 
         // Verify submission is verified with correct severity
-        (, , , , , , , , , uint256 drainAmount, BountyHub.Severity severity, uint256 payoutAmount, , , , ) = hub.submissions(submissionId);
+        (, , , , , , , , uint256 drainAmount, BountyHub.Severity severity, uint256 payoutAmount, , , , ) = hub.submissions(submissionId);
         assertEq(drainAmount, 10 ether, "Drain amount should be 10 ether");
         assertEq(uint8(severity), uint8(BountyHub.Severity.CRITICAL), "Severity should be CRITICAL");
         assertGt(payoutAmount, 0, "Payout should be calculated");
@@ -198,14 +197,14 @@ contract VNetFlowTest is Test {
 
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(auditor);
-        hub.revealPoC(submissionId1, ZERO_KEY, salt1);
+        hub.revealPoC(submissionId1, salt1);
 
         vm.prank(auditor2);
-        hub.revealPoC(submissionId2, ZERO_KEY, salt2);
+        hub.revealPoC(submissionId2, salt2);
 
         // Verify both submissions are revealed
-        (address subAuditor1, , , , , , , , BountyHub.SubmissionStatus status1, , , , , , , ) = hub.submissions(submissionId1);
-        (address subAuditor2, , , , , , , , BountyHub.SubmissionStatus status2, , , , , , , ) = hub.submissions(submissionId2);
+        (address subAuditor1, , , , , , , BountyHub.SubmissionStatus status1, , , , , , , ) = hub.submissions(submissionId1);
+        (address subAuditor2, , , , , , , BountyHub.SubmissionStatus status2, , , , , , , ) = hub.submissions(submissionId2);
 
         assertEq(subAuditor1, auditor, "First submission auditor should match");
         assertEq(subAuditor2, auditor2, "Second submission auditor should match");
@@ -217,15 +216,15 @@ contract VNetFlowTest is Test {
         hub.onReport("", abi.encode(submissionId1, true, 10 ether));
 
         // Verify submission1 is verified, submission2 unchanged
-        (, , , , , , , , BountyHub.SubmissionStatus statusAfter1, , , , , , , ) = hub.submissions(submissionId1);
-        (, , , , , , , , BountyHub.SubmissionStatus statusAfter2, , , , , , , ) = hub.submissions(submissionId2);
+        (, , , , , , , BountyHub.SubmissionStatus statusAfter1, , , , , , , ) = hub.submissions(submissionId1);
+        (, , , , , , , BountyHub.SubmissionStatus statusAfter2, , , , , , , ) = hub.submissions(submissionId2);
 
         assertEq(uint8(statusAfter1), uint8(BountyHub.SubmissionStatus.Verified), "First submission should be Verified");
         assertEq(uint8(statusAfter2), uint8(BountyHub.SubmissionStatus.Revealed), "Second submission should still be Revealed");
 
         // Verify state isolation: submission1 has payout calculated, submission2 doesn't
-        (, , , , , , , , , , BountyHub.Severity dummySeverity1, uint256 payout1, , , , ) = hub.submissions(submissionId1);
-        (, , , , , , , , , , BountyHub.Severity dummySeverity2, uint256 payout2, , , , ) = hub.submissions(submissionId2);
+        (, , , , , , , , , BountyHub.Severity dummySeverity1, uint256 payout1, , , , ) = hub.submissions(submissionId1);
+        (, , , , , , , , , BountyHub.Severity dummySeverity2, uint256 payout2, , , , ) = hub.submissions(submissionId2);
 
         assertGt(payout1, 0, "First submission should have payout amount");
         assertEq(payout2, 0, "Second submission should have no payout yet");

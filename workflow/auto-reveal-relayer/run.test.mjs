@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { computeScanStartBlock, getLogsInChunks } from './run.mjs'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { buildSourceEventKey, computeScanStartBlock, filterIdempotentEvents, getLogsInChunks } from './run.mjs'
 
 describe('computeScanStartBlock', () => {
   it('uses lookback bootstrap when cursor is missing', () => {
@@ -61,5 +63,79 @@ describe('getLogsInChunks', () => {
       [108n, 109n],
     ])
     expect(logs.length).toBe(3)
+  })
+})
+
+describe('ABI semantics', () => {
+  it('keeps queue/submission ABI keyless', () => {
+    const source = readFileSync(fileURLToPath(new URL('./run.mjs', import.meta.url)), 'utf8')
+
+    expect(source).not.toContain('decryptionKey')
+    expect(source).toContain(
+      'function queuedReveals(uint256) view returns (address auditor, bytes32 salt, uint256 deadline, bool queued)'
+    )
+    expect(source).toContain(
+      'function submissions(uint256) view returns (address auditor, uint256 projectId, bytes32 commitHash, string cipherURI, bytes32 salt, uint256 commitTimestamp, uint256 revealTimestamp, uint8 status, uint256 drainAmountWei, uint8 severity, uint256 payoutAmount, uint256 disputeDeadline, bool challenged, address challenger, uint256 challengeBond)'
+    )
+  })
+})
+
+describe('filterIdempotentEvents', () => {
+  const chainId = 11155111
+  const address = '0x00000000000000000000000000000000000000aa'
+
+  function makeLog({ submissionId = 1n, blockNumber = 101n, txHash = '0xabc', logIndex = 0n } = {}) {
+    return {
+      blockNumber,
+      transactionHash: txHash,
+      logIndex,
+      args: { submissionId },
+    }
+  }
+
+  it('skips second copy when same source event appears twice in one scan', () => {
+    const firstLog = makeLog()
+    const duplicateLog = makeLog()
+    const eventKey = buildSourceEventKey({ chainId, address, log: firstLog })
+
+    const result = filterIdempotentEvents({
+      logs: [firstLog, duplicateLog],
+      chainId,
+      address,
+      processedEventLedger: {},
+    })
+
+    expect(result.pending.length).toBe(1)
+    expect(result.pending[0].eventKey).toBe(eventKey)
+    expect(result.skipped).toEqual([{ eventKey, reason: 'duplicate_in_batch' }])
+  })
+
+  it('skips overlap replay when source event is already in persisted ledger', () => {
+    const replayedLog = makeLog({ submissionId: 42n, blockNumber: 250n, txHash: '0xdef', logIndex: 7n })
+    const eventKey = buildSourceEventKey({ chainId, address, log: replayedLog })
+
+    const firstPass = filterIdempotentEvents({
+      logs: [replayedLog],
+      chainId,
+      address,
+      processedEventLedger: {},
+    })
+    expect(firstPass.pending.length).toBe(1)
+
+    const secondPass = filterIdempotentEvents({
+      logs: [replayedLog],
+      chainId,
+      address,
+      processedEventLedger: {
+        [eventKey]: {
+          anchoredAt: '2026-02-28T00:00:00.000Z',
+          anchorTxHash: '0xfeed',
+          submissionId: '42',
+        },
+      },
+    })
+
+    expect(secondPass.pending.length).toBe(0)
+    expect(secondPass.skipped).toEqual([{ eventKey, reason: 'already_processed' }])
   })
 })

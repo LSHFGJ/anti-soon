@@ -30,11 +30,8 @@ interface CommitState {
 	phase: SubmissionLifecyclePhase;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
-	decryptionKey?: `0x${string}`;
-	iv?: `0x${string}`;
 	cipherURI?: string;
 	commitHash?: `0x${string}`;
-	ciphertext?: `0x${string}`;
 	commitTxHash?: `0x${string}`;
 	revealTxHash?: `0x${string}`;
 	autoRevealQueued?: boolean;
@@ -104,7 +101,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				projectId,
 				auditor: walletAddress,
 			});
-			const { cipherURI, decryptionKey } = uploadResult;
+			const { cipherURI } = uploadResult;
 			const cipherHash = keccak256(toBytes(cipherURI));
 			const commitHash = computeCommitHash(
 				cipherHash,
@@ -116,7 +113,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				...s,
 				phase: "committing",
 				salt,
-				decryptionKey,
 				cipherURI,
 				commitHash,
 			}));
@@ -172,7 +168,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 					projectId,
 					submissionId,
 					salt,
-					decryptionKey,
 				});
 			} catch (queueErr: unknown) {
 				const queueMessage = extractErrorMessage(queueErr, "unknown queue error");
@@ -229,16 +224,12 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		try {
 			setState((s) => ({ ...s, phase: "revealing", error: undefined }));
 
-			if (!state.decryptionKey) {
-				throw new Error("Missing decryption key for reveal");
-			}
-
 			const { request } = await publicClient.simulateContract({
 				account: walletAddress,
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "revealPoC",
-				args: [state.submissionId, state.decryptionKey, state.salt],
+				args: [state.submissionId, state.salt],
 			});
 
 			const txHash = await walletClient.writeContract(request);
@@ -261,7 +252,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		walletClient,
 		publicClient,
 		state.submissionId,
-		state.decryptionKey,
 		state.salt,
 		resolveWalletAddress,
 		setFailed,

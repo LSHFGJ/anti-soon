@@ -30,11 +30,8 @@ interface SubmissionState {
 	phase: SubmissionLifecyclePhase;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
-	decryptionKey?: `0x${string}`;
-	iv?: `0x${string}`;
 	cipherURI?: string;
 	commitHash?: `0x${string}`;
-	ciphertext?: `0x${string}`;
 	commitTxHash?: `0x${string}`;
 	revealTxHash?: `0x${string}`;
 	autoRevealQueued?: boolean;
@@ -109,7 +106,7 @@ export const usePoCSubmission = () => {
 					projectId,
 					auditor: walletAddress,
 				});
-				const { cipherURI, decryptionKey } = uploadResult;
+				const { cipherURI } = uploadResult;
 				const cipherHash = keccak256(toBytes(cipherURI));
 				const commitHash = computeCommitHash(
 					cipherHash,
@@ -121,7 +118,6 @@ export const usePoCSubmission = () => {
 					...s,
 					phase: "committing",
 					salt,
-					decryptionKey,
 					cipherURI,
 					commitHash,
 				}));
@@ -174,7 +170,6 @@ export const usePoCSubmission = () => {
 						projectId,
 						submissionId,
 						salt,
-						decryptionKey,
 					});
 				} catch (queueErr: unknown) {
 					const queueMessage = extractErrorMessage(
@@ -212,10 +207,6 @@ export const usePoCSubmission = () => {
 					};
 				}
 
-				if (!decryptionKey) {
-					throw new Error("Missing decryption key from Sapphire upload result");
-				}
-
 				setState((s) => ({ ...s, phase: "revealing" }));
 
 				const { request: revealRequest } = await publicClient.simulateContract({
@@ -223,7 +214,7 @@ export const usePoCSubmission = () => {
 					address: BOUNTY_HUB_ADDRESS,
 					abi: BOUNTY_HUB_V2_ABI,
 					functionName: "revealPoC",
-					args: [submissionId, decryptionKey, salt],
+					args: [submissionId, salt],
 				});
 
 				const revealTxHash = await walletClient.writeContract(revealRequest);

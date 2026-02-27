@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { decodeFunctionData, parseAbi } from 'viem'
 
 vi.mock('@oasisprotocol/sapphire-paratime', () => ({
   wrapEthereumProvider: (provider: unknown) => provider,
@@ -6,7 +7,9 @@ vi.mock('@oasisprotocol/sapphire-paratime', () => ({
 
 import { uploadEncryptedPoC } from '../lib/oasisUpload'
 
-const OASIS_FALLBACK_DATA_SINK = '0x000000000000000000000000000000000000dEaD'
+const OASIS_STORAGE_ABI = parseAbi([
+  'function write(string slotId, string payload)',
+])
 
 type ProviderRequest = {
   method: string
@@ -37,16 +40,11 @@ function createMockProvider(txHash: `0x${string}`, account = '0x1111111111111111
   return { provider, calls }
 }
 
-function decodeTxData(data: string): string {
-  const hex = data.startsWith('0x') ? data.slice(2) : data
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16)
-  }
-  return new TextDecoder().decode(bytes)
-}
-
 describe('oasis upload helper', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('uses relayer API when VITE_OASIS_UPLOAD_API_URL is configured', async () => {
     const previousFetch = globalThis.fetch
     const previousRuntimeUrl = (
@@ -60,7 +58,6 @@ describe('oasis upload helper', () => {
       status: 200,
       json: async () => ({
         cipherURI: 'oasis://oasis-sapphire-testnet/0x000000000000000000000000000000000000dead/slot-1#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        decryptionKey: `0x${'1'.repeat(64)}`,
         oasisTxHash: `0x${'a'.repeat(64)}`,
       }),
       text: async () => '',
@@ -96,25 +93,38 @@ describe('oasis upload helper', () => {
     }
   })
 
-  it('encrypts poc payload before sapphire tx submission', async () => {
-    const txHash = `0x${'a'.repeat(64)}` as const
-    const { provider, calls } = createMockProvider(txHash)
+  it('fails closed when VITE_OASIS_STORAGE_CONTRACT is missing', async () => {
+    vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', '')
+    const { provider } = createMockProvider(`0x${'a'.repeat(64)}` as const)
 
-    const result = await uploadEncryptedPoC({
-      poc: '{"target":"dummy","secret":"super-sensitive-poc"}',
-      projectId: 7n,
-      auditor: '0x2222222222222222222222222222222222222222',
-      ethereumProvider: provider as unknown,
-    })
+    await expect(
+      uploadEncryptedPoC({
+        poc: '{"target":"dummy","secret":"super-sensitive-poc"}',
+        projectId: 7n,
+        auditor: '0x2222222222222222222222222222222222222222',
+        ethereumProvider: provider as unknown,
+      }),
+    ).rejects.toThrow(
+      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+    )
+  })
 
-    const sendTxCall = calls.find((entry) => entry.method === 'eth_sendTransaction')
-    const tx = (sendTxCall?.params?.[0] ?? {}) as { data?: string }
-    const rawInput = decodeTxData(tx.data ?? '0x')
+  it('fails closed when VITE_OASIS_STORAGE_CONTRACT is invalid', async () => {
+    vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', 'not-an-address')
+    const { provider } = createMockProvider(`0x${'d'.repeat(64)}` as const)
 
-    expect(rawInput.includes('super-sensitive-poc')).toBe(false)
-    expect(rawInput.includes('encryptedPoc')).toBe(true)
-    expect(result.cipherURI).toContain(`#${txHash}`)
-    expect(result.decryptionKey.length).toBe(66)
+    await expect(
+      uploadEncryptedPoC({
+        poc: '{"target":"dummy"}',
+        projectId: 11n,
+        auditor: '0x2222222222222222222222222222222222222222',
+        ethereumProvider: provider as unknown,
+      }),
+    ).rejects.toThrow(
+      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+    )
+
+    expect(provider.request).not.toHaveBeenCalled()
   })
 
   it('throws when poc json is invalid', async () => {
@@ -128,27 +138,57 @@ describe('oasis upload helper', () => {
     })).rejects.toThrow('PoC JSON must be valid JSON object')
   })
 
-  it('uses dedicated fallback sink target when storage contract is unset', async () => {
-    const txHash = `0x${'c'.repeat(64)}` as const
-    const providerAccount = '0x3333333333333333333333333333333333333333'
-    const { provider, calls } = createMockProvider(txHash, providerAccount)
+  it('does not send a transaction when storage contract is missing', async () => {
+    vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', '')
+    const { provider } = createMockProvider(`0x${'c'.repeat(64)}` as const)
 
-    await uploadEncryptedPoC({
-      poc: '{"target":"dummy"}',
-      projectId: 9n,
-      auditor: '0x2222222222222222222222222222222222222222',
-      ethereumProvider: provider as unknown,
-    })
+    await expect(
+      uploadEncryptedPoC({
+        poc: '{"target":"dummy"}',
+        projectId: 9n,
+        auditor: '0x2222222222222222222222222222222222222222',
+        ethereumProvider: provider as unknown,
+      }),
+    ).rejects.toThrow(
+      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+    )
 
-    const sendTxCall = calls.find((entry) => entry.method === 'eth_sendTransaction')
-    const tx = (sendTxCall?.params?.[0] ?? {}) as {
-      from?: string
-      to?: string
-      data?: string
+    expect(provider.request).not.toHaveBeenCalled()
+  })
+
+  it('uses envelope hash as cipherURI fragment for slot references', async () => {
+    const previousStorageContract = (
+      globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
+    ).__ANTI_SOON_OASIS_STORAGE_CONTRACT__
+    ;(globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }).__ANTI_SOON_OASIS_STORAGE_CONTRACT__ =
+      '0x000000000000000000000000000000000000dEaD'
+    const txHash = `0x${'e'.repeat(64)}` as const
+    const { provider, calls } = createMockProvider(txHash)
+
+    try {
+      const result = await uploadEncryptedPoC({
+        poc: '{"target":"dummy"}',
+        projectId: 19n,
+        auditor: '0x2222222222222222222222222222222222222222',
+        ethereumProvider: provider as unknown,
+      })
+
+      const sendCall = calls.find((call) => call.method === 'eth_sendTransaction')
+      const txRequest = sendCall?.params?.[0] as { data?: string } | undefined
+      expect(txRequest?.data).toBeTruthy()
+
+      const decoded = decodeFunctionData({
+        abi: OASIS_STORAGE_ABI,
+        data: txRequest?.data as `0x${string}`,
+      })
+      const payload = JSON.parse(decoded.args?.[1] as string) as { envelopeHash: string }
+      const fragment = result.cipherURI.split('#')[1]
+
+      expect(fragment).toBe(payload.envelopeHash)
+      expect(fragment).not.toBe(txHash)
+    } finally {
+      ;(globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }).__ANTI_SOON_OASIS_STORAGE_CONTRACT__ =
+        previousStorageContract
     }
-
-    expect(tx.from).toBe(providerAccount)
-    expect(tx.to).toBe(OASIS_FALLBACK_DATA_SINK)
-    expect(typeof tx.data).toBe('string')
   })
 })

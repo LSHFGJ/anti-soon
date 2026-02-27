@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { keccak256, toBytes } from "viem"
 import {
   computeOasisEnvelopeHash,
   parseOasisEnvelope,
@@ -19,14 +20,6 @@ const pointerSchema = z
   })
   .strict()
 
-const encryptedPocSchema = z
-  .object({
-    algorithm: z.literal("aes-256-gcm"),
-    ciphertextHex: z.string().regex(/^0x[0-9a-fA-F]+$/),
-    ivHex: z.string().regex(/^0x[0-9a-fA-F]+$/),
-  })
-  .strict()
-
 const rpcPayloadSchema = z
   .object({
     ok: z.literal(true),
@@ -34,8 +27,7 @@ const rpcPayloadSchema = z
     envelope: z.unknown(),
     envelopeHash: bytes32Schema,
     submissionId: z.string().optional(),
-    poc: z.unknown().optional(),
-    encryptedPoc: encryptedPocSchema.optional(),
+    poc: z.unknown(),
   })
   .passthrough()
 
@@ -43,6 +35,7 @@ export type OasisRpcPayloadErrorKind =
   | "invalid_payload"
   | "pointer_mismatch"
   | "envelope_hash_mismatch"
+  | "poc_hash_mismatch"
   | "submission_mismatch"
 
 export type OasisRpcPayloadError = {
@@ -55,8 +48,7 @@ export type OasisRpcPayload = {
   envelope: OasisEnvelope
   envelopeHash: `0x${string}`
   submissionId?: string
-  poc?: unknown
-  encryptedPoc?: z.infer<typeof encryptedPocSchema>
+  poc: unknown
 }
 
 export type OasisRpcPayloadResult =
@@ -75,31 +67,6 @@ function pointerKey(pointer: OasisPointer): string {
   return `${pointer.chain}/${pointer.contract.toLowerCase()}/${pointer.slotId}`
 }
 
-export function parseOasisRpcTxSlotId(slotId: string): `0x${string}` {
-  if (!slotId.startsWith("tx-0x")) {
-    throw new Error("Oasis pointer slotId must be tx-0x{64} in rpc mode")
-  }
-
-  const txHash = slotId.slice("tx-".length)
-  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
-    throw new Error("Invalid Oasis rpc tx hash in slotId")
-  }
-
-  return txHash.toLowerCase() as `0x${string}`
-}
-
-export function resolveOasisRpcTxHash(reference: OasisReference): `0x${string}` {
-  if (reference.pointer.slotId.startsWith("tx-0x")) {
-    return parseOasisRpcTxSlotId(reference.pointer.slotId)
-  }
-
-  if (reference.envelopeHash) {
-    return reference.envelopeHash
-  }
-
-  throw new Error("Oasis rpc tx hash is missing (use tx-0x... slotId or URI fragment)")
-}
-
 export function validateOasisRpcPayload(args: {
   reference: OasisReference
   submissionId: bigint
@@ -116,12 +83,12 @@ export function validateOasisRpcPayload(args: {
     }
   }
 
-  if (parsed.data.poc === undefined && parsed.data.encryptedPoc === undefined) {
+  if (parsed.data.poc === undefined) {
     return {
       ok: false,
       error: {
         kind: "invalid_payload",
-        message: "RPC payload must include `poc` or `encryptedPoc`",
+        message: "RPC payload must include `poc`",
       },
     }
   }
@@ -162,13 +129,37 @@ export function validateOasisRpcPayload(args: {
     }
   }
 
-  const hashBoundInReference = args.reference.pointer.slotId.startsWith("tx-0x")
-  if (hashBoundInReference && args.reference.envelopeHash && args.reference.envelopeHash !== declaredHash) {
+  if (args.reference.envelopeHash && args.reference.envelopeHash !== declaredHash) {
     return {
       ok: false,
       error: {
         kind: "envelope_hash_mismatch",
         message: "Envelope hash does not match oasis reference hash",
+      },
+    }
+  }
+
+  let pocHash: `0x${string}`
+  try {
+    pocHash = keccak256(toBytes(JSON.stringify(parsed.data.poc))).toLowerCase() as `0x${string}`
+  } catch {
+    return {
+      ok: false,
+      error: {
+        kind: "invalid_payload",
+        message: "RPC payload `poc` must be JSON-serializable",
+      },
+    }
+  }
+
+  const ciphertextHash = envelope.ciphertext.ciphertextHash.toLowerCase() as `0x${string}`
+  const ivHash = envelope.ciphertext.ivHash.toLowerCase() as `0x${string}`
+  if (pocHash !== ciphertextHash || pocHash !== ivHash) {
+    return {
+      ok: false,
+      error: {
+        kind: "poc_hash_mismatch",
+        message: "RPC payload poc hash does not match envelope ciphertext hashes",
       },
     }
   }
@@ -192,7 +183,6 @@ export function validateOasisRpcPayload(args: {
       envelopeHash: declaredHash,
       submissionId: parsed.data.submissionId,
       poc: parsed.data.poc,
-      encryptedPoc: parsed.data.encryptedPoc,
     },
   }
 }

@@ -184,7 +184,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					)}
 
 					{state.phase === "encrypting" && (
-						<Spinner>Preparing Oasis payload...</Spinner>
+						<Spinner>Preparing ACL storage payload...</Spinner>
 					)}
 
 					{state.phase === "committing" && (
@@ -218,8 +218,8 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							)}
 
 							<div className="mt-4 p-4 bg-neutral-900/80 rounded text-xs text-[var(--color-text-dim)]">
-								Your PoC is encrypted and stored via Oasis confidential storage.
-								Reveal when ready to trigger verification.
+								Your PoC reference is stored via Oasis confidential storage with ACL access controls.
+								Authorize reveal access when ready to trigger verification.
 							</div>
 
 							<div className="mt-4 p-3 bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] text-sm font-mono">
@@ -235,7 +235,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							</div>
 
 							<div className="text-sm text-[var(--color-text)] mb-3">
-								Reveal authorization is queued. Relayer can execute reveal after
+								Access authorization is queued. Relayer can execute reveal after
 								commit deadline.
 							</div>
 
@@ -257,7 +257,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					)}
 
 					{state.phase === "revealing" && (
-						<Spinner>Submitting reveal authorization...</Spinner>
+						<Spinner>Submitting access authorization...</Spinner>
 					)}
 
 					{state.phase === "revealed" && (
@@ -271,7 +271,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							</div>
 
 							<ol className="m-0 pl-6 text-[var(--color-text-dim)] text-sm leading-relaxed">
-								<li>Resolve your encrypted PoC from Oasis storage</li>
+								<li>Resolve your ACL-protected PoC from Oasis storage</li>
 								<li>Create Tenderly fork at specified block</li>
 								<li>Execute the exploit in sandbox</li>
 								<li>Measure impact and classify severity</li>

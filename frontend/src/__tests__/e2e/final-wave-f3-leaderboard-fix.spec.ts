@@ -82,7 +82,7 @@ function shortAddr(index: number): Hex {
   return (`0x${index.toString(16).padStart(40, '0')}`) as Hex
 }
 
-function buildSubmissionTuple(submissionId: bigint): readonly [Hex, bigint, Hex, string, Hex, Hex, bigint, bigint, number, bigint, number, bigint, bigint, boolean, Hex, bigint] {
+function buildSubmissionTuple(submissionId: bigint): readonly [Hex, bigint, Hex, string, Hex, bigint, bigint, number, bigint, number, bigint, bigint, boolean, Hex, bigint] {
   const severity = Number(submissionId % 5n)
   const payoutAmount = 1_000_000_000_000_000n * (submissionId % 9n + 1n)
   const auditorIndex = Number((submissionId - 1n) % BigInt(auditorCount)) + 1
@@ -93,7 +93,6 @@ function buildSubmissionTuple(submissionId: bigint): readonly [Hex, bigint, Hex,
     1n,
     `0x${'ab'.repeat(32)}` as Hex,
     `oasis://mock/submission-${submissionId.toString()}`,
-    `0x${'00'.repeat(32)}` as Hex,
     `0x${'00'.repeat(32)}` as Hex,
     1_900_000_000n + submissionId,
     1_900_000_500n + submissionId,

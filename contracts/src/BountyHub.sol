@@ -75,7 +75,6 @@ contract BountyHub is ReceiverTemplate {
         uint256 projectId;
         bytes32 commitHash;          // keccak256(cipherHash, sender, salt)
         string  cipherURI;           // IPFS URI to encrypted PoC
-        bytes32 decryptionKey;       // Filled on reveal
         bytes32 salt;                // Filled on reveal
         uint256 commitTimestamp;
         uint256 revealTimestamp;
@@ -93,7 +92,6 @@ contract BountyHub is ReceiverTemplate {
     /// @notice Pre-authorized reveal payload stored for delayed execution
     struct QueuedReveal {
         address auditor;
-        bytes32 decryptionKey;
         bytes32 salt;
         uint256 deadline;
         bool queued;
@@ -107,19 +105,6 @@ contract BountyHub is ReceiverTemplate {
         uint256 winnerSubmissionId;
     }
 
-    // V1 Submission struct for backward compatibility
-    struct SubmissionV1 {
-        address auditor;
-        uint256 projectId;
-        bytes32 pocHash;
-        string  pocURI;
-        uint256 timestamp;
-        SubmissionStatusV1 status;
-    }
-
-    // V1 Status enum for backward compatibility
-    enum SubmissionStatusV1 { Pending, Valid, Invalid }
-
     // ═══════════ State Variables ═══════════
 
     uint256 public nextProjectId;
@@ -131,11 +116,8 @@ contract BountyHub is ReceiverTemplate {
     mapping(uint256 => ContractScope[]) public projectScopes;  // V4: multi-contract support
     mapping(uint256 => UniqueRevealState) public uniqueRevealStateByProject;
 
-    // V1 mappings for backward compatibility
-    mapping(bytes32 => bool) public pocHashUsed;           // V1: duplicate PoC check
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
     mapping(uint256 => bytes32) public submissionMetadataHash; // V2+: deterministic bridge linkage metadata
-    mapping(address => mapping(uint256 => uint256)) public lastSubmitTime;  // V1 cooldown
     mapping(address => mapping(uint256 => uint256)) public lastCommitTime;  // V2 cooldown
     mapping(address => uint256) public sigNonces;          // bySig replay protection
 
@@ -147,15 +129,15 @@ contract BountyHub is ReceiverTemplate {
     bytes32 private constant EIP712_NAME_HASH = keccak256("BountyHub");
     bytes32 private constant EIP712_VERSION_HASH = keccak256("1");
     bytes32 private constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
-    bytes32 private constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
-    bytes32 private constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 decryptionKey,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes32 private constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes32 private constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes4 private constant REPORT_ENVELOPE_MAGIC = 0x41535250;
     uint8 private constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 private constant REPORT_TYPE_VNET_FAILED = 2;
 
     // ═══════════ Events ═══════════
 
-    // V1 Events (kept for backward compatibility)
+    // Legacy-named events still emitted by active V2/V3 flows.
     event PoCSubmitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 pocHash, string pocURI);
     event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount);
     event ProjectRegistered(uint256 indexed projectId, address indexed owner);
@@ -164,7 +146,7 @@ contract BountyHub is ReceiverTemplate {
     event ProjectRegisteredV2(uint256 indexed projectId, address indexed owner, CompetitionMode mode);
     event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash);
     event PoCCommitMetadata(uint256 indexed submissionId, bytes32 metadataHash);
-    event PoCRevealed(uint256 indexed submissionId, bytes32 decryptionKey);
+    event PoCRevealed(uint256 indexed submissionId);
     event RevealQueued(uint256 indexed submissionId, address indexed auditor, uint256 deadline);
     event QueuedRevealExecuted(uint256 indexed submissionId, address indexed executor);
     event PoCVerified(uint256 indexed submissionId, bool isValid, uint256 drainAmountWei, uint8 severity);
@@ -351,9 +333,9 @@ contract BountyHub is ReceiverTemplate {
         _projects[_projectId].vnetStatus = VnetStatus.Pending;
     }
 
-    // ═══════════ Project Management (V1 - Backward Compatibility) ═══════════
+    // ═══════════ Legacy Endpoint Hard Rejection ═══════════
 
-    /// @notice V1 project registration (defaults to UNIQUE mode with no deadlines)
+    /// @notice Legacy V1 project registration endpoint (hard-rejected after cutover)
     /// @param _targetContract The vulnerable contract to test
     /// @param _maxPayoutPerBug Maximum payout per bug
     /// @param _forkBlock Block number to fork from
@@ -363,38 +345,10 @@ contract BountyHub is ReceiverTemplate {
         uint256 _maxPayoutPerBug,
         uint256 _forkBlock
     ) external payable returns (uint256 projectId) {
-        require(msg.value > 0, "Must deposit bounty");
-        require(_targetContract != address(0), "Invalid target");
-
-        projectId = nextProjectId++;
-
-        // Store project with default V1 rules
-        _projects[projectId] = Project({
-            owner: msg.sender,
-            bountyPool: msg.value,
-            maxPayoutPerBug: _maxPayoutPerBug,
-            targetContract: _targetContract,
-            forkBlock: _forkBlock,
-            active: true,
-            mode: CompetitionMode.UNIQUE,
-            commitDeadline: 0,
-            revealDeadline: 0,
-            disputeWindow: 0,
-            rulesHash: bytes32(0),
-            vnetStatus: VnetStatus.Pending,
-            vnetRpcUrl: "",
-            baseSnapshotId: bytes32(0),
-            vnetCreatedAt: 0,
-            repoUrl: ""
-        });
-
-        // Store default rules
-        projectRules[projectId].thresholds = SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        projectRules[projectId].maxAttackerSeedWei = 100 ether;
-        projectRules[projectId].allowImpersonation = true;
-
-        emit ProjectRegistered(projectId, msg.sender);
-        emit ProjectRegisteredV2(projectId, msg.sender, CompetitionMode.UNIQUE);
+        _targetContract;
+        _maxPayoutPerBug;
+        _forkBlock;
+        revert("UNSUPPORTED_LEGACY_REGISTER_PROJECT");
     }
 
     // ═══════════ Commit-Reveal (V2) ═══════════
@@ -484,29 +438,25 @@ contract BountyHub is ReceiverTemplate {
         emit PoCCommitMetadata(submissionId, metadataHash);
     }
 
-    /// @notice Phase 2: Auditor reveals the decryption key
+    /// @notice Phase 2: Auditor reveals commitment salt to unlock ACL workflow
     /// @param _submissionId The submission ID to reveal
-    /// @param _decryptionKey The AES decryption key for the encrypted PoC
     /// @param _salt Random salt used in commit hash
     function revealPoC(
         uint256 _submissionId,
-        bytes32 _decryptionKey,
         bytes32 _salt
     ) external {
-        _revealPoC(_submissionId, _decryptionKey, _salt, msg.sender);
+        _revealPoC(_submissionId, _salt, msg.sender);
     }
 
     /// @notice Phase 2 (relayed): reveal PoC with auditor signature
     /// @param _auditor Auditor address authorizing reveal
     /// @param _submissionId The submission ID to reveal
-    /// @param _decryptionKey The AES decryption key for the encrypted PoC
     /// @param _salt Random salt used in commit hash
     /// @param _deadline Signature expiry timestamp
     /// @param _signature EIP-712 signature from auditor
     function revealPoCBySig(
         address _auditor,
         uint256 _submissionId,
-        bytes32 _decryptionKey,
         bytes32 _salt,
         uint256 _deadline,
         bytes calldata _signature
@@ -519,7 +469,6 @@ contract BountyHub is ReceiverTemplate {
                 REVEAL_BY_SIG_TYPEHASH,
                 _auditor,
                 _submissionId,
-                _decryptionKey,
                 _salt,
                 nonce,
                 _deadline
@@ -529,7 +478,7 @@ contract BountyHub is ReceiverTemplate {
         _requireValidSignature(_auditor, structHash, _signature);
         sigNonces[_auditor] = nonce + 1;
 
-        _revealPoC(_submissionId, _decryptionKey, _salt, _auditor);
+        _revealPoC(_submissionId, _salt, _auditor);
     }
 
     /// @notice Queue a reveal payload authorized by auditor signature for delayed execution
@@ -537,7 +486,6 @@ contract BountyHub is ReceiverTemplate {
     function queueRevealBySig(
         address _auditor,
         uint256 _submissionId,
-        bytes32 _decryptionKey,
         bytes32 _salt,
         uint256 _deadline,
         bytes calldata _signature
@@ -555,7 +503,6 @@ contract BountyHub is ReceiverTemplate {
                 QUEUE_REVEAL_BY_SIG_TYPEHASH,
                 _auditor,
                 _submissionId,
-                _decryptionKey,
                 _salt,
                 nonce,
                 _deadline
@@ -566,7 +513,6 @@ contract BountyHub is ReceiverTemplate {
         sigNonces[_auditor] = nonce + 1;
         queuedReveals[_submissionId] = QueuedReveal({
             auditor: _auditor,
-            decryptionKey: _decryptionKey,
             salt: _salt,
             deadline: _deadline,
             queued: true
@@ -582,7 +528,7 @@ contract BountyHub is ReceiverTemplate {
         require(queued.queued, "No queued reveal");
         require(block.timestamp <= queued.deadline, "Signature expired");
 
-        _revealPoC(_submissionId, queued.decryptionKey, queued.salt, queued.auditor);
+        _revealPoC(_submissionId, queued.salt, queued.auditor);
         emit QueuedRevealExecuted(_submissionId, msg.sender);
     }
 
@@ -597,7 +543,6 @@ contract BountyHub is ReceiverTemplate {
 
     function _revealPoC(
         uint256 _submissionId,
-        bytes32 _decryptionKey,
         bytes32 _salt,
         address _auditor
     ) internal {
@@ -634,13 +579,12 @@ contract BountyHub is ReceiverTemplate {
             }
         }
 
-        sub.decryptionKey = _decryptionKey;
         sub.salt = _salt;
         sub.revealTimestamp = block.timestamp;
         sub.status = SubmissionStatus.Revealed;
         delete queuedReveals[_submissionId];
 
-        emit PoCRevealed(_submissionId, _decryptionKey);
+        emit PoCRevealed(_submissionId);
     }
 
     function _requireValidSignature(
@@ -683,38 +627,18 @@ contract BountyHub is ReceiverTemplate {
         require(signer != address(0), "Invalid signer");
     }
 
-    // ═══════════ V1 Submission (Backward Compatibility) ═══════════
+    // ═══════════ Legacy Submission Endpoint Hard Rejection ═══════════
 
-    /// @notice V1 PoC submission (no encryption, immediate CRE trigger)
-    /// @dev DEPRECATED: Use commitPoC + revealPoC instead
+    /// @notice Legacy V1 PoC submission endpoint (hard-rejected after cutover)
     function submitPoC(
         uint256 _projectId,
         bytes32 _pocHash,
         string calldata _pocURI
     ) external returns (uint256 submissionId) {
-        // DEPRECATED: Use V2 commit-reveal flow
-        Project storage p = _projects[_projectId];
-        require(p.active, "Project not active");
-        require(p.bountyPool > 0, "No bounty remaining");
-        require(!pocHashUsed[_pocHash], "Duplicate PoC");
-        require(block.timestamp >= lastSubmitTime[msg.sender][_projectId] + COOLDOWN, "Cooldown active");
-
-        pocHashUsed[_pocHash] = true;
-        lastSubmitTime[msg.sender][_projectId] = block.timestamp;
-
-        submissionId = nextSubmissionId++;
-
-        // Store as V2 submission but mark for V1 processing
-        Submission storage sub = submissions[submissionId];
-        sub.auditor = msg.sender;
-        sub.projectId = _projectId;
-        sub.commitHash = _pocHash;
-        sub.cipherURI = _pocURI;
-        sub.commitTimestamp = block.timestamp;
-        sub.revealTimestamp = block.timestamp;
-        sub.status = SubmissionStatus.Revealed;
-
-        emit PoCSubmitted(submissionId, _projectId, msg.sender, _pocHash, _pocURI);
+        _projectId;
+        _pocHash;
+        _pocURI;
+        revert("UNSUPPORTED_LEGACY_SUBMIT_POC");
     }
 
     // ═══════════ CRE Report Processing (V2) ═══════════

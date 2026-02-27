@@ -108,7 +108,7 @@ export function Builder() {
       <div className="container flex-1 flex flex-col min-h-0">
         <PageHeader
           title="POC_BUILDER_V1.0"
-          subtitle="> Craft, encrypt, and submit your vulnerability proof-of-concept"
+          subtitle="> Craft, authorize access, and submit your vulnerability proof-of-concept"
           className="mb-4"
           rightSlot={
             submissionProjectId !== null ? (

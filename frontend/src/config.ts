@@ -1,11 +1,47 @@
 import { sepolia } from "viem/chains";
 import { getAddress, isAddress } from "viem";
 
-const DEFAULT_BOUNTY_HUB_ADDRESS = "0x5321D42233E9C90287c9B8Af5ece082F70f225C0";
+const DEFAULT_BOUNTY_HUB_ADDRESS = "0x17797b473864806072186f6997801D4473AAF6e8";
 
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
 		.env ?? {};
+
+export const ACL_ONLY_HARD_CUTOVER_MARKER = "acl-only-v1" as const;
+export const LEGACY_KEY_MODE_MARKERS = [
+	"legacy-key-v1",
+	"legacy-key",
+	"dual-path",
+] as const;
+export const UNSUPPORTED_LEGACY_SUBMISSION_MODE_ERROR =
+	`UNSUPPORTED_LEGACY_SUBMISSION_MODE: only ${ACL_ONLY_HARD_CUTOVER_MARKER} is supported after hard cutover`;
+
+function isLegacyKeyModeMarker(
+	mode: string,
+): mode is (typeof LEGACY_KEY_MODE_MARKERS)[number] {
+	return (LEGACY_KEY_MODE_MARKERS as readonly string[]).includes(mode);
+}
+
+export function assertAclOnlySubmissionMode(
+	mode: string,
+): asserts mode is typeof ACL_ONLY_HARD_CUTOVER_MARKER {
+	if (mode === ACL_ONLY_HARD_CUTOVER_MARKER) {
+		return;
+	}
+
+	if (isLegacyKeyModeMarker(mode)) {
+		throw new Error(
+			`${UNSUPPORTED_LEGACY_SUBMISSION_MODE_ERROR}; received legacy marker "${mode}"`,
+		);
+	}
+
+	throw new Error(`${UNSUPPORTED_LEGACY_SUBMISSION_MODE_ERROR}; received "${mode}"`);
+}
+
+const configuredSubmissionMode =
+	ENV.VITE_SUBMISSION_MODE?.trim() ?? ACL_ONLY_HARD_CUTOVER_MARKER;
+assertAclOnlySubmissionMode(configuredSubmissionMode);
+export const SUBMISSION_MODE = configuredSubmissionMode;
 
 const configuredBountyHubAddress = ENV.VITE_BOUNTY_HUB_ADDRESS?.trim();
 
@@ -57,68 +93,7 @@ export const BOUNTY_HUB_PROJECTS_V4_ABI = [
 	},
 ] as const;
 
-export const BOUNTY_HUB_PROJECTS_LEGACY_ABI = [
-	{
-		name: "projects",
-		type: "function",
-		stateMutability: "view",
-		inputs: [{ name: "", type: "uint256" }],
-		outputs: [
-			{
-				name: "project",
-				type: "tuple",
-				components: [
-					{ name: "owner", type: "address" },
-					{ name: "bountyPool", type: "uint256" },
-					{ name: "maxPayoutPerBug", type: "uint256" },
-					{ name: "targetContract", type: "address" },
-					{ name: "forkBlock", type: "uint256" },
-					{ name: "active", type: "bool" },
-					{ name: "mode", type: "uint8" },
-					{ name: "commitDeadline", type: "uint256" },
-					{ name: "revealDeadline", type: "uint256" },
-					{ name: "disputeWindow", type: "uint256" },
-					{ name: "rulesHash", type: "bytes32" },
-					{ name: "projectPublicKey", type: "bytes" },
-					{ name: "vnetStatus", type: "uint8" },
-					{ name: "vnetRpcUrl", type: "string" },
-					{ name: "baseSnapshotId", type: "bytes32" },
-					{ name: "vnetCreatedAt", type: "uint256" },
-				],
-			},
-		],
-	},
-] as const;
-
-// V1 ABI - kept for backward compatibility
-export const BOUNTY_HUB_ABI = [
-	{
-		name: "submitPoC",
-		type: "function",
-		stateMutability: "nonpayable",
-		inputs: [
-			{ name: "_projectId", type: "uint256" },
-			{ name: "_pocHash", type: "bytes32" },
-			{ name: "_pocURI", type: "string" },
-		],
-		outputs: [{ name: "submissionId", type: "uint256" }],
-	},
-	{
-		name: "registerProject",
-		type: "function",
-		stateMutability: "payable",
-		inputs: [
-			{ name: "_targetContract", type: "address" },
-			{ name: "_maxPayoutPerBug", type: "uint256" },
-			{ name: "_forkBlock", type: "uint256" },
-		],
-		outputs: [{ name: "projectId", type: "uint256" }],
-	},
-] as const;
-
-// V2 ABI - commit-reveal with encryption
 export const BOUNTY_HUB_V2_ABI = [
-	// V1 functions (backward compatible)
 	{
 		name: "submitPoC",
 		type: "function",
@@ -177,14 +152,12 @@ export const BOUNTY_HUB_V2_ABI = [
 		],
 		outputs: [{ name: "submissionId", type: "uint256" }],
 	},
-	// V2: Reveal decryption key (Phase 2)
 	{
 		name: "revealPoC",
 		type: "function",
 		stateMutability: "nonpayable",
 		inputs: [
 			{ name: "_submissionId", type: "uint256" },
-			{ name: "_decryptionKey", type: "bytes32" },
 			{ name: "_salt", type: "bytes32" },
 		],
 		outputs: [],
@@ -196,7 +169,6 @@ export const BOUNTY_HUB_V2_ABI = [
 		inputs: [
 			{ name: "_auditor", type: "address" },
 			{ name: "_submissionId", type: "uint256" },
-			{ name: "_decryptionKey", type: "bytes32" },
 			{ name: "_salt", type: "bytes32" },
 			{ name: "_deadline", type: "uint256" },
 			{ name: "_signature", type: "bytes" },
@@ -321,7 +293,6 @@ export const BOUNTY_HUB_V2_ABI = [
 			{ name: "projectId", type: "uint256" },
 			{ name: "commitHash", type: "bytes32" },
 			{ name: "cipherURI", type: "string" },
-			{ name: "decryptionKey", type: "bytes32" },
 			{ name: "salt", type: "bytes32" },
 			{ name: "commitTimestamp", type: "uint256" },
 			{ name: "revealTimestamp", type: "uint256" },
@@ -387,7 +358,6 @@ export const BOUNTY_HUB_V2_ABI = [
 		type: "event",
 		inputs: [
 			{ name: "submissionId", type: "uint256", indexed: true },
-			{ name: "decryptionKey", type: "bytes32", indexed: false },
 		],
 	},
 	{

@@ -77,7 +77,6 @@ export interface Submission {
   projectId: bigint
   commitHash: `0x${string}`
   cipherURI: string
-  decryptionKey: `0x${string}`
   salt: `0x${string}`
   commitTimestamp: bigint
   revealTimestamp: bigint

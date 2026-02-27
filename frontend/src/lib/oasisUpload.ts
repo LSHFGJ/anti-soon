@@ -7,11 +7,6 @@ import {
   createOasisEnvelope,
   type OasisPointer,
 } from './oasisStorage'
-import {
-  aesGcmEncrypt,
-  exportPublicKey,
-  generateAesKey,
-} from '../utils/encryption'
 
 interface UploadEncryptedPoCArgs {
   poc: string
@@ -22,7 +17,6 @@ interface UploadEncryptedPoCArgs {
 
 interface UploadEncryptedPoCResult {
   cipherURI: string
-  decryptionKey: `0x${string}`
   oasisTxHash: `0x${string}`
 }
 
@@ -33,11 +27,9 @@ const ENV =
 const SAPPHIRE_CHAIN_ID_HEX = '0x5aff'
 const SEPOLIA_CHAIN_ID_HEX = '0xaa36a7'
 const OASIS_TX_ENCRYPTION_ENABLED = ENV.VITE_OASIS_TX_ENCRYPTION !== 'false'
-const OASIS_FALLBACK_DATA_SINK = '0x000000000000000000000000000000000000dEaD' as const
 
 type RelayerUploadResponse = {
   cipherURI: string
-  decryptionKey: `0x${string}`
   oasisTxHash: `0x${string}`
 }
 
@@ -57,13 +49,8 @@ function normalizePointer(pointer: OasisPointer): OasisPointer {
   }
 }
 
-function buildFallbackPointer(args: UploadEncryptedPoCArgs): OasisPointer {
+function buildPointer(args: UploadEncryptedPoCArgs, storageContract: `0x${string}`): OasisPointer {
   const chain = ENV.VITE_OASIS_CHAIN?.trim() || 'oasis-sapphire-testnet'
-  const envStorageContract = ENV.VITE_OASIS_STORAGE_CONTRACT?.trim()
-  const contract =
-    normalizeEthereumAddress(envStorageContract) ||
-    normalizeEthereumAddress(OASIS_FALLBACK_DATA_SINK) ||
-    args.auditor
 
   const seed = [
     args.projectId.toString(),
@@ -72,18 +59,7 @@ function buildFallbackPointer(args: UploadEncryptedPoCArgs): OasisPointer {
   ].join(':')
 
   const slotId = `slot-${keccak256(toBytes(seed)).slice(2, 18)}`
-  return normalizePointer({ chain, contract, slotId })
-}
-
-function bytesToHex(bytes: Uint8Array): `0x${string}` {
-  return `0x${Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')}`
-}
-
-function utf8ToHex(input: string): `0x${string}` {
-  const encoded = new TextEncoder().encode(input)
-  return bytesToHex(encoded)
+  return normalizePointer({ chain, contract: storageContract, slotId })
 }
 
 function readProvider(provider?: unknown): Eip1193Provider {
@@ -112,6 +88,20 @@ function getOasisUploadApiUrl(): string | undefined {
   const runtimeEnv =
     (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? ENV
   const raw = runtimeEnv.VITE_OASIS_UPLOAD_API_URL?.trim()
+  return raw && raw.length > 0 ? raw : undefined
+}
+
+function getOasisStorageContract(): string | undefined {
+  const globalRuntimeContract = (
+    globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
+  ).__ANTI_SOON_OASIS_STORAGE_CONTRACT__
+  if (typeof globalRuntimeContract === 'string' && globalRuntimeContract.trim().length > 0) {
+    return globalRuntimeContract.trim()
+  }
+
+  const runtimeEnv =
+    (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? ENV
+  const raw = runtimeEnv.VITE_OASIS_STORAGE_CONTRACT?.trim()
   return raw && raw.length > 0 ? raw : undefined
 }
 
@@ -148,8 +138,6 @@ async function uploadViaRelayerApi(args: {
     !payload ||
     typeof payload.cipherURI !== 'string' ||
     !payload.cipherURI.startsWith('oasis://') ||
-    typeof payload.decryptionKey !== 'string' ||
-    !isBytes32Hex(payload.decryptionKey) ||
     typeof payload.oasisTxHash !== 'string' ||
     !isBytes32Hex(payload.oasisTxHash)
   ) {
@@ -158,7 +146,6 @@ async function uploadViaRelayerApi(args: {
 
   return {
     cipherURI: payload.cipherURI,
-    decryptionKey: payload.decryptionKey,
     oasisTxHash: payload.oasisTxHash,
   }
 }
@@ -275,13 +262,16 @@ export async function uploadEncryptedPoC({
     })
   }
 
-  const provider = readProvider(ethereumProvider)
-  const configuredStorageContract = ENV.VITE_OASIS_STORAGE_CONTRACT?.trim()
+  const configuredStorageContract = getOasisStorageContract()
   const storageContract = normalizeEthereumAddress(configuredStorageContract)
 
-  if (configuredStorageContract && !storageContract) {
-    console.warn('Ignoring invalid VITE_OASIS_STORAGE_CONTRACT. Falling back to auditor address.')
+  if (!storageContract) {
+    throw new Error(
+      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+    )
   }
+
+  const provider = readProvider(ethereumProvider)
 
   const sapphireProvider = OASIS_TX_ENCRYPTION_ENABLED
     ? (wrapEthereumProvider(provider) as unknown as Eip1193Provider)
@@ -293,30 +283,19 @@ export async function uploadEncryptedPoC({
     sapphireProvider,
     normalizedAuditor,
   )
-  const pointer = buildFallbackPointer({
+  const pointer = buildPointer({
     poc,
     projectId,
     auditor: providerAddress,
-  })
+  }, storageContract)
 
-  const encryptionKey = await generateAesKey()
-  const keyBytes = await exportPublicKey(encryptionKey)
-  if (keyBytes.length !== 32) {
-    throw new Error('Expected 32-byte AES key for reveal decryption')
-  }
-
-  const encrypted = await aesGcmEncrypt(JSON.stringify(parsedPoC), keyBytes)
-  const ciphertextHex = bytesToHex(encrypted.ciphertext)
-  const ivHex = bytesToHex(encrypted.iv)
-
-  const ciphertextHash = keccak256(toBytes(ciphertextHex))
-  const ivHash = keccak256(toBytes(ivHex))
+  const pocHash = keccak256(toBytes(JSON.stringify(parsedPoC)))
 
   const envelope = createOasisEnvelope({
     pointer,
     ciphertext: {
-      ciphertextHash,
-      ivHash,
+      ciphertextHash: pocHash,
+      ivHash: pocHash,
     },
   })
   const envelopeHash = computeOasisEnvelopeHash(envelope)
@@ -329,35 +308,23 @@ export async function uploadEncryptedPoC({
     pointer,
     envelope,
     envelopeHash,
-    encryptedPoc: {
-      algorithm: 'aes-256-gcm',
-      ciphertextHex,
-      ivHex,
-    },
+    poc: parsedPoC,
   }
 
-  const fallbackTarget = normalizeEthereumAddress(OASIS_FALLBACK_DATA_SINK)
-  if (!fallbackTarget) {
-    throw new Error('Invalid default Oasis fallback sink address')
-  }
-
-  const writeTarget = storageContract || fallbackTarget
-  const uriContract = writeTarget.toLowerCase()
+  const uriContract = storageContract.toLowerCase()
   const payloadJson = JSON.stringify(payload)
 
-  const txData = storageContract
-    ? encodeFunctionData({
-      abi: OASIS_STORAGE_ABI,
-      functionName: 'write',
-      args: [pointer.slotId, payloadJson],
-    })
-    : utf8ToHex(payloadJson)
+  const txData = encodeFunctionData({
+    abi: OASIS_STORAGE_ABI,
+    functionName: 'write',
+    args: [pointer.slotId, payloadJson],
+  })
 
   let txHash: `0x${string}`
   try {
     const txRequest: Record<string, unknown> = {
       from: providerAddress,
-      to: writeTarget,
+      to: storageContract,
       value: '0x0',
       data: txData,
     }
@@ -370,7 +337,7 @@ export async function uploadEncryptedPoC({
     const message = extractErrorMessage(err)
     if (message.includes('must provide an Ethereum address')) {
       throw new Error(
-        `Invalid parameters: must provide an Ethereum address (from=${providerAddress}, to=${writeTarget}, storageContract=${storageContract ?? 'none'}).`,
+        `Invalid parameters: must provide an Ethereum address (from=${providerAddress}, to=${storageContract}, storageContract=${storageContract}).`,
       )
     }
     throw err
@@ -380,8 +347,7 @@ export async function uploadEncryptedPoC({
   await ensureChain(sapphireProvider, SEPOLIA_CHAIN_ID_HEX)
 
   return {
-    cipherURI: `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${txHash}`,
-    decryptionKey: bytesToHex(keyBytes),
+    cipherURI: `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${envelopeHash}`,
     oasisTxHash: txHash,
   }
 }

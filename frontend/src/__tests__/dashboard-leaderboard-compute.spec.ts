@@ -11,7 +11,6 @@ function makeSubmission(overrides: Partial<Submission>): Submission {
     projectId: 1n,
     commitHash: zeroBytes32,
     cipherURI: 'oasis://mock/poc',
-    decryptionKey: zeroBytes32,
     salt: zeroBytes32,
     commitTimestamp: 1n,
     revealTimestamp: 0n,

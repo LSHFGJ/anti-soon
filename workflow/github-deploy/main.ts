@@ -178,7 +178,6 @@ function verifyOnEtherscan(
     },
     vaultDonSecrets: [
       { key: "ETHERSCAN_API_KEY", owner: config.owner },
-      { key: "san_marino_aes_gcm_encryption_key" },
     ],
     encryptOutput: true,
   }).result()
@@ -322,7 +321,6 @@ function uploadMetadata(
     },
     vaultDonSecrets: [
       { key: "METADATA_UPLOAD_TOKEN", owner: config.owner },
-      { key: "san_marino_aes_gcm_encryption_key" },
     ],
     encryptOutput: true,
   }).result()

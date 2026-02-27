@@ -137,6 +137,75 @@ describe("oasis client", () => {
     expect(JSON.stringify(sleepCalls)).toBe(JSON.stringify([10]))
   })
 
+  it("returns authenticated read payload on first success", async () => {
+    let calls = 0
+    const client = createOasisClient({
+      baseUrl: "https://oasis.test",
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            ciphertext: "0xdead",
+            iv: "0xbeef",
+          }),
+          { status: 200 }
+        )
+      },
+    })
+
+    const result = await client.read({
+      pointer: {
+        chain: "oasis-sapphire-testnet",
+        contract: "0x1111111111111111111111111111111111111111",
+        slotId: "slot-1",
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      throw new Error("expected authenticated read success")
+    }
+    expect(result.data.ciphertext).toBe("0xdead")
+    expect(result.data.iv).toBe("0xbeef")
+    expect(calls).toBe(1)
+  })
+
+  it("classifies invalid auth as deterministic non-retriable failure", async () => {
+    let calls = 0
+    const client = createOasisClient({
+      baseUrl: "https://oasis.test",
+      retryPolicy: {
+        maxAttempts: 3,
+        baseDelayMs: 1,
+        backoffMultiplier: 2,
+        maxDelayMs: 2,
+      },
+      fetchImpl: async () => {
+        calls += 1
+        return new Response("{\"error\":\"invalid auth signature\"}", { status: 503 })
+      },
+    })
+
+    const result = await client.read({
+      pointer: {
+        chain: "oasis-sapphire-testnet",
+        contract: "0x1111111111111111111111111111111111111111",
+        slotId: "slot-1",
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      throw new Error("expected auth failure")
+    }
+    expect(result.error.kind).toBe("auth")
+    expect(result.error.retriable).toBe(false)
+    expect(result.error.statusCode).toBe(503)
+    expect(result.error.message).toBe("oasis auth failed with status 503")
+    expect(calls).toBe(1)
+  })
+
   it("denies non-submitter requester before deadline without remote call", async () => {
     let called = false
     const client = createOasisClient({
@@ -215,8 +284,9 @@ describe("oasis client", () => {
     )
   })
 
-  it("fails closed after bounded retries during temporary outage", async () => {
+  it("enforces retry limits for retriable failures", async () => {
     let calls = 0
+    const sleepCalls: number[] = []
     const client = createOasisClient({
       baseUrl: "https://oasis.test",
       retryPolicy: {
@@ -224,6 +294,9 @@ describe("oasis client", () => {
         baseDelayMs: 1,
         backoffMultiplier: 2,
         maxDelayMs: 2,
+      },
+      sleep: async (ms: number) => {
+        sleepCalls.push(ms)
       },
       fetchImpl: async () => {
         calls += 1
@@ -244,6 +317,84 @@ describe("oasis client", () => {
       throw new Error("expected retry exhaustion")
     }
     expect(result.error.kind).toBe("retry_exhausted")
+    expect(result.error.message).toBe("oasis retry exhausted after 3 attempts (retriable)")
     expect(calls).toBe(3)
+    expect(JSON.stringify(sleepCalls)).toBe(JSON.stringify([1, 2]))
+  })
+
+  it("rejects unauthorized authenticated read without retries", async () => {
+    let calls = 0
+    const sleepCalls: number[] = []
+    const client = createOasisClient({
+      baseUrl: "https://oasis.test",
+      retryPolicy: {
+        maxAttempts: 3,
+        baseDelayMs: 5,
+        backoffMultiplier: 2,
+        maxDelayMs: 20,
+      },
+      sleep: async (ms: number) => {
+        sleepCalls.push(ms)
+      },
+      fetchImpl: async () => {
+        calls += 1
+        return new Response('{"error":"unauthorized"}', { status: 401 })
+      },
+    })
+
+    const result = await client.read({
+      pointer: {
+        chain: "oasis-sapphire-testnet",
+        contract: "0x1111111111111111111111111111111111111111",
+        slotId: "slot-unauthorized",
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      throw new Error("expected unauthorized read failure")
+    }
+
+    expect(result.error.kind).toBe("auth")
+    expect(result.error.retriable).toBe(false)
+    expect(result.error.statusCode).toBe(401)
+    expect(result.error.message).toBe("oasis auth failed with status 401")
+    expect(calls).toBe(1)
+    expect(sleepCalls.length).toBe(0)
+  })
+
+  it("fails closed when read response drifts to legacy payload shape", async () => {
+    const client = createOasisClient({
+      baseUrl: "https://oasis.test",
+      fetchImpl: async () => {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            legacyCipherPayload: {
+              ciphertextHex: "0xabc",
+              ivHex: "0xdef",
+            },
+          }),
+          { status: 200 }
+        )
+      },
+    })
+
+    const result = await client.read({
+      pointer: {
+        chain: "oasis-sapphire-testnet",
+        contract: "0x1111111111111111111111111111111111111111",
+        slotId: "slot-drift",
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      throw new Error("expected schema drift failure")
+    }
+
+    expect(result.error.kind).toBe("invalid_response")
+    expect(result.error.retriable).toBe(false)
+    expect(result.error.message).toBe("oasis read response shape is invalid")
   })
 })
