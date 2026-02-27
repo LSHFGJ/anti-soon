@@ -218,25 +218,51 @@ function extractContentId(payload: unknown): string | null {
 
   const data = payload as Record<string, unknown>
 
-  if (typeof data.cid === "string" && data.cid.length > 0) {
-    return data.cid
-  }
-
   if (typeof data.contentId === "string" && data.contentId.length > 0) {
     return data.contentId
   }
 
+  if (typeof data.cid === "string" && data.cid.length > 0) {
+    return data.cid
+  }
+
+  if (typeof data.IpfsHash === "string" && data.IpfsHash.length > 0) {
+    return data.IpfsHash
+  }
+
   const uriCandidate =
-    typeof data.uri === "string"
-      ? data.uri
-      : typeof data.contentUri === "string"
-        ? data.contentUri
+    typeof data.contentUri === "string"
+      ? data.contentUri
+      : typeof data.uri === "string"
+        ? data.uri
+        : typeof data.ipfsUri === "string"
+          ? data.ipfsUri
         : null
 
-  if (uriCandidate && uriCandidate.includes("://")) {
-    const slashIndex = uriCandidate.indexOf("://") + 3
-    const contentId = uriCandidate.slice(slashIndex).split(/[/?#]/)[0]
+  if (typeof uriCandidate === "string" && uriCandidate.startsWith("ipfs://")) {
+    const contentId = uriCandidate.slice("ipfs://".length).split(/[/?#]/)[0]
     return contentId?.length ? contentId : null
+  }
+
+  if (
+    typeof uriCandidate === "string" &&
+    (uriCandidate.startsWith("https://") || uriCandidate.startsWith("http://"))
+  ) {
+    try {
+      const url = new URL(uriCandidate)
+      const ipfsMatch = url.pathname.match(/\/ipfs\/([^/?#]+)/)
+      if (ipfsMatch?.[1]) {
+        return ipfsMatch[1]
+      }
+
+      const segments = url.pathname.split("/").filter(Boolean)
+      const tail = segments[segments.length - 1]
+      if (segments.length > 1 && tail && tail.length >= 8) {
+        return tail
+      }
+    } catch {
+      return null
+    }
   }
 
   const gatewayCandidate =
@@ -246,14 +272,16 @@ function extractContentId(payload: unknown): string | null {
         ? data.url
         : null
 
-  if (gatewayCandidate) {
+  if (typeof gatewayCandidate === "string") {
+    const ipfsMatch = gatewayCandidate.match(/\/ipfs\/([^/?#]+)/)
+    if (ipfsMatch?.[1]) {
+      return ipfsMatch[1]
+    }
+
     const segments = gatewayCandidate.split("/").filter(Boolean)
-    const tail = segments[segments.length - 1]
-    if (tail) {
-      const contentId = tail.split(/[?#]/)[0]
-      if (contentId) {
-        return contentId
-      }
+    const tail = segments[segments.length - 1]?.split(/[?#]/)[0]
+    if (segments.length > 1 && tail && tail.length >= 8) {
+      return tail
     }
   }
 
