@@ -269,9 +269,10 @@ test.describe('Encryption Flow E2E', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
-    await expect(page.getByText('1. COMMIT')).toBeVisible()
-    await expect(page.getByText('2. REVEAL')).toBeVisible()
-    await expect(page.getByText('3. VERIFYING')).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByText('1. COMMIT')).toHaveCount(0)
+    await expect(page.getByText('2. REVEAL')).toHaveCount(0)
+    await expect(page.getByText('3. VERIFYING')).toHaveCount(0)
 
     await page.screenshot({ 
       path: 'test-results/06-commit-reveal-ui.png',
@@ -378,9 +379,10 @@ test.describe('Encryption Flow E2E', () => {
     
     await page.waitForTimeout(1000)
     
-    await expect(page.locator('body')).toContainText('1. COMMIT')
-    await expect(page.locator('body')).toContainText('2. REVEAL')
-    await expect(page.locator('body')).toContainText('VERIFY')
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('1. COMMIT')
+    await expect(page.locator('body')).not.toContainText('2. REVEAL')
+    await expect(page.locator('body')).not.toContainText('3. VERIFYING')
     
     await page.screenshot({ 
       path: 'test-results/08-encryption-phases.png',

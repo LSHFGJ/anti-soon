@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { formatEther, parseAbiItem, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { readProjectById } from '../lib/projectReads'
 import { StatCard } from '../components/shared/StatCard'
 import { CountdownTimer } from '../components/shared/CountdownTimer'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
@@ -18,25 +19,6 @@ import {
   formatPreviewFallbackMessage,
   shouldUsePreviewFallback,
 } from '@/lib/previewFallback'
-
-type ProjectTuple = readonly [
-  owner: Address,
-  bountyPool: bigint,
-  maxPayoutPerBug: bigint,
-  targetContract: Address,
-  forkBlock: bigint,
-  active: boolean,
-  mode: number,
-  commitDeadline: bigint,
-  revealDeadline: bigint,
-  disputeWindow: bigint,
-  rulesHash: `0x${string}`,
-  vnetStatus: number,
-  vnetRpcUrl: string,
-  baseSnapshotId: `0x${string}`,
-  vnetCreatedAt: bigint,
-  repoUrl: string
-]
 
 type SubmissionTuple = readonly [
   auditor: Address,
@@ -145,61 +127,15 @@ export function ProjectDetail() {
       setIsLoading(true)
       setError(null)
 
-      const readProjectAndRules = async (): Promise<[ProjectTuple, RulesTuple]> => {
-        try {
-          return await publicClient.multicall({
-            contracts: [
-              {
-                address: BOUNTY_HUB_ADDRESS,
-                abi: BOUNTY_HUB_V2_ABI,
-                functionName: 'projects',
-                args: [projectId]
-              },
-              {
-                address: BOUNTY_HUB_ADDRESS,
-                abi: BOUNTY_HUB_V2_ABI,
-                functionName: 'projectRules',
-                args: [projectId]
-              }
-            ],
-            allowFailure: false
-          }) as [ProjectTuple, RulesTuple]
-        } catch {
-          const [projectData, rulesData] = await Promise.all([
-            publicClient.readContract({
-              address: BOUNTY_HUB_ADDRESS,
-              abi: BOUNTY_HUB_V2_ABI,
-              functionName: 'projects',
-              args: [projectId]
-            }),
-            publicClient.readContract({
-              address: BOUNTY_HUB_ADDRESS,
-              abi: BOUNTY_HUB_V2_ABI,
-              functionName: 'projectRules',
-              args: [projectId]
-            })
-          ])
-
-          return [projectData as ProjectTuple, rulesData as RulesTuple]
-        }
-      }
-
-      const [data, rulesData] = await readProjectAndRules()
-
-      const fetchedProject: Project = {
-        id: projectId,
-        owner: data[0],
-        bountyPool: data[1],
-        maxPayoutPerBug: data[2],
-        targetContract: data[3],
-        forkBlock: data[4],
-        active: data[5],
-        mode: data[6],
-        commitDeadline: data[7],
-        revealDeadline: data[8],
-        disputeWindow: data[9],
-        rulesHash: data[10]
-      }
+      const [fetchedProject, rulesData] = await Promise.all([
+        readProjectById(projectId),
+        publicClient.readContract({
+          address: BOUNTY_HUB_ADDRESS,
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'projectRules',
+          args: [projectId]
+        }) as Promise<RulesTuple>
+      ])
       
       setProject(fetchedProject)
 

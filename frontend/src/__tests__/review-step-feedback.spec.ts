@@ -1,5 +1,5 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewStep } from '../components/PoCBuilder/Steps/ReviewStep'
 
@@ -26,19 +26,24 @@ const baseCommitReveal = {
   isConnected: true
 }
 
-function renderReviewStep() {
+const baseProps: React.ComponentProps<typeof ReviewStep> = {
+  pocJson: '{"target":"0x123"}',
+  isConnected: true,
+  isSubmitting: false,
+  submissionHash: '',
+  error: null,
+  onConnect: vi.fn(),
+  onSubmit: vi.fn(),
+  onBack: vi.fn(),
+  projectId: 1n,
+  useV2: true
+}
+
+function renderReviewStep(overrides: Partial<typeof baseProps> = {}) {
   return render(
     React.createElement(ReviewStep, {
-      pocJson: '{"target":"0x123"}',
-      isConnected: true,
-      isSubmitting: false,
-      submissionHash: '',
-      error: null,
-      onConnect: vi.fn(),
-      onSubmit: vi.fn(),
-      onBack: vi.fn(),
-      projectId: 1n,
-      useV2: true
+      ...baseProps,
+      ...overrides
     })
   )
 }
@@ -52,7 +57,7 @@ describe('ReviewStep feedback reliability', () => {
     })
   })
 
-  it('renders explicit COMMIT -> REVEAL -> VERIFYING sequence on revealed state', () => {
+  it('renders revealed-state verification messaging', () => {
     mockUseCommitReveal.mockReturnValue({
       ...baseCommitReveal,
       state: {
@@ -64,9 +69,6 @@ describe('ReviewStep feedback reliability', () => {
 
     renderReviewStep()
 
-    expect(screen.getByText('1. COMMIT')).toBeInTheDocument()
-    expect(screen.getByText('2. REVEAL')).toBeInTheDocument()
-    expect(screen.getByText('3. VERIFYING')).toBeInTheDocument()
     expect(screen.getByText(/CRE verification is now in progress/i)).toBeInTheDocument()
   })
 
@@ -165,5 +167,36 @@ describe('ReviewStep feedback reliability', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '[ RESET ]' }))
     expect(reset).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows actionable project-context CTAs when project is missing', () => {
+    renderReviewStep({ projectId: null })
+
+    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeDisabled()
+    expect(screen.getByTestId('review-project-context-required')).toBeInTheDocument()
+    expect(screen.getByText('PROJECT_CONTEXT_REQUIRED')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '[ OPEN_EXPLORER ]' })).toHaveAttribute('href', '/explorer')
+    expect(screen.getByRole('link', { name: '[ RETRY_CONTEXT ]' })).toHaveAttribute('href', '/builder')
+  })
+
+  it('shows commit CTA when wallet is connected and project context exists', () => {
+    renderReviewStep({ isConnected: true, projectId: 1n })
+
+    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeVisible()
+  })
+
+  it('keeps commit CTA visible but disabled before wallet connect', () => {
+    renderReviewStep({ isConnected: false, projectId: 1n })
+
+    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+  })
+
+  it('renders primary action on the same row as previous in review footer', () => {
+    renderReviewStep({ isConnected: true, projectId: 1n })
+
+    const actionRow = screen.getByTestId('review-action-row')
+    expect(within(actionRow).getByRole('button', { name: '[ PREVIOUS ]' })).toBeVisible()
+    expect(within(actionRow).getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeVisible()
   })
 })

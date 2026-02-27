@@ -1,7 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
 import { PageHeader } from '../components/shared/ui-primitives'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { readProjectsByIds } from '../lib/projectReads'
+import { publicClient } from '../lib/publicClient'
 
 type BuilderLocationState = {
   projectId?: string | number | bigint
@@ -51,6 +54,52 @@ export function Builder() {
     )
   }, [location.state, pathProjectId, searchParams])
 
+  const [defaultProjectId, setDefaultProjectId] = useState<bigint | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDefaultProjectId = async () => {
+      if (explicitProjectId !== null) {
+        setDefaultProjectId(null)
+        return
+      }
+
+      try {
+        const nextProjectId = await publicClient.readContract({
+          address: BOUNTY_HUB_ADDRESS,
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'nextProjectId'
+        }) as bigint
+
+        if (nextProjectId === 0n) {
+          if (!cancelled) setDefaultProjectId(null)
+          return
+        }
+
+        const projectIds = Array.from({ length: Number(nextProjectId) }, (_, index) => BigInt(index))
+        const projects = await readProjectsByIds(projectIds)
+        const firstActiveProject = projects.find((project) => project.active)
+
+        if (!cancelled) {
+          setDefaultProjectId(firstActiveProject?.id ?? null)
+        }
+      } catch {
+        if (!cancelled) {
+          setDefaultProjectId(null)
+        }
+      }
+    }
+
+    void loadDefaultProjectId()
+
+    return () => {
+      cancelled = true
+    }
+  }, [explicitProjectId])
+
+  const submissionProjectId = explicitProjectId ?? defaultProjectId
+
   return (
     <main
       data-builder-shell="root"
@@ -62,18 +111,18 @@ export function Builder() {
           subtitle="> Craft, encrypt, and submit your vulnerability proof-of-concept"
           className="mb-4"
           rightSlot={
-            explicitProjectId !== null ? (
+            submissionProjectId !== null ? (
               <span
                 data-testid="builder-project-context"
                 className="font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--color-secondary)]"
               >
-                CONTEXT_PROJECT_ID: #{explicitProjectId.toString()}
+                {explicitProjectId !== null ? 'CONTEXT_PROJECT_ID' : 'DEFAULT_PROJECT_ID'}: #{submissionProjectId.toString()}
               </span>
             ) : undefined
           }
         />
 
-        <PoCBuilder selectedProject={selectedProject} submissionProjectId={explicitProjectId} />
+        <PoCBuilder selectedProject={selectedProject} submissionProjectId={submissionProjectId} />
       </div>
     </main>
   )

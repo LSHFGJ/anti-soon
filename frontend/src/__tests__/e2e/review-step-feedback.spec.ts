@@ -20,12 +20,16 @@ test.describe('Task 10 review feedback reliability', () => {
 
     await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
 
-    const commitStep = page.getByText('1. COMMIT')
-    const revealStep = page.getByText('2. REVEAL')
-    const verifyingStep = page.getByText('3. VERIFYING')
-    await expect(commitStep).toBeVisible()
-    await expect(revealStep).toBeVisible()
-    await expect(verifyingStep).toBeVisible()
+    const connectWalletCta = page.getByRole('button', { name: '[ CONNECT_WALLET ]' })
+    const reviewPrevious = page.getByRole('button', { name: '[ PREVIOUS ]' })
+    const reviewCommit = page.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })
+
+    await expect(connectWalletCta).toBeVisible()
+    await expect(reviewPrevious).toBeVisible()
+    await expect(reviewCommit).toBeVisible()
+    await expect(page.getByText('1. COMMIT')).toHaveCount(0)
+    await expect(page.getByText('2. REVEAL')).toHaveCount(0)
+    await expect(page.getByText('3. VERIFYING')).toHaveCount(0)
 
     const duplicateErrorBannerVisible = await page.getByText('ERROR:').isVisible().catch(() => false)
 
@@ -33,10 +37,10 @@ test.describe('Task 10 review feedback reliability', () => {
       task: 'task-10-review-feedback-reliability',
       route: '/builder',
       assertions: {
-        hasCommitStep: await commitStep.isVisible(),
-        hasRevealStep: await revealStep.isVisible(),
-        hasVerifyingStep: await verifyingStep.isVisible(),
-        hasConnectWalletCta: await page.getByRole('button', { name: '[ CONNECT_WALLET ]' }).isVisible(),
+        hasConnectWalletCta: await connectWalletCta.isVisible(),
+        hasReviewPrevious: await reviewPrevious.isVisible(),
+        hasReviewCommit: await reviewCommit.isVisible(),
+        removedLegacyProgressIndicator: (await page.getByText('1. COMMIT').count()) === 0,
         startsWithoutErrorBanner: !duplicateErrorBannerVisible
       }
     }

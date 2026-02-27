@@ -1,5 +1,7 @@
 import { encodeFunctionData, keccak256, parseAbi, toBytes } from 'viem'
 import { wrapEthereumProvider } from '@oasisprotocol/sapphire-paratime'
+import { normalizeEthereumAddress } from './address'
+import { extractErrorMessage } from './errorMessage'
 import {
   computeOasisEnvelopeHash,
   createOasisEnvelope,
@@ -30,7 +32,14 @@ const ENV =
 
 const SAPPHIRE_CHAIN_ID_HEX = '0x5aff'
 const SEPOLIA_CHAIN_ID_HEX = '0xaa36a7'
-const OASIS_TX_ENCRYPTION_ENABLED = ENV.VITE_OASIS_TX_ENCRYPTION === 'true'
+const OASIS_TX_ENCRYPTION_ENABLED = ENV.VITE_OASIS_TX_ENCRYPTION !== 'false'
+const OASIS_FALLBACK_DATA_SINK = '0x000000000000000000000000000000000000dEaD' as const
+
+type RelayerUploadResponse = {
+  cipherURI: string
+  decryptionKey: `0x${string}`
+  oasisTxHash: `0x${string}`
+}
 
 const OASIS_STORAGE_ABI = parseAbi([
   'function write(string slotId, string payload)',
@@ -50,8 +59,10 @@ function normalizePointer(pointer: OasisPointer): OasisPointer {
 
 function buildFallbackPointer(args: UploadEncryptedPoCArgs): OasisPointer {
   const chain = ENV.VITE_OASIS_CHAIN?.trim() || 'oasis-sapphire-testnet'
+  const envStorageContract = ENV.VITE_OASIS_STORAGE_CONTRACT?.trim()
   const contract =
-    (ENV.VITE_OASIS_STORAGE_CONTRACT?.trim() as `0x${string}` | undefined) ||
+    normalizeEthereumAddress(envStorageContract) ||
+    normalizeEthereumAddress(OASIS_FALLBACK_DATA_SINK) ||
     args.auditor
 
   const seed = [
@@ -88,6 +99,88 @@ function readProvider(provider?: unknown): Eip1193Provider {
   }
 
   throw new Error('No EIP-1193 provider available for Sapphire submission')
+}
+
+function getOasisUploadApiUrl(): string | undefined {
+  const globalRuntimeUrl = (
+    globalThis as { __ANTI_SOON_OASIS_UPLOAD_API_URL__?: string }
+  ).__ANTI_SOON_OASIS_UPLOAD_API_URL__
+  if (typeof globalRuntimeUrl === 'string' && globalRuntimeUrl.trim().length > 0) {
+    return globalRuntimeUrl.trim()
+  }
+
+  const runtimeEnv =
+    (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? ENV
+  const raw = runtimeEnv.VITE_OASIS_UPLOAD_API_URL?.trim()
+  return raw && raw.length > 0 ? raw : undefined
+}
+
+function isBytes32Hex(value: string): value is `0x${string}` {
+  return /^0x[0-9a-fA-F]{64}$/.test(value)
+}
+
+async function uploadViaRelayerApi(args: {
+  apiUrl: string
+  poc: string
+  projectId: bigint
+  auditor: `0x${string}`
+}): Promise<UploadEncryptedPoCResult> {
+  const response = await fetch(args.apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      poc: args.poc,
+      projectId: args.projectId.toString(),
+      auditor: args.auditor,
+    }),
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(
+      `Oasis relayer upload failed (${response.status}): ${message || 'empty response'}`,
+    )
+  }
+
+  const payload = (await response.json()) as Partial<RelayerUploadResponse>
+
+  if (
+    !payload ||
+    typeof payload.cipherURI !== 'string' ||
+    !payload.cipherURI.startsWith('oasis://') ||
+    typeof payload.decryptionKey !== 'string' ||
+    !isBytes32Hex(payload.decryptionKey) ||
+    typeof payload.oasisTxHash !== 'string' ||
+    !isBytes32Hex(payload.oasisTxHash)
+  ) {
+    throw new Error('Oasis relayer response shape is invalid')
+  }
+
+  return {
+    cipherURI: payload.cipherURI,
+    decryptionKey: payload.decryptionKey,
+    oasisTxHash: payload.oasisTxHash,
+  }
+}
+
+async function resolveProviderAddress(
+  provider: Eip1193Provider,
+  fallback: `0x${string}`,
+): Promise<`0x${string}`> {
+  for (const method of ['eth_accounts', 'eth_requestAccounts'] as const) {
+    try {
+      const accounts = (await provider.request({ method })) as unknown
+      if (!Array.isArray(accounts)) continue
+
+      for (const account of accounts) {
+        const normalized = normalizeEthereumAddress(account)
+        if (normalized) return normalized
+      }
+    } catch {
+    }
+  }
+
+  return fallback
 }
 
 async function ensureChain(provider: Eip1193Provider, chainIdHex: string): Promise<void> {
@@ -167,20 +260,44 @@ export async function uploadEncryptedPoC({
     throw new Error('PoC JSON must be valid JSON object')
   }
 
-  const provider = readProvider(ethereumProvider)
-  const pointer = buildFallbackPointer({ poc, projectId, auditor })
-  const storageContract =
-    ENV.VITE_OASIS_STORAGE_CONTRACT?.trim() as `0x${string}` | undefined
+  const normalizedAuditor = normalizeEthereumAddress(auditor)
+  if (!normalizedAuditor) {
+    throw new Error('Connected wallet address is invalid. Reconnect wallet and retry.')
+  }
 
-  if (OASIS_TX_ENCRYPTION_ENABLED && !storageContract) {
-    throw new Error(
-      'VITE_OASIS_STORAGE_CONTRACT is required when VITE_OASIS_TX_ENCRYPTION=true',
-    )
+  const relayerApiUrl = getOasisUploadApiUrl()
+  if (relayerApiUrl) {
+    return uploadViaRelayerApi({
+      apiUrl: relayerApiUrl,
+      poc,
+      projectId,
+      auditor: normalizedAuditor,
+    })
+  }
+
+  const provider = readProvider(ethereumProvider)
+  const configuredStorageContract = ENV.VITE_OASIS_STORAGE_CONTRACT?.trim()
+  const storageContract = normalizeEthereumAddress(configuredStorageContract)
+
+  if (configuredStorageContract && !storageContract) {
+    console.warn('Ignoring invalid VITE_OASIS_STORAGE_CONTRACT. Falling back to auditor address.')
   }
 
   const sapphireProvider = OASIS_TX_ENCRYPTION_ENABLED
     ? (wrapEthereumProvider(provider) as unknown as Eip1193Provider)
     : provider
+
+  await ensureChain(sapphireProvider, SAPPHIRE_CHAIN_ID_HEX)
+
+  const providerAddress = await resolveProviderAddress(
+    sapphireProvider,
+    normalizedAuditor,
+  )
+  const pointer = buildFallbackPointer({
+    poc,
+    projectId,
+    auditor: providerAddress,
+  })
 
   const encryptionKey = await generateAesKey()
   const keyBytes = await exportPublicKey(encryptionKey)
@@ -208,7 +325,7 @@ export async function uploadEncryptedPoC({
     ok: true,
     version: 'anti-soon.oasis-tx.v2',
     projectId: projectId.toString(),
-    auditor: auditor.toLowerCase(),
+    auditor: providerAddress.toLowerCase(),
     pointer,
     envelope,
     envelopeHash,
@@ -219,7 +336,13 @@ export async function uploadEncryptedPoC({
     },
   }
 
-  const to = storageContract || auditor
+  const fallbackTarget = normalizeEthereumAddress(OASIS_FALLBACK_DATA_SINK)
+  if (!fallbackTarget) {
+    throw new Error('Invalid default Oasis fallback sink address')
+  }
+
+  const writeTarget = storageContract || fallbackTarget
+  const uriContract = writeTarget.toLowerCase()
   const payloadJson = JSON.stringify(payload)
 
   const txData = storageContract
@@ -230,25 +353,34 @@ export async function uploadEncryptedPoC({
     })
     : utf8ToHex(payloadJson)
 
-  await ensureChain(sapphireProvider, SAPPHIRE_CHAIN_ID_HEX)
+  let txHash: `0x${string}`
+  try {
+    const txRequest: Record<string, unknown> = {
+      from: providerAddress,
+      to: writeTarget,
+      value: '0x0',
+      data: txData,
+    }
 
-  const txHash = (await sapphireProvider.request({
-    method: 'eth_sendTransaction',
-    params: [
-      {
-        from: auditor,
-        to,
-        value: '0x0',
-        data: txData,
-      },
-    ],
-  })) as `0x${string}`
+    txHash = (await sapphireProvider.request({
+      method: 'eth_sendTransaction',
+      params: [txRequest],
+    })) as `0x${string}`
+  } catch (err) {
+    const message = extractErrorMessage(err)
+    if (message.includes('must provide an Ethereum address')) {
+      throw new Error(
+        `Invalid parameters: must provide an Ethereum address (from=${providerAddress}, to=${writeTarget}, storageContract=${storageContract ?? 'none'}).`,
+      )
+    }
+    throw err
+  }
 
   await waitForReceipt(sapphireProvider, txHash)
   await ensureChain(sapphireProvider, SEPOLIA_CHAIN_ID_HEX)
 
   return {
-    cipherURI: `oasis://${pointer.chain}/${to.toLowerCase()}/${encodeURIComponent(pointer.slotId)}#${txHash}`,
+    cipherURI: `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${txHash}`,
     decryptionKey: bytesToHex(keyBytes),
     oasisTxHash: txHash,
   }

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { formatEther, type Address } from 'viem'
+import { formatEther } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { publicClient } from '../lib/publicClient'
+import { readProjectsByIds } from '../lib/projectReads'
+import type { Project } from '../types'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -14,40 +16,6 @@ import {
 } from '@/components/ui/select'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 import { buildPreviewProject, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
-
-interface Project {
-  id: bigint
-  owner: Address
-  bountyPool: bigint
-  maxPayoutPerBug: bigint
-  targetContract: Address
-  forkBlock: bigint
-  active: boolean
-  mode: number
-  commitDeadline: bigint
-  revealDeadline: bigint
-  disputeWindow: bigint
-  rulesHash: `0x${string}`
-}
-
-type ProjectTuple = readonly [
-  owner: Address,
-  bountyPool: bigint,
-  maxPayoutPerBug: bigint,
-  targetContract: Address,
-  forkBlock: bigint,
-  active: boolean,
-  mode: number,
-  commitDeadline: bigint,
-  revealDeadline: bigint,
-  disputeWindow: bigint,
-  rulesHash: `0x${string}`,
-  vnetStatus: number,
-  vnetRpcUrl: string,
-  baseSnapshotId: `0x${string}`,
-  vnetCreatedAt: bigint,
-  repoUrl: string
-]
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 type ModeFilter = 'all' | 'unique' | 'multi'
@@ -96,41 +64,8 @@ export function Explorer() {
         return
       }
 
-      const contracts = [] as Array<{
-        address: typeof BOUNTY_HUB_ADDRESS
-        abi: typeof BOUNTY_HUB_V2_ABI
-        functionName: 'projects'
-        args: [bigint]
-      }>
-
-      for (let i = 0n; i < nextId; i++) {
-        contracts.push({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'projects',
-          args: [i]
-        })
-      }
-
-      const results = await publicClient.multicall({
-        contracts,
-        allowFailure: false
-      }) as ProjectTuple[]
-
-      const fetchedProjects: Project[] = results.map((data, index) => ({
-        id: BigInt(index),
-        owner: data[0],
-        bountyPool: data[1],
-        maxPayoutPerBug: data[2],
-        targetContract: data[3],
-        forkBlock: data[4],
-        active: data[5],
-        mode: data[6],
-        commitDeadline: data[7],
-        revealDeadline: data[8],
-        disputeWindow: data[9],
-        rulesHash: data[10]
-      }))
+      const projectIds = Array.from({ length: Number(nextId) }, (_, index) => BigInt(index))
+      const fetchedProjects: Project[] = await readProjectsByIds(projectIds)
 
       setProjects(fetchedProjects)
     } catch (err) {

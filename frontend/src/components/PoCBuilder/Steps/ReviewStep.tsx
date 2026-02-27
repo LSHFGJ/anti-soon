@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -34,20 +34,19 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 	({
 		pocJson,
 		isConnected,
-		isSubmitting,
-		submissionHash,
-		error,
+		isSubmitting: _isSubmitting,
+		submissionHash: _submissionHash,
+		error: _error,
 		onConnect,
-		onSubmit,
+		onSubmit: _onSubmit,
 		onBack,
 		projectId,
-		useV2 = true,
+		useV2: _useV2 = true,
 		showBackButton = true,
 	}) => {
 		const commitReveal = useCommitReveal(projectId, pocJson);
 		const phase = commitReveal.state.phase;
 		const phaseError = commitReveal.state.error;
-		const [showV1Fallback, setShowV1Fallback] = useState(false);
 		const { success, error: toastError } = useToast();
 		const notifiedPhaseRef = useRef(phase);
 		const notifiedErrorRef = useRef<string | undefined>(undefined);
@@ -98,74 +97,18 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			}
 		}, [phase, phaseError, success, toastError]);
 
-		useEffect(() => {
-			if (submissionHash && !useV2) {
-				success({
-					title: "PoC Transmitted (V1)",
-					description: "Transaction submitted successfully.",
-				});
-			}
-		}, [submissionHash, useV2, success]);
-
-		useEffect(() => {
-			if (error && !useV2) {
-				toastError({
-					title: "Submission Error",
-					description: error,
-				});
-			}
-		}, [error, useV2, toastError]);
-
 		const renderV2Flow = () => {
 			const { state, commit, reveal, reset } = commitReveal;
 			const projectContextMissing = projectId === null;
+			const canCommit = isConnected && !projectContextMissing;
 			const revealAvailable = Boolean(state.submissionId && state.salt);
 			const retryLabel = revealAvailable
 				? "[ RETRY_REVEAL ]"
 				: "[ RETRY_COMMIT ]";
 			const onRetry = revealAvailable ? reveal : commit;
-			const commitActive = state.phase !== "idle";
-			const revealActive =
-				["queued", "revealing", "revealed"].includes(state.phase) ||
-				(state.phase === "failed" && revealAvailable);
-			const verifyingActive = state.phase === "revealed";
 
 			return (
 				<div className="mt-6">
-					<div className="border border-[var(--color-text-dim)] p-4 mb-4 bg-neutral-900/80">
-						<div className="flex items-center gap-4">
-							<span
-								className={
-									commitActive
-										? "text-[var(--color-primary)] font-bold"
-										: "text-[var(--color-text)] font-normal"
-								}
-							>
-								1. COMMIT
-							</span>
-							<span className="text-[var(--color-text-dim)]">→</span>
-							<span
-								className={
-									revealActive
-										? "text-[var(--color-primary)] font-bold"
-										: "text-[var(--color-text)] font-normal"
-								}
-							>
-								2. REVEAL
-							</span>
-							<span className="text-[var(--color-text-dim)]">→</span>
-							<span
-								className={
-									verifyingActive
-										? "text-[var(--color-primary)] font-bold"
-										: "text-[var(--color-text-dim)] font-normal"
-								}
-							>
-								3. VERIFYING
-							</span>
-						</div>
-					</div>
-
 					{state.error && (
 						<div className="text-[var(--color-error)] border border-[var(--color-error)] p-4 mb-4 bg-[rgba(255,0,0,0.05)]">
 							<div className="font-mono mb-2">ERROR:</div>
@@ -206,29 +149,37 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 								>
 									[ CONNECT_WALLET ]
 								</button>
-							) : projectContextMissing ? (
-								<div className="border border-[var(--color-error)] bg-[rgba(255,0,0,0.05)] text-[var(--color-error)] px-4 py-3 font-mono text-xs">
-									SELECT A PROJECT FIRST (open Explorer or Project Detail, then
-									enter Builder from that context).
+							) : null}
+							{isConnected && projectContextMissing ? (
+								<div
+									data-testid="review-project-context-required"
+									className="w-full border border-[var(--color-error)] bg-[rgba(255,0,0,0.05)] text-[var(--color-error)] px-4 py-3 font-mono text-xs"
+								>
+									<div className="mb-2">PROJECT_CONTEXT_REQUIRED</div>
+									<div>
+										No active project is selected, so commit cannot be submitted.
+									</div>
+									<div className="mt-3 flex gap-2 flex-wrap">
+										<a
+											href="/explorer"
+											className="inline-flex items-center border border-[var(--color-error)] px-3 py-2 text-[var(--color-error)] no-underline"
+										>
+											[ OPEN_EXPLORER ]
+										</a>
+										<a
+											href="/builder"
+											className="inline-flex items-center border border-[var(--color-error)] px-3 py-2 text-[var(--color-error)] no-underline"
+										>
+											[ RETRY_CONTEXT ]
+										</a>
+									</div>
 								</div>
-							) : (
-								<>
-									<button
-										type="button"
-										onClick={commit}
-								className="px-8 py-3 bg-[var(--color-primary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
-							>
-									[ 1. COMMIT_POC_REFERENCE ]
-								</button>
-									<button
-										type="button"
-										onClick={() => setShowV1Fallback(true)}
-										className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
-									>
-										USE V1 (LEGACY)
-									</button>
-								</>
-							)}
+							) : null}
+							{canCommit ? (
+								<div className="border border-[var(--color-secondary)] bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] px-4 py-3 font-mono text-xs">
+									Ready to commit. Use the footer action next to [ PREVIOUS ].
+								</div>
+							) : null}
 						</div>
 					)}
 
@@ -271,13 +222,9 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 								Reveal when ready to trigger verification.
 							</div>
 
-							<button
-								type="button"
-								onClick={reveal}
-								className="mt-4 px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
-							>
-								[ 2. REVEAL_POC ]
-							</button>
+							<div className="mt-4 p-3 bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] text-sm font-mono">
+								Use the footer action next to [ PREVIOUS ] to reveal.
+							</div>
 						</div>
 					)}
 
@@ -303,13 +250,9 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 								</div>
 							)}
 
-							<button
-								type="button"
-								onClick={reveal}
-								className="mt-4 px-8 py-3 bg-transparent text-[var(--color-secondary)] border border-[var(--color-secondary)] cursor-pointer font-mono"
-							>
-								[ REVEAL_NOW ]
-							</button>
+							<div className="mt-4 p-3 bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] text-sm font-mono">
+								Use the footer action next to [ PREVIOUS ] to reveal now.
+							</div>
 						</div>
 					)}
 
@@ -349,66 +292,73 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			);
 		};
 
-		const renderV1Flow = () => (
-			<>
-				{error && (
-					<div className="text-[var(--color-error)] border border-[var(--color-error)] p-4 mb-4 bg-[rgba(255,0,0,0.05)]">
-						<div className="font-mono mb-2">ERROR:</div>
-						<div className="text-sm">{error}</div>
-					</div>
-				)}
+		const renderFooterPrimaryAction = () => {
+			const { state, commit, reveal } = commitReveal;
+			const missingProjectContext = projectId === null;
+			const canCommit = isConnected && !missingProjectContext;
+			const revealAvailable = Boolean(state.submissionId && state.salt);
+			const onRetry = revealAvailable ? reveal : commit;
 
-				{submissionHash && (
-					<div className="mb-4 p-4 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)]">
-						<div className="text-[var(--color-primary)] font-bold font-mono mb-2">
-							✓ PoC_TRANSMITTED (V1)
-						</div>
-						<div className="text-sm text-[var(--color-text-dim)] mb-3">
-							Transaction Hash:
-						</div>
-						<code className="block">{submissionHash}</code>
-					</div>
-				)}
-
-				<div className="flex gap-4 flex-wrap">
-					{!isConnected ? (
-						<button
-							type="button"
-							onClick={onConnect}
-							className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
-						>
-							[ CONNECT_WALLET ]
-						</button>
-					) : (
-						<button
-							type="button"
-							onClick={onSubmit}
-							disabled={isSubmitting}
-							className={`px-8 py-3 text-[var(--color-bg)] border-none font-mono ${isSubmitting ? "bg-[var(--color-text-dim)] cursor-not-allowed opacity-70" : "bg-[var(--color-primary)] cursor-pointer"}`}
-						>
-							{isSubmitting ? (
-								<span className="flex items-center gap-2 justify-center">
-									<span className="spinner"></span> TRANSMITTING...
-								</span>
-							) : (
-								"[ SUBMIT_POC (V1) ]"
-							)}
-						</button>
-					)}
-					<button
+			if (state.phase === "idle") {
+				return (
+					<Button
 						type="button"
-						onClick={() => setShowV1Fallback(false)}
-						className="px-6 py-3 bg-transparent text-[var(--color-text-dim)] border border-[var(--color-text-dim)] cursor-pointer font-mono text-sm"
+						onClick={canCommit ? commit : undefined}
+						disabled={!canCommit}
+						className="font-mono"
 					>
-						BACK TO V2
-					</button>
-				</div>
-			</>
-		);
+						[ COMMIT_POC_REFERENCE ]
+					</Button>
+				);
+			}
+
+			if (state.phase === "committed") {
+				return (
+					<Button type="button" onClick={reveal} className="font-mono">
+						[ REVEAL_POC ]
+					</Button>
+				);
+			}
+
+			if (state.phase === "queued") {
+				return (
+					<Button type="button" onClick={reveal} variant="outline" className="font-mono">
+						[ REVEAL_NOW ]
+					</Button>
+				);
+			}
+
+			if (state.phase === "failed") {
+				return (
+					<Button type="button" onClick={onRetry} variant="outline" className="font-mono">
+						[ RETRY ]
+					</Button>
+				);
+			}
+
+			if (state.phase === "revealed") {
+				return (
+					<a
+						href={`/submission/${state.submissionId}`}
+						className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-mono text-primary-foreground no-underline"
+					>
+						[ VIEW_VERIFICATION_STATUS ]
+					</a>
+				);
+			}
+
+			return (
+				<Button type="button" disabled className="font-mono">
+					[ PROCESSING... ]
+				</Button>
+			);
+		};
 
 		return (
 			<div className="step-content">
 				<StepGuidance {...STEP_GUIDES.review} />
+
+				{renderV2Flow()}
 
 				<Card className="bg-card/50 border-primary/20">
 					<CardHeader className="flex flex-row items-center justify-between py-3">
@@ -426,13 +376,15 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					</CardContent>
 				</Card>
 
-				{useV2 && !showV1Fallback ? renderV2Flow() : renderV1Flow()}
-
 				{showBackButton ? (
-					<div className="mt-4">
+					<div
+						data-testid="review-action-row"
+						className="mt-4 flex items-center justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4"
+					>
 						<Button variant="outline" onClick={onBack} className="font-mono">
-							&lt;&lt; BACK
+							[ PREVIOUS ]
 						</Button>
+						{renderFooterPrimaryAction()}
 					</div>
 				) : null}
 			</div>

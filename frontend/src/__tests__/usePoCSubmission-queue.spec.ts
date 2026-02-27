@@ -123,4 +123,79 @@ describe("usePoCSubmission queue fallback", () => {
 			}),
 		);
 	});
+
+	it("surfaces shortMessage when submission throws provider-style object", async () => {
+		mockUploadEncryptedPoC.mockRejectedValue({
+			shortMessage: "Execution reverted: commit window closed",
+		});
+
+		const { result } = renderHook(() => usePoCSubmission());
+
+		let submitResult:
+			| { submissionId?: bigint; commitTxHash?: `0x${string}`; revealTxHash?: `0x${string}` }
+			| undefined;
+
+		await act(async () => {
+			submitResult = await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(submitResult).toBeUndefined();
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain("Execution reverted: commit window closed");
+		expect(result.current.state.error).not.toContain("unknown error");
+	});
+
+	it("normalizes invalid-address submission errors to wallet guidance", async () => {
+		mockUploadEncryptedPoC.mockRejectedValue({
+			shortMessage: "Invalid parameters: must provide an Ethereum address.",
+		});
+
+		const { result } = renderHook(() => usePoCSubmission());
+
+		await act(async () => {
+			await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain(
+			"Wallet returned an invalid address (wallet=0x1111111111111111111111111111111111111111, bountyHub=",
+		);
+	});
+
+	it("resolves signer address from wallet client when hook address is malformed", async () => {
+		const walletClient = {
+			writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			getAddresses: vi
+				.fn()
+				.mockResolvedValue(["0x1111111111111111111111111111111111111111"]),
+		};
+
+		const publicClient = {
+			readContract: vi.fn().mockResolvedValue([]),
+			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+			waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+		};
+
+		mockUseWallet.mockReturnValue({
+			address: "wallet:malformed",
+			walletClient,
+			publicClient,
+			isConnected: true,
+		});
+
+		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
+
+		const { result } = renderHook(() => usePoCSubmission());
+
+		await act(async () => {
+			await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
+			expect.objectContaining({
+				auditor: "0x1111111111111111111111111111111111111111",
+			}),
+		);
+	});
 });

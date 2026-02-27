@@ -28,6 +28,11 @@ export interface Project {
   revealDeadline: bigint
   disputeWindow: bigint
   rulesHash: `0x${string}`
+  vnetStatus: number
+  vnetRpcUrl: string
+  baseSnapshotId: `0x${string}`
+  vnetCreatedAt: bigint
+  repoUrl: string
 }
 
 export interface ContractScope {
@@ -38,7 +43,6 @@ export interface ContractScope {
 }
 
 export interface ProjectV3 extends Project {
-  repoUrl: string;
   scopes: ContractScope[];
 }
 

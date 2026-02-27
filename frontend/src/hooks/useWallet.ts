@@ -3,6 +3,7 @@ import { useAccount, useDisconnect, useSwitchChain, useWalletClient, usePublicCl
 import { useAppKit } from '@reown/appkit/react'
 import { sepolia } from '@reown/appkit/networks'
 import type { Address, WalletClient, PublicClient } from 'viem'
+import { normalizeEthereumAddress } from '../lib/address'
 
 interface WalletState {
   address: Address | null
@@ -16,7 +17,12 @@ interface WalletState {
   switchToCorrectNetwork: () => Promise<void>
 }
 
-export function useWallet(): WalletState {
+interface UseWalletOptions {
+  autoSwitchToSepolia?: boolean
+}
+
+export function useWallet(options: UseWalletOptions = {}): WalletState {
+  const { autoSwitchToSepolia = true } = options
   const { address, isConnected, chain } = useAccount()
   const { open } = useAppKit()
   const { disconnect } = useDisconnect()
@@ -24,6 +30,8 @@ export function useWallet(): WalletState {
   const { data: walletClient } = useWalletClient()
   const publicClient = usePublicClient()
   const [isConnecting, setIsConnecting] = useState(false)
+
+  const normalizedAddress = normalizeEthereumAddress(address)
 
   const isWrongNetwork = isConnected && chain?.id !== sepolia.id
 
@@ -50,14 +58,14 @@ export function useWallet(): WalletState {
 
   // Auto-switch to correct network when connected to wrong network
   useEffect(() => {
-    if (isWrongNetwork && !isSwitching) {
+    if (autoSwitchToSepolia && isWrongNetwork && !isSwitching) {
       switchToCorrectNetwork()
     }
-  }, [isWrongNetwork, isSwitching, switchToCorrectNetwork])
+  }, [autoSwitchToSepolia, isWrongNetwork, isSwitching, switchToCorrectNetwork])
 
   return {
-    address: address ?? null,
-    isConnected,
+    address: normalizedAddress,
+    isConnected: isConnected && normalizedAddress !== null,
     isConnecting,
     isWrongNetwork,
     walletClient,

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
+import { readProjectById } from '../lib/projectReads'
 import { Timeline, getSubmissionTimeline } from '../components/shared/Timeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
 import { MetaRow, NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
@@ -34,25 +35,6 @@ type SubmissionTuple = readonly [
   challenged: boolean,
   challenger: Address,
   challengeBond: bigint
-]
-
-type ProjectTuple = readonly [
-  owner: Address,
-  bountyPool: bigint,
-  maxPayoutPerBug: bigint,
-  targetContract: Address,
-  forkBlock: bigint,
-  active: boolean,
-  mode: number,
-  commitDeadline: bigint,
-  revealDeadline: bigint,
-  disputeWindow: bigint,
-  rulesHash: `0x${string}`,
-  vnetStatus: number,
-  vnetRpcUrl: string,
-  baseSnapshotId: `0x${string}`,
-  vnetCreatedAt: bigint,
-  repoUrl: string
 ]
 
 const STATUS_LABELS = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
@@ -104,27 +86,7 @@ export function SubmissionDetail() {
         }
         setSubmission(fetchedSubmission)
 
-        const projData = await publicClient.readContract({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'projects',
-          args: [fetchedSubmission.projectId]
-        }) as ProjectTuple
-
-        const fetchedProject: Project = {
-          id: fetchedSubmission.projectId,
-          owner: projData[0],
-          bountyPool: projData[1],
-          maxPayoutPerBug: projData[2],
-          targetContract: projData[3],
-          forkBlock: projData[4],
-          active: projData[5],
-          mode: projData[6],
-          commitDeadline: projData[7],
-          revealDeadline: projData[8],
-          disputeWindow: projData[9],
-          rulesHash: projData[10]
-        }
+        const fetchedProject: Project = await readProjectById(fetchedSubmission.projectId)
         setProject(fetchedProject)
       } catch (err) {
         console.error('Failed to fetch submission:', err)

@@ -2,6 +2,8 @@ import { useCallback, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import { normalizeEthereumAddress } from "../lib/address";
+import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
 import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
@@ -48,18 +50,42 @@ interface SubmitPoCResult {
 
 export const usePoCSubmission = () => {
 	const [state, setState] = useState<SubmissionState>({ phase: "idle" });
-	const { address, walletClient, publicClient, isConnected } = useWallet();
+	const { address, walletClient, publicClient, isConnected } = useWallet({
+		autoSwitchToSepolia: false,
+	});
 
 	const setFailed = useCallback((message: string) => {
 		setState((s) => ({ ...s, phase: "failed", error: message }));
 	}, []);
+
+	const resolveWalletAddress = useCallback(async (): Promise<`0x${string}` | null> => {
+		const fromHook = normalizeEthereumAddress(address);
+		if (fromHook) return fromHook;
+
+		const fromClientAccount = normalizeEthereumAddress(walletClient?.account?.address);
+		if (fromClientAccount) return fromClientAccount;
+
+		if (walletClient && "getAddresses" in walletClient) {
+			try {
+				const [firstAddress] = await walletClient.getAddresses();
+				const fromClientAddresses = normalizeEthereumAddress(firstAddress);
+				if (fromClientAddresses) return fromClientAddresses;
+			} catch (err) {
+				console.warn("Unable to resolve wallet address via getAddresses:", err);
+			}
+		}
+
+		return null;
+	}, [address, walletClient]);
 
 	const submitPoC = useCallback(
 		async (
 			projectId: bigint,
 			pocData: string,
 		): Promise<SubmitPoCResult | undefined> => {
-			if (!isConnected || !walletClient || !publicClient || !address) {
+			const walletAddress = await resolveWalletAddress();
+
+			if (!isConnected || !walletClient || !publicClient || !walletAddress) {
 				setFailed(
 					"Wallet not connected. Connect your wallet and retry submission.",
 				);
@@ -81,13 +107,13 @@ export const usePoCSubmission = () => {
 				const uploadResult = await uploadEncryptedPoC({
 					poc: pocData,
 					projectId,
-					auditor: address as `0x${string}`,
+					auditor: walletAddress,
 				});
 				const { cipherURI, decryptionKey } = uploadResult;
 				const cipherHash = keccak256(toBytes(cipherURI));
 				const commitHash = computeCommitHash(
 					cipherHash,
-					address as Address,
+					walletAddress as Address,
 					salt,
 				);
 
@@ -101,7 +127,7 @@ export const usePoCSubmission = () => {
 				}));
 
 				const { request } = await publicClient.simulateContract({
-					account: address,
+					account: walletAddress,
 					address: BOUNTY_HUB_ADDRESS,
 					abi: BOUNTY_HUB_V2_ABI,
 					functionName: "commitPoC",
@@ -144,17 +170,17 @@ export const usePoCSubmission = () => {
 					queuedRevealTxHash = await queueRevealIfEnabled({
 						publicClient,
 						walletClient,
-						auditor: address,
+						auditor: walletAddress,
 						projectId,
 						submissionId,
 						salt,
 						decryptionKey,
 					});
 				} catch (queueErr: unknown) {
-					const queueMessage =
-						queueErr instanceof Error
-							? queueErr.message
-							: "unknown queue error";
+					const queueMessage = extractErrorMessage(
+						queueErr,
+						"unknown queue error",
+					);
 					console.warn("Optional auto-reveal queue failed:", queueErr);
 					queueFailed = true;
 					setState((s) => ({
@@ -193,7 +219,7 @@ export const usePoCSubmission = () => {
 				setState((s) => ({ ...s, phase: "revealing" }));
 
 				const { request: revealRequest } = await publicClient.simulateContract({
-					account: address,
+					account: walletAddress,
 					address: BOUNTY_HUB_ADDRESS,
 					abi: BOUNTY_HUB_V2_ABI,
 					functionName: "revealPoC",
@@ -215,12 +241,15 @@ export const usePoCSubmission = () => {
 				};
 			} catch (err: unknown) {
 				console.error("Submission error:", err);
-				const message = err instanceof Error ? err.message : "unknown error";
-				setFailed(`Submission failed: ${message}. Reset and try again.`);
+				const message = extractErrorMessage(err);
+				const normalizedMessage = message.includes("must provide an Ethereum address")
+					? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
+					: message;
+				setFailed(`Submission failed: ${normalizedMessage}. Reset and try again.`);
 				return undefined;
 			}
 		},
-		[isConnected, walletClient, publicClient, address, setFailed],
+		[isConnected, walletClient, publicClient, resolveWalletAddress, setFailed],
 	);
 
 	const reset = useCallback(() => {

@@ -131,7 +131,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
     submitPoC
   } = usePoCSubmission()
 
-  const { isConnected, connect } = useWallet()
+  const { isConnected, connect } = useWallet({ autoSwitchToSepolia: false })
 
   const pocJson = useMemo(() => generatePoCJSON(), [generatePoCJSON])
 
@@ -266,30 +266,28 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
               onBack={handleBack}
               projectId={submissionProjectId}
               useV2={true}
-              showBackButton={false}
+              showBackButton={true}
             />
           </StepSurface>
         </div>
       </NeonPanel>
 
-      <div className="mt-4 flex shrink-0 justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4">
-        <Button
-          type="button"
-          onClick={handleBack}
-          disabled={activeStep === firstStep}
-          variant="outline"
-          className={cn('btn-cyber', activeStep === firstStep && 'opacity-50 cursor-not-allowed')}
-        >
-          [ PREVIOUS ]
-        </Button>
-        {activeStep < lastStep ? (
+      {activeStep < lastStep ? (
+        <div className="mt-4 flex shrink-0 justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4">
+          <Button
+            type="button"
+            onClick={handleBack}
+            disabled={activeStep === firstStep}
+            variant="outline"
+            className={cn('btn-cyber', activeStep === firstStep && 'opacity-50 cursor-not-allowed')}
+          >
+            [ PREVIOUS ]
+          </Button>
           <Button type="button" onClick={handleNext} className="btn-cyber">
             [ NEXT ]
           </Button>
-        ) : (
-          <span className="min-w-[116px]" aria-hidden />
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {/* Template Selection Modal for DummyVault */}
       {showTemplateModal && (

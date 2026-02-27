@@ -2,6 +2,8 @@ import { useCallback, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import { normalizeEthereumAddress } from "../lib/address";
+import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
 import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
@@ -42,11 +44,33 @@ interface CommitState {
 
 export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 	const [state, setState] = useState<CommitState>({ phase: "idle" });
-	const { address, walletClient, publicClient, isConnected } = useWallet();
+	const { address, walletClient, publicClient, isConnected } = useWallet({
+		autoSwitchToSepolia: false,
+	});
 
 	const setFailed = useCallback((message: string) => {
 		setState((s) => ({ ...s, phase: "failed", error: message }));
 	}, []);
+
+	const resolveWalletAddress = useCallback(async (): Promise<`0x${string}` | null> => {
+		const fromHook = normalizeEthereumAddress(address);
+		if (fromHook) return fromHook;
+
+		const fromClientAccount = normalizeEthereumAddress(walletClient?.account?.address);
+		if (fromClientAccount) return fromClientAccount;
+
+		if (walletClient && "getAddresses" in walletClient) {
+			try {
+				const [firstAddress] = await walletClient.getAddresses();
+				const fromClientAddresses = normalizeEthereumAddress(firstAddress);
+				if (fromClientAddresses) return fromClientAddresses;
+			} catch (err) {
+				console.warn("Unable to resolve wallet address via getAddresses:", err);
+			}
+		}
+
+		return null;
+	}, [address, walletClient]);
 
 	const commit = useCallback(async () => {
 		if (projectId === null) {
@@ -56,7 +80,9 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			return;
 		}
 
-		if (!isConnected || !walletClient || !publicClient || !address) {
+		const walletAddress = await resolveWalletAddress();
+
+		if (!isConnected || !walletClient || !publicClient || !walletAddress) {
 			setFailed("Wallet not connected. Connect your wallet and retry commit.");
 			return;
 		}
@@ -76,13 +102,13 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			const uploadResult = await uploadEncryptedPoC({
 				poc: pocJson,
 				projectId,
-				auditor: address as `0x${string}`,
+				auditor: walletAddress,
 			});
 			const { cipherURI, decryptionKey } = uploadResult;
 			const cipherHash = keccak256(toBytes(cipherURI));
 			const commitHash = computeCommitHash(
 				cipherHash,
-				address as Address,
+				walletAddress as Address,
 				salt,
 			);
 
@@ -96,7 +122,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}));
 
 			const { request } = await publicClient.simulateContract({
-				account: address,
+				account: walletAddress,
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "commitPoC",
@@ -142,15 +168,14 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				queuedRevealTxHash = await queueRevealIfEnabled({
 					publicClient,
 					walletClient,
-					auditor: address,
+					auditor: walletAddress,
 					projectId,
 					submissionId,
 					salt,
 					decryptionKey,
 				});
 			} catch (queueErr: unknown) {
-				const queueMessage =
-					queueErr instanceof Error ? queueErr.message : "unknown queue error";
+				const queueMessage = extractErrorMessage(queueErr, "unknown queue error");
 				console.warn("Optional auto-reveal queue failed:", queueErr);
 				setState((s) => ({
 					...s,
@@ -170,21 +195,26 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}
 		} catch (err: unknown) {
 			console.error("Commit error:", err);
-			const message = err instanceof Error ? err.message : "unknown error";
-			setFailed(`Commit failed: ${message}. Reset and try again.`);
+			const message = extractErrorMessage(err);
+			const normalizedMessage = message.includes("must provide an Ethereum address")
+				? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
+				: message;
+			setFailed(`Commit failed: ${normalizedMessage}. Reset and try again.`);
 		}
 	}, [
 		isConnected,
 		walletClient,
 		publicClient,
-		address,
 		projectId,
 		pocJson,
+		resolveWalletAddress,
 		setFailed,
 	]);
 
 	const reveal = useCallback(async () => {
-		if (!isConnected || !walletClient || !publicClient || !address) {
+		const walletAddress = await resolveWalletAddress();
+
+		if (!isConnected || !walletClient || !publicClient || !walletAddress) {
 			setFailed("Wallet not connected. Connect your wallet and retry reveal.");
 			return;
 		}
@@ -204,7 +234,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}
 
 			const { request } = await publicClient.simulateContract({
-				account: address,
+				account: walletAddress,
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "revealPoC",
@@ -220,17 +250,20 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			setState((s) => ({ ...s, phase: "revealed" }));
 		} catch (err: unknown) {
 			console.error("Reveal error:", err);
-			const message = err instanceof Error ? err.message : "unknown error";
-			setFailed(`Reveal failed: ${message}. Reset and retry reveal.`);
+			const message = extractErrorMessage(err);
+			const normalizedMessage = message.includes("must provide an Ethereum address")
+				? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
+				: message;
+			setFailed(`Reveal failed: ${normalizedMessage}. Reset and retry reveal.`);
 		}
 	}, [
 		isConnected,
 		walletClient,
 		publicClient,
-		address,
 		state.submissionId,
 		state.decryptionKey,
 		state.salt,
+		resolveWalletAddress,
 		setFailed,
 	]);
 

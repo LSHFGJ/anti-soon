@@ -21,26 +21,26 @@ vi.mock('viem', async () => {
 
 import { Landing } from '../pages/Landing'
 
-function buildTuple(params: { id: bigint; active: boolean; mode: number; bountyPool: bigint }) {
+function buildProjectRow(params: { id: bigint; active: boolean; mode: number; bountyPool: bigint }) {
   const baseAddress = `0x${params.id.toString().padStart(40, '0')}` as `0x${string}`
-  return [
-    baseAddress,
-    params.bountyPool,
-    1_000_000_000_000_000_000n,
-    `0x${'2'.repeat(40)}` as `0x${string}`,
-    20_000_000n + params.id,
-    params.active,
-    params.mode,
-    0n,
-    0n,
-    0n,
-    `0x${'0'.repeat(64)}` as `0x${string}`,
-    2,
-    'https://rpc.tenderly.co/fork/mock',
-    `0x${'a'.repeat(64)}` as `0x${string}`,
-    1_900_000_000n,
-    `https://github.com/mock/repo-${params.id.toString()}`,
-  ] as const
+  return {
+    owner: baseAddress,
+    bountyPool: params.bountyPool,
+    maxPayoutPerBug: 1_000_000_000_000_000_000n,
+    targetContract: `0x${'2'.repeat(40)}` as `0x${string}`,
+    forkBlock: 20_000_000n + params.id,
+    active: params.active,
+    mode: params.mode,
+    commitDeadline: 0n,
+    revealDeadline: 0n,
+    disputeWindow: 0n,
+    rulesHash: `0x${'0'.repeat(64)}` as `0x${string}`,
+    vnetStatus: 2,
+    vnetRpcUrl: 'https://rpc.tenderly.co/fork/mock',
+    baseSnapshotId: `0x${'a'.repeat(64)}` as `0x${string}`,
+    vnetCreatedAt: 1_900_000_000n,
+    repoUrl: `https://github.com/mock/repo-${params.id.toString()}`,
+  } as const
 }
 
 describe('Landing featured projects', () => {
@@ -57,9 +57,9 @@ describe('Landing featured projects', () => {
   it('renders featured cards from on-chain project reads instead of hardcoded demo list', async () => {
     mockReadContract.mockResolvedValue(3n)
     mockMulticall.mockResolvedValue([
-      buildTuple({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
-      buildTuple({ id: 1n, active: false, mode: 1, bountyPool: 6_000_000_000_000_000_000n }),
-      buildTuple({ id: 2n, active: true, mode: 1, bountyPool: 7_000_000_000_000_000_000n }),
+      buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
+      buildProjectRow({ id: 1n, active: false, mode: 1, bountyPool: 6_000_000_000_000_000_000n }),
+      buildProjectRow({ id: 2n, active: true, mode: 1, bountyPool: 7_000_000_000_000_000_000n }),
     ])
 
     renderWithRouter(<Landing />)

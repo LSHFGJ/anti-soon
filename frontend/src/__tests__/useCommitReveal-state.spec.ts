@@ -91,6 +91,109 @@ describe("commit/reveal lifecycle state model", () => {
 		expect(result.current.state.error).toContain("Wallet not connected");
 	});
 
+	it("accepts CAIP-formatted wallet addresses during commit", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "eip155:11155111:0x1111111111111111111111111111111111111111",
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
+			expect.objectContaining({
+				auditor: "0x1111111111111111111111111111111111111111",
+			}),
+		);
+	});
+
+	it("resolves wallet address from walletClient.getAddresses when hook address is malformed", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "wallet:malformed",
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+				getAddresses: vi
+					.fn()
+					.mockResolvedValue(["0x1111111111111111111111111111111111111111"]),
+			},
+			publicClient: {
+				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
+			expect.objectContaining({
+				auditor: "0x1111111111111111111111111111111111111111",
+			}),
+		);
+	});
+
+	it("maps provider-style non-Error objects to actionable commit errors", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {},
+			publicClient: {},
+			isConnected: true,
+		});
+		mockUploadEncryptedPoC.mockRejectedValue({
+			shortMessage: "User rejected the request",
+			code: 4001,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain("User rejected the request");
+		expect(result.current.state.error).not.toContain("unknown error");
+	});
+
+	it("normalizes invalid-address commit errors to actionable wallet guidance", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {},
+			publicClient: {},
+			isConnected: true,
+		});
+		mockUploadEncryptedPoC.mockRejectedValue({
+			shortMessage: "Invalid parameters: must provide an Ethereum address.",
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain(
+			"Wallet returned an invalid address (wallet=0x1111111111111111111111111111111111111111, bountyHub=",
+		);
+	});
+
 	it("uses deterministic commit transition ordering and supports reset recovery", async () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;

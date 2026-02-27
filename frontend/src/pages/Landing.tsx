@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Link } from 'react-router-dom'
 import { formatEther } from 'viem'
-import type { Address } from 'viem'
 import { buildPreviewProject, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
 import { Hero } from '../components/Hero'
 import { HowItWorks } from '../components/HowItWorks'
@@ -11,26 +10,8 @@ import { StatCardSkeletonGrid } from '../components/skeletons/StatCardSkeleton'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { pageTransition, slideUp, staggerChild, staggerContainer } from '../lib/animations'
 import { publicClient } from '../lib/publicClient'
+import { readProjectsByIds } from '../lib/projectReads'
 import type { Project } from '../types'
-
-type ProjectTuple = readonly [
-  owner: Address,
-  bountyPool: bigint,
-  maxPayoutPerBug: bigint,
-  targetContract: Address,
-  forkBlock: bigint,
-  active: boolean,
-  mode: number,
-  commitDeadline: bigint,
-  revealDeadline: bigint,
-  disputeWindow: bigint,
-  rulesHash: `0x${string}`,
-  vnetStatus: number,
-  vnetRpcUrl: string,
-  baseSnapshotId: `0x${string}`,
-  vnetCreatedAt: bigint,
-  repoUrl: string,
-]
 
 const AnimatedSection = ({ 
   children, 
@@ -178,32 +159,8 @@ const FeaturedProjectsSection = () => {
         return
       }
 
-      const contracts = Array.from({ length: Number(nextProjectId) }, (_, index) => ({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'projects' as const,
-        args: [BigInt(index)] as const,
-      }))
-
-      const result = await publicClient.multicall({
-        contracts,
-        allowFailure: false,
-      }) as ProjectTuple[]
-
-      const fetchedProjects: Project[] = result.map((data, index) => ({
-        id: BigInt(index),
-        owner: data[0],
-        bountyPool: data[1],
-        maxPayoutPerBug: data[2],
-        targetContract: data[3],
-        forkBlock: data[4],
-        active: data[5],
-        mode: data[6],
-        commitDeadline: data[7],
-        revealDeadline: data[8],
-        disputeWindow: data[9],
-        rulesHash: data[10],
-      }))
+      const projectIds = Array.from({ length: Number(nextProjectId) }, (_, index) => BigInt(index))
+      const fetchedProjects: Project[] = await readProjectsByIds(projectIds)
 
       setProjects(fetchedProjects.filter((project) => project.active).slice(0, 3))
     } catch (err) {

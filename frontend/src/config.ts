@@ -1,13 +1,94 @@
 import { sepolia } from "viem/chains";
+import { getAddress, isAddress } from "viem";
 
-const DEFAULT_BOUNTY_HUB_ADDRESS = "0x8b12D6F28453be1eEf2D5ff151df3a2eE68d7f97";
+const DEFAULT_BOUNTY_HUB_ADDRESS = "0x5321D42233E9C90287c9B8Af5ece082F70f225C0";
 
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
 		.env ?? {};
 
-export const BOUNTY_HUB_ADDRESS = (ENV.VITE_BOUNTY_HUB_ADDRESS?.trim() ||
-	DEFAULT_BOUNTY_HUB_ADDRESS) as `0x${string}`;
+const configuredBountyHubAddress = ENV.VITE_BOUNTY_HUB_ADDRESS?.trim();
+
+export const BOUNTY_HUB_ADDRESS = (() => {
+	if (!configuredBountyHubAddress) {
+		return getAddress(DEFAULT_BOUNTY_HUB_ADDRESS) as `0x${string}`;
+	}
+
+	if (!isAddress(configuredBountyHubAddress)) {
+		console.warn(
+			"Invalid VITE_BOUNTY_HUB_ADDRESS detected, falling back to default BountyHub address.",
+		);
+		return getAddress(DEFAULT_BOUNTY_HUB_ADDRESS) as `0x${string}`;
+	}
+
+	return getAddress(configuredBountyHubAddress) as `0x${string}`;
+})();
+
+export const BOUNTY_HUB_PROJECTS_V4_ABI = [
+	{
+		name: "projects",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "uint256" }],
+		outputs: [
+			{
+				name: "project",
+				type: "tuple",
+				components: [
+					{ name: "owner", type: "address" },
+					{ name: "bountyPool", type: "uint256" },
+					{ name: "maxPayoutPerBug", type: "uint256" },
+					{ name: "targetContract", type: "address" },
+					{ name: "forkBlock", type: "uint256" },
+					{ name: "active", type: "bool" },
+					{ name: "mode", type: "uint8" },
+					{ name: "commitDeadline", type: "uint256" },
+					{ name: "revealDeadline", type: "uint256" },
+					{ name: "disputeWindow", type: "uint256" },
+					{ name: "rulesHash", type: "bytes32" },
+					{ name: "vnetStatus", type: "uint8" },
+					{ name: "vnetRpcUrl", type: "string" },
+					{ name: "baseSnapshotId", type: "bytes32" },
+					{ name: "vnetCreatedAt", type: "uint256" },
+					{ name: "repoUrl", type: "string" },
+				],
+			},
+		],
+	},
+] as const;
+
+export const BOUNTY_HUB_PROJECTS_LEGACY_ABI = [
+	{
+		name: "projects",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "uint256" }],
+		outputs: [
+			{
+				name: "project",
+				type: "tuple",
+				components: [
+					{ name: "owner", type: "address" },
+					{ name: "bountyPool", type: "uint256" },
+					{ name: "maxPayoutPerBug", type: "uint256" },
+					{ name: "targetContract", type: "address" },
+					{ name: "forkBlock", type: "uint256" },
+					{ name: "active", type: "bool" },
+					{ name: "mode", type: "uint8" },
+					{ name: "commitDeadline", type: "uint256" },
+					{ name: "revealDeadline", type: "uint256" },
+					{ name: "disputeWindow", type: "uint256" },
+					{ name: "rulesHash", type: "bytes32" },
+					{ name: "projectPublicKey", type: "bytes" },
+					{ name: "vnetStatus", type: "uint8" },
+					{ name: "vnetRpcUrl", type: "string" },
+					{ name: "baseSnapshotId", type: "bytes32" },
+					{ name: "vnetCreatedAt", type: "uint256" },
+				],
+			},
+		],
+	},
+] as const;
 
 // V1 ABI - kept for backward compatibility
 export const BOUNTY_HUB_ABI = [
@@ -406,36 +487,35 @@ export const DEMO_PROJECTS = [
 ];
 
 export const H01_POC_TEMPLATE = {
-	target: "0xPanopticPool",
-	chain: "Mainnet",
-	forkBlock: 18963715,
+	target: "0x1111111111111111111111111111111111111111",
+	chain: "Sepolia",
+	forkBlock: 6500000,
 	conditions: [
 		{
 			id: "cond-1",
-			type: "fork",
-			network: "mainnet",
-			blockNumber: 18963715,
+			type: "setTimestamp",
+			value: "1730000000",
 		},
 		{
 			id: "cond-2",
-			type: "deploy",
-			contract: "PanopticPool",
-			constructorArgs: [],
+			type: "setBalance",
+			target: "0x2222222222222222222222222222222222222222",
+			value: "1000000000000000000",
 		},
 	],
 	transactions: [
 		{
 			id: "tx-1",
-			to: "0xPanopticPool",
+			to: "0x1111111111111111111111111111111111111111",
 			value: "0",
-			data: "0x...",
+			data: "0x",
 		},
 	],
 	impact: {
-		type: "protocol_loss",
-		estimatedLoss: "0",
+		type: "stateCorruption",
+		estimatedLoss: "1000000000000000000",
 		description:
-			"H-01: POC pending audit report publication. Check demo-data/pocs/H-01.t.sol for template.",
+			"Example exploit flow for builder smoke testing with valid schema fields.",
 	},
 };
 
@@ -446,34 +526,32 @@ export const DUMMYVAULT_POC_TEMPLATES = {
 		description:
 			"Withdraw function updates state after transfer, allowing reentrancy",
 		template: {
-			target: "DummyVault",
-			chain: 31337,
-			forkBlock: 0,
-			setup: [
-				{ type: "deploy", contract: "MockERC20", value: "0" },
-				{ type: "deploy", contract: "DummyVault", value: "0" },
+			target: "0x3333333333333333333333333333333333333333",
+			chain: "Sepolia",
+			forkBlock: 6500000,
+			conditions: [
 				{
 					type: "setBalance",
-					address: "0xAttacker",
-					value: "1000000000000000000000",
+					target: "0x4444444444444444444444444444444444444444",
+					value: "1000000000000000000",
 				},
 			],
 			transactions: [
 				{
-					to: "DummyVault",
-					data: "deposit(1000000000000000000000)",
+					to: "0x3333333333333333333333333333333333333333",
+					data: "0x",
 					value: "0",
 				},
 				{
-					to: "DummyVault",
-					data: "withdraw(1000000000000000000000)",
+					to: "0x3333333333333333333333333333333333333333",
+					data: "0x",
 					value: "0",
 				},
 			],
-			expectedImpact: {
+			impact: {
 				type: "fundsDrained",
-				estimatedLoss: "1000000000000000000000",
-				description: "Reentrancy allows draining funds before state update",
+				estimatedLoss: "1000000000000000000",
+				description: "Reentrancy path example using builder-compatible fields.",
 			},
 		},
 	},
@@ -483,16 +561,23 @@ export const DUMMYVAULT_POC_TEMPLATES = {
 		description:
 			"updatePrice() has no access control, anyone can manipulate oracle",
 		template: {
-			target: "DummyVault",
-			chain: 31337,
-			forkBlock: 0,
-			setup: [{ type: "deploy", contract: "DummyVault", value: "0" }],
-			transactions: [{ to: "DummyVault", data: "updatePrice(1)", value: "0" }],
-			expectedImpact: {
+			target: "0x3333333333333333333333333333333333333333",
+			chain: "Sepolia",
+			forkBlock: 6500000,
+			conditions: [
+				{
+					type: "setStorage",
+					target: "0x3333333333333333333333333333333333333333",
+					slot: "0x0",
+					value: "0x01",
+				},
+			],
+			transactions: [{ to: "0x3333333333333333333333333333333333333333", data: "0x", value: "0" }],
+			impact: {
 				type: "stateCorruption",
-				estimatedLoss: "1000000000000000000000000",
+				estimatedLoss: "500000000000000000",
 				description:
-					"Price can be manipulated to steal funds via inflated share value",
+					"Access-control bypass example represented in current builder schema.",
 			},
 		},
 	},
@@ -502,25 +587,23 @@ export const DUMMYVAULT_POC_TEMPLATES = {
 		description:
 			"emergencyWithdraw() has no access control, anyone can drain all funds",
 		template: {
-			target: "DummyVault",
-			chain: 31337,
-			forkBlock: 0,
-			setup: [
-				{ type: "deploy", contract: "MockERC20", value: "0" },
-				{ type: "deploy", contract: "DummyVault", value: "0" },
+			target: "0x3333333333333333333333333333333333333333",
+			chain: "Sepolia",
+			forkBlock: 6500000,
+			conditions: [
 				{
-					type: "deposit",
-					address: "0xVictim",
-					value: "1000000000000000000000",
+					type: "setBalance",
+					target: "0x5555555555555555555555555555555555555555",
+					value: "3000000000000000000",
 				},
 			],
 			transactions: [
-				{ to: "DummyVault", data: "emergencyWithdraw()", value: "0" },
+				{ to: "0x3333333333333333333333333333333333333333", data: "0x", value: "0" },
 			],
-			expectedImpact: {
+			impact: {
 				type: "fundsDrained",
-				estimatedLoss: "1000000000000000000000",
-				description: "All vault funds stolen by unauthorized caller",
+				estimatedLoss: "3000000000000000000",
+				description: "Emergency-withdraw abuse example with valid builder fields.",
 			},
 		},
 	},
@@ -530,29 +613,29 @@ export const DUMMYVAULT_POC_TEMPLATES = {
 		description:
 			"Attacker can inflate price to drain more funds than deposited",
 		template: {
-			target: "DummyVault",
-			chain: 31337,
-			forkBlock: 0,
-			setup: [
-				{ type: "deploy", contract: "DummyVault", value: "0" },
+			target: "0x3333333333333333333333333333333333333333",
+			chain: "Sepolia",
+			forkBlock: 6500000,
+			conditions: [
 				{
-					type: "deposit",
-					address: "0xVictim",
-					value: "1000000000000000000000",
+					type: "setStorage",
+					target: "0x3333333333333333333333333333333333333333",
+					slot: "0x1",
+					value: "0x02",
 				},
 			],
 			transactions: [
 				{
-					to: "DummyVault",
-					data: "updatePrice(1000000000000000000000)",
+					to: "0x3333333333333333333333333333333333333333",
+					data: "0x",
 					value: "0",
 				},
-				{ to: "DummyVault", data: "getShareValue(0xVictim)", value: "0" },
+				{ to: "0x3333333333333333333333333333333333333333", data: "0x", value: "0" },
 			],
-			expectedImpact: {
+			impact: {
 				type: "stateCorruption",
-				estimatedLoss: "999000000000000000000000",
-				description: "Share value inflated 1000x, enabling massive theft",
+				estimatedLoss: "2000000000000000000",
+				description: "Oracle-manipulation example compatible with current builder flow.",
 			},
 		},
 	},

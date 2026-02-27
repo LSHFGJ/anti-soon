@@ -30,6 +30,11 @@ export function createMockProject(overrides: Partial<Project> = {}): Project {
     revealDeadline: now + ONE_DAY_SECONDS * 2n,
     disputeWindow: ONE_DAY_SECONDS,
     rulesHash: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
+    vnetStatus: 2,
+    vnetRpcUrl: '',
+    baseSnapshotId: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
+    vnetCreatedAt: now,
+    repoUrl: '',
     ...overrides
   }
 }
@@ -132,7 +137,12 @@ export function setupProjectMocks(projects: Project[], rules?: ProjectRules) {
         project.commitDeadline,
         project.revealDeadline,
         project.disputeWindow,
-        project.rulesHash
+        project.rulesHash,
+        project.vnetStatus,
+        project.vnetRpcUrl,
+        project.baseSnapshotId,
+        project.vnetCreatedAt,
+        project.repoUrl,
       ]
     }
     if (functionName === 'projectRules') {

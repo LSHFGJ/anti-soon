@@ -1,5 +1,10 @@
 import type { Address, PublicClient, WalletClient } from "viem";
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import {
+	BOUNTY_HUB_ADDRESS,
+	BOUNTY_HUB_PROJECTS_LEGACY_ABI,
+	BOUNTY_HUB_PROJECTS_V4_ABI,
+	BOUNTY_HUB_V2_ABI,
+} from "../config";
 
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
@@ -17,12 +22,6 @@ const QUEUE_REVEAL_BY_SIG_TYPES = {
 		{ name: "deadline", type: "uint256" },
 	],
 } as const;
-
-function readBigInt(value: unknown): bigint {
-	if (typeof value === "bigint") return value;
-	if (typeof value === "number") return BigInt(value);
-	throw new Error("Expected bigint-compatible value");
-}
 
 export async function queueRevealIfEnabled({
 	publicClient,
@@ -45,15 +44,29 @@ export async function queueRevealIfEnabled({
 		return null;
 	}
 
-	const projectData = (await publicClient.readContract({
-		address: BOUNTY_HUB_ADDRESS,
-		abi: BOUNTY_HUB_V2_ABI,
-		functionName: "projects",
-		args: [projectId],
-	})) as readonly unknown[];
+	const readProjectWindow = async (): Promise<{ mode: bigint; revealDeadline: bigint }> => {
+		try {
+			const project = (await publicClient.readContract({
+				address: BOUNTY_HUB_ADDRESS,
+				abi: BOUNTY_HUB_PROJECTS_V4_ABI,
+				functionName: "projects",
+				args: [projectId],
+			})) as { mode: number; revealDeadline: bigint };
 
-	const mode = readBigInt(projectData[6]);
-	const revealDeadline = readBigInt(projectData[8]);
+			return { mode: BigInt(project.mode), revealDeadline: project.revealDeadline };
+		} catch {
+			const project = (await publicClient.readContract({
+				address: BOUNTY_HUB_ADDRESS,
+				abi: BOUNTY_HUB_PROJECTS_LEGACY_ABI,
+				functionName: "projects",
+				args: [projectId],
+			})) as { mode: number; revealDeadline: bigint };
+
+			return { mode: BigInt(project.mode), revealDeadline: project.revealDeadline };
+		}
+	};
+
+	const { mode, revealDeadline } = await readProjectWindow();
 
 	if (mode !== 1n || revealDeadline === 0n) {
 		return null;
