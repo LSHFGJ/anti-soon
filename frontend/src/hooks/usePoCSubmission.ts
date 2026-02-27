@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
-import { uploadEncryptedPoC } from "../lib/ipfsUpload";
+import { uploadEncryptedPoC } from "../lib/oasisUpload";
 import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
 	computeCommitHash,

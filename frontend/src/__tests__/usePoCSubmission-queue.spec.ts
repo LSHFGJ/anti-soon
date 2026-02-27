@@ -16,7 +16,7 @@ vi.mock("../utils/encryption", () => ({
 	computeCommitHash: (...args: unknown[]) => mockComputeCommitHash(...args),
 }));
 
-vi.mock("../lib/ipfsUpload", () => ({
+vi.mock("../lib/oasisUpload", () => ({
 	uploadEncryptedPoC: (...args: unknown[]) => mockUploadEncryptedPoC(...args),
 }));
 

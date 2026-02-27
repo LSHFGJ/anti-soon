@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { uploadEncryptedPoC } from '../lib/ipfsUpload'
+import { uploadEncryptedPoC } from '../lib/oasisUpload'
 
 type ProviderRequest = {
   method: string
