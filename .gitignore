@@ -49,6 +49,8 @@ tmp.wasm
 generate_test.py
 test.svg
 logo/
+!frontend/public/logo/
+!frontend/public/logo/*.svg
 workflow/**/.cre_build_tmp.js
 workflow/**/tmp-min.*
 

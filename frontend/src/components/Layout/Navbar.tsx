@@ -48,12 +48,19 @@ export function Navbar() {
       ref={navRef}
       className="fixed top-0 left-0 right-0 z-50 h-auto md:h-[70px] flex items-center justify-between md:justify-between gap-2 px-3 sm:px-4 md:px-8 py-2 md:py-0 flex-wrap md:flex-nowrap bg-[var(--color-bg-panel)] backdrop-blur-md border-b border-neutral-800 shadow-[0_0_40px_rgba(124,58,237,0.4)]"
     >
-      <Link to="/" className="order-1 flex items-end gap-2.5 no-underline group flex-shrink-0">
-        <span className="font-mono text-base sm:text-lg md:text-xl font-bold text-[var(--color-primary)] transition-all duration-200 ease-linear group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]">
-          ANTI-SOON
-        </span>
+      <Link to="/" className="order-1 flex items-center gap-2.5 no-underline group flex-shrink-0">
+        <img
+          src="/logo/antisoon-logo-horizontal.svg"
+          alt="AntiSoon"
+          className="hidden sm:block h-6 md:h-7 w-auto transition-all duration-200 ease-linear group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]"
+        />
+        <img
+          src="/logo/antisoon-logo-compact.svg"
+          alt="AntiSoon"
+          className="sm:hidden h-7 w-auto transition-all duration-200 ease-linear group-hover:drop-shadow-[0_0_15px_var(--color-primary-glow)]"
+        />
         <span className="hidden sm:inline pb-0.5 font-mono text-[0.7rem] text-[var(--color-text-dim)]">
-          v2.0
+          beta
         </span>
       </Link>
 
