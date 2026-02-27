@@ -61,7 +61,7 @@ export function createMockSubmission(overrides: Partial<Submission> = {}): Submi
     auditor: '0x9876543210987654321098765432109876543210' as Address,
     projectId: 0n,
     commitHash: '0x1111111111111111111111111111111111111111111111111111111111111111' as `0x${string}`,
-    cipherURI: 'ipfs://QmTest',
+    cipherURI: 'oasis://test/mock-submission',
     decryptionKey: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
     salt: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
     commitTimestamp: now - ONE_HOUR_SECONDS,

@@ -10,7 +10,7 @@ function makeSubmission(overrides: Partial<Submission>): Submission {
     auditor: '0x0000000000000000000000000000000000000001',
     projectId: 1n,
     commitHash: zeroBytes32,
-    cipherURI: 'ipfs://poc',
+    cipherURI: 'oasis://mock/poc',
     decryptionKey: zeroBytes32,
     salt: zeroBytes32,
     commitTimestamp: 1n,

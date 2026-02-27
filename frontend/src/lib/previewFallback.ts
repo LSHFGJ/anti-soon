@@ -76,7 +76,7 @@ export function buildPreviewSubmission(
     auditor,
     projectId,
     commitHash: ZERO_HASH,
-    cipherURI: 'ipfs://preview-fallback',
+    cipherURI: 'oasis://preview/fallback',
     decryptionKey: ZERO_HASH,
     salt: ZERO_HASH,
     commitTimestamp: now - 3_600n,

@@ -35,7 +35,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
       .map(c => ({
         address: c.address as `0x${string}`,
         name: c.name,
-        ipfsCid: '', // Will be populated by CRE workflow
+        artifactRef: '',
         verified: c.verified ?? false,
       }))
     
@@ -49,7 +49,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
     const scopes: ContractScope[] = contracts.map(c => ({
       address: c.address as `0x${string}`,
       name: c.name,
-      ipfsCid: '',
+      artifactRef: '',
       verified: c.verified ?? false,
     }))
     
@@ -65,6 +65,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
     return (
       <div className="p-6 border border-neutral-800 bg-neutral-900/80 text-center text-neutral-400">
         <svg className="w-8 h-8 mx-auto mb-2 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <title>No contracts available</title>
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
         <p>No deployed contracts to scope</p>
@@ -81,12 +82,14 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
         </p>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={selectAll}
             className="text-xs px-3 py-1 text-green-400 hover:text-green-300 border border-green-500/50 hover:border-green-500 transition-colors"
           >
             Select All
           </button>
           <button
+            type="button"
             onClick={deselectAll}
             className="text-xs px-3 py-1 text-neutral-400 hover:text-neutral-300 border border-neutral-700 hover:border-neutral-600 transition-colors"
           >
@@ -103,6 +106,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
 
           return (
             <button
+              type="button"
               key={contract.address}
               onClick={() => toggleContract(contract)}
               className={`w-full text-left p-4 border transition-all duration-200 ${
@@ -120,6 +124,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
                 }`}>
                   {isSelected && (
                     <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <title>Selected</title>
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                   )}
@@ -132,6 +137,7 @@ export function ScopeEditor({ contracts, onScopeChange, initialScopes = [] }: Sc
                     {isVerified && (
                       <span className="flex items-center gap-1 text-xs text-green-400">
                         <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <title>Verified contract</title>
                           <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                         Verified

@@ -33,7 +33,7 @@ export interface Project {
 export interface ContractScope {
   address: `0x${string}`;
   name: string;
-  ipfsCid: string;
+  artifactRef: string;
   verified: boolean;
 }
 
