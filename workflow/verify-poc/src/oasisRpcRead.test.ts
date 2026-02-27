@@ -123,4 +123,52 @@ describe("oasisRpcRead", () => {
 
     expect(result.ok).toBe(true)
   })
+
+  it("accepts encrypted payloads without plaintext poc field", () => {
+    const reference = parseOasisReferenceUri(
+      `oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/tx-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#${envelopeHash}`
+    )
+
+    const result = validateOasisRpcPayload({
+      reference,
+      submissionId: 5n,
+      payload: {
+        ok: true,
+        pointer: envelope.pointer,
+        envelope,
+        envelopeHash,
+        submissionId: "5",
+        encryptedPoc: {
+          algorithm: "aes-256-gcm",
+          ciphertextHex: "0x12",
+          ivHex: "0x34",
+        },
+      },
+    })
+
+    expect(result.ok).toBe(true)
+  })
+
+  it("rejects payloads that omit poc and encryptedPoc", () => {
+    const reference = parseOasisReferenceUri(
+      `oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/tx-0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#${envelopeHash}`
+    )
+
+    const result = validateOasisRpcPayload({
+      reference,
+      submissionId: 5n,
+      payload: {
+        ok: true,
+        pointer: envelope.pointer,
+        envelope,
+        envelopeHash,
+        submissionId: "5",
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error.kind).toBe("invalid_payload")
+    }
+  })
 })

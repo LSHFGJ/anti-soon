@@ -1,4 +1,5 @@
-import { keccak256, toBytes } from 'viem'
+import { encodeFunctionData, keccak256, parseAbi, toBytes } from 'viem'
+import { wrapEthereumProvider } from '@oasisprotocol/sapphire-paratime'
 import {
   computeOasisEnvelopeHash,
   createOasisEnvelope,
@@ -29,9 +30,14 @@ const ENV =
 
 const SAPPHIRE_CHAIN_ID_HEX = '0x5aff'
 const SEPOLIA_CHAIN_ID_HEX = '0xaa36a7'
+const OASIS_TX_ENCRYPTION_ENABLED = ENV.VITE_OASIS_TX_ENCRYPTION === 'true'
+
+const OASIS_STORAGE_ABI = parseAbi([
+  'function write(string slotId, string payload)',
+])
 
 type Eip1193Provider = {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+  request: (args: { method: string; params?: object | readonly unknown[] }) => Promise<unknown>
 }
 
 function normalizePointer(pointer: OasisPointer): OasisPointer {
@@ -163,6 +169,18 @@ export async function uploadEncryptedPoC({
 
   const provider = readProvider(ethereumProvider)
   const pointer = buildFallbackPointer({ poc, projectId, auditor })
+  const storageContract =
+    ENV.VITE_OASIS_STORAGE_CONTRACT?.trim() as `0x${string}` | undefined
+
+  if (OASIS_TX_ENCRYPTION_ENABLED && !storageContract) {
+    throw new Error(
+      'VITE_OASIS_STORAGE_CONTRACT is required when VITE_OASIS_TX_ENCRYPTION=true',
+    )
+  }
+
+  const sapphireProvider = OASIS_TX_ENCRYPTION_ENABLED
+    ? (wrapEthereumProvider(provider) as unknown as Eip1193Provider)
+    : provider
 
   const encryptionKey = await generateAesKey()
   const keyBytes = await exportPublicKey(encryptionKey)
@@ -201,26 +219,33 @@ export async function uploadEncryptedPoC({
     },
   }
 
-  const to =
-    (ENV.VITE_OASIS_STORAGE_CONTRACT?.trim() as `0x${string}` | undefined) ||
-    auditor
+  const to = storageContract || auditor
+  const payloadJson = JSON.stringify(payload)
 
-  await ensureChain(provider, SAPPHIRE_CHAIN_ID_HEX)
+  const txData = storageContract
+    ? encodeFunctionData({
+      abi: OASIS_STORAGE_ABI,
+      functionName: 'write',
+      args: [pointer.slotId, payloadJson],
+    })
+    : utf8ToHex(payloadJson)
 
-  const txHash = (await provider.request({
+  await ensureChain(sapphireProvider, SAPPHIRE_CHAIN_ID_HEX)
+
+  const txHash = (await sapphireProvider.request({
     method: 'eth_sendTransaction',
     params: [
       {
         from: auditor,
         to,
         value: '0x0',
-        data: utf8ToHex(JSON.stringify(payload)),
+        data: txData,
       },
     ],
   })) as `0x${string}`
 
-  await waitForReceipt(provider, txHash)
-  await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX)
+  await waitForReceipt(sapphireProvider, txHash)
+  await ensureChain(sapphireProvider, SEPOLIA_CHAIN_ID_HEX)
 
   return {
     cipherURI: `oasis://${pointer.chain}/${to.toLowerCase()}/${encodeURIComponent(pointer.slotId)}#${txHash}`,

@@ -13,8 +13,12 @@ import {
   type EVMLog,
 } from "@chainlink/cre-sdk"
 import {
+  decodeFunctionResult,
+  decodeEventLog,
+  encodeFunctionData,
   encodeAbiParameters,
   parseAbiParameters,
+  parseAbi,
   keccak256,
   toBytes,
   decodeAbiParameters,
@@ -40,6 +44,7 @@ import { encodeJsonBodyBase64 } from "./src/httpBody"
 import {
   resolveOasisRpcTxHash,
   validateOasisRpcPayload,
+  type OasisRpcPayload,
 } from "./src/oasisRpcRead"
 import { gcm } from "@noble/ciphers/aes.js"
 
@@ -101,24 +106,6 @@ type PoCData = {
   }
 }
 
-const hexBytesSchema = z
-  .string()
-  .regex(/^0x[0-9a-fA-F]+$/, "must be 0x-prefixed hex")
-
-const oasisTxPayloadV2Schema = z
-  .object({
-    ok: z.literal(true),
-    version: z.literal("anti-soon.oasis-tx.v2"),
-    encryptedPoc: z
-      .object({
-        algorithm: z.literal("aes-256-gcm"),
-        ciphertextHex: hexBytesSchema,
-        ivHex: hexBytesSchema,
-      })
-      .strict(),
-  })
-  .passthrough()
-
 // ═══════════════════ ABI Definitions ═══════════════════
 
 const BountyResultParamsV2 = parseAbiParameters(
@@ -132,6 +119,14 @@ const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 const ProjectStructAbi = parseAbiParameters(
   "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
 )
+
+const OasisPoCStoreReadAbi = parseAbi([
+  "function read(string slotId) view returns (string payload)",
+])
+
+const OasisPoCStoreEventAbi = parseAbi([
+  "event PoCStored(string slotId, bytes32 indexed slotKey, address indexed writer, string payload)",
+])
 
 type ProjectVnetInfo = {
   vnetRpcUrl: string
@@ -229,22 +224,17 @@ function decodeHexBytes(hexInput: string): Uint8Array {
   return bytes
 }
 
-function tryDecodeEncryptedPayload(
-  payload: unknown,
+function decodeEncryptedPoC(
+  encryptedPoc: NonNullable<OasisRpcPayload["encryptedPoc"]>,
   decryptionKey: `0x${string}`,
-): PoCData | null {
-  const parsed = oasisTxPayloadV2Schema.safeParse(payload)
-  if (!parsed.success) {
-    return null
-  }
-
+): PoCData {
   if (decryptionKey === "0x0000000000000000000000000000000000000000000000000000000000000000") {
     throw new Error("Encrypted Oasis payload cannot be decrypted with zero reveal key")
   }
 
   const keyBytes = decodeHexBytes(decryptionKey)
-  const ivBytes = decodeHexBytes(parsed.data.encryptedPoc.ivHex)
-  const ciphertextBytes = decodeHexBytes(parsed.data.encryptedPoc.ciphertextHex)
+  const ivBytes = decodeHexBytes(encryptedPoc.ivHex)
+  const ciphertextBytes = decodeHexBytes(encryptedPoc.ciphertextHex)
 
   const plaintextBytes = gcm(keyBytes, ivBytes).decrypt(ciphertextBytes)
   const plaintext = new TextDecoder().decode(plaintextBytes)
@@ -253,13 +243,24 @@ function tryDecodeEncryptedPayload(
   return parsePoCData(decryptedPayload)
 }
 
-function readPoCFromOasisRpc(
+function extractPoCFromValidatedPayload(
+  payload: OasisRpcPayload,
+  decryptionKey: `0x${string}`,
+): PoCData {
+  if (payload.encryptedPoc) {
+    return decodeEncryptedPoC(payload.encryptedPoc, decryptionKey)
+  }
+  if (payload.poc !== undefined) {
+    return parsePoCData(payload.poc)
+  }
+  throw new Error("Oasis payload does not include PoC data")
+}
+
+function readTxPayloadFromOasisRpc(
   nodeRuntime: NodeRuntime<Config>,
   reference: OasisReference,
-  submissionId: bigint,
-  decryptionKey: `0x${string}`,
   oasisRpcUrl: string,
-): PoCData {
+): unknown | null {
   const txHash = resolveOasisRpcTxHash(reference)
   const httpClient = new HTTPClient()
 
@@ -291,15 +292,191 @@ function readPoCFromOasisRpc(
 
   const txInput = txPayload.result?.input
   if (typeof txInput !== "string" || txInput.length < 2) {
-    throw new Error("Oasis RPC transaction payload missing input data")
+    return null
   }
 
-  const rawJson = decodeHexUtf8(txInput)
-  const parsedPayload = JSON.parse(rawJson)
+  try {
+    return JSON.parse(decodeHexUtf8(txInput))
+  } catch {
+    return null
+  }
+}
 
-  const encryptedPoC = tryDecodeEncryptedPayload(parsedPayload, decryptionKey)
-  if (encryptedPoC) {
-    return encryptedPoC
+function readPayloadFromOasisReceiptLog(
+  nodeRuntime: NodeRuntime<Config>,
+  reference: OasisReference,
+  oasisRpcUrl: string,
+): unknown | null {
+  const txHash = resolveOasisRpcTxHash(reference)
+  const httpClient = new HTTPClient()
+  const receiptResp = httpClient.sendRequest(nodeRuntime, {
+    url: oasisRpcUrl,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: encodeJsonBodyBase64({
+      jsonrpc: "2.0",
+      method: "eth_getTransactionReceipt",
+      params: [txHash],
+      id: 31,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (receiptResp.statusCode !== 200) {
+    throw new Error(`Oasis RPC eth_getTransactionReceipt failed: status ${receiptResp.statusCode}`)
+  }
+
+  const receiptPayload = JSON.parse(new TextDecoder().decode(receiptResp.body)) as {
+    result?: {
+      logs?: Array<{ address?: string; topics?: string[]; data?: string }>
+    } | null
+    error?: { message?: string }
+  }
+
+  if (receiptPayload.error) {
+    throw new Error(`Oasis RPC receipt error: ${receiptPayload.error.message ?? "unknown error"}`)
+  }
+
+  const logs = receiptPayload.result?.logs
+  if (!logs || logs.length === 0) {
+    return null
+  }
+
+  const targetContract = reference.pointer.contract.toLowerCase()
+  for (const log of logs) {
+    if (!log.address || log.address.toLowerCase() !== targetContract) {
+      continue
+    }
+    if (
+      !log.topics ||
+      log.topics.length === 0 ||
+      typeof log.topics[0] !== "string" ||
+      typeof log.data !== "string"
+    ) {
+      continue
+    }
+
+    const topics = log.topics as [`0x${string}`, ...`0x${string}`[]]
+
+    try {
+      const decoded = decodeEventLog({
+        abi: OasisPoCStoreEventAbi,
+        data: log.data as `0x${string}`,
+        topics,
+        strict: false,
+      })
+
+      if (decoded.eventName !== "PoCStored") {
+        continue
+      }
+      if (decoded.args.slotId !== reference.pointer.slotId) {
+        continue
+      }
+
+      const payloadText = decoded.args.payload
+      if (typeof payloadText !== "string") {
+        continue
+      }
+
+      return JSON.parse(payloadText)
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+function readStoredPayloadFromOasisContract(
+  nodeRuntime: NodeRuntime<Config>,
+  reference: OasisReference,
+  oasisRpcUrl: string,
+): unknown {
+  const httpClient = new HTTPClient()
+  const callData = encodeFunctionData({
+    abi: OasisPoCStoreReadAbi,
+    functionName: "read",
+    args: [reference.pointer.slotId],
+  })
+
+  const callResp = httpClient.sendRequest(nodeRuntime, {
+    url: oasisRpcUrl,
+    method: "POST" as const,
+    headers: { "Content-Type": "application/json" },
+    body: encodeJsonBodyBase64({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: reference.pointer.contract, data: callData }, "latest"],
+      id: 29,
+    }),
+    cacheSettings: { maxAge: "0s" },
+  }).result()
+
+  if (callResp.statusCode !== 200) {
+    throw new Error(`Oasis RPC eth_call failed: status ${callResp.statusCode}`)
+  }
+
+  const callPayload = JSON.parse(new TextDecoder().decode(callResp.body)) as {
+    result?: `0x${string}`
+    error?: { message?: string }
+  }
+
+  if (callPayload.error) {
+    throw new Error(`Oasis storage read failed: ${callPayload.error.message ?? "unknown error"}`)
+  }
+  if (!callPayload.result || callPayload.result === "0x") {
+    throw new Error("Oasis storage read returned empty payload")
+  }
+
+  const [payloadJson] = decodeFunctionResult({
+    abi: OasisPoCStoreReadAbi,
+    functionName: "read",
+    data: callPayload.result,
+  })
+
+  return JSON.parse(payloadJson)
+}
+
+function readPoCFromOasisRpc(
+  nodeRuntime: NodeRuntime<Config>,
+  reference: OasisReference,
+  submissionId: bigint,
+  decryptionKey: `0x${string}`,
+  oasisRpcUrl: string,
+): PoCData {
+  let parsedPayload: unknown | null = null
+  let txReadError: Error | null = null
+  let receiptReadError: Error | null = null
+
+  try {
+    parsedPayload = readTxPayloadFromOasisRpc(nodeRuntime, reference, oasisRpcUrl)
+  } catch (error) {
+    txReadError = error instanceof Error ? error : new Error(String(error))
+  }
+
+  if (parsedPayload === null) {
+    try {
+      parsedPayload = readPayloadFromOasisReceiptLog(nodeRuntime, reference, oasisRpcUrl)
+    } catch (error) {
+      receiptReadError = error instanceof Error ? error : new Error(String(error))
+    }
+  }
+
+  if (parsedPayload === null) {
+    try {
+      parsedPayload = readStoredPayloadFromOasisContract(nodeRuntime, reference, oasisRpcUrl)
+    } catch (storageError) {
+      const storageMessage =
+        storageError instanceof Error ? storageError.message : String(storageError)
+      if (txReadError || receiptReadError) {
+        const txMessage = txReadError ? txReadError.message : "n/a"
+        const receiptMessage = receiptReadError ? receiptReadError.message : "n/a"
+        throw new Error(
+          `Failed to read Oasis payload from tx, receipt logs, and storage contract: tx=${txMessage}; receipt=${receiptMessage}; storage=${storageMessage}`,
+        )
+      }
+      throw new Error(`Failed to read Oasis payload from storage contract: ${storageMessage}`)
+    }
   }
 
   const validated = validateOasisRpcPayload({
@@ -314,7 +491,7 @@ function readPoCFromOasisRpc(
     )
   }
 
-  return parsePoCData(validated.data.poc)
+  return extractPoCFromValidatedPayload(validated.data, decryptionKey)
 }
 
 // ═══════════════════ Verification Logic ═══════════════════

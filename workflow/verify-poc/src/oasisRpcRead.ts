@@ -19,6 +19,14 @@ const pointerSchema = z
   })
   .strict()
 
+const encryptedPocSchema = z
+  .object({
+    algorithm: z.literal("aes-256-gcm"),
+    ciphertextHex: z.string().regex(/^0x[0-9a-fA-F]+$/),
+    ivHex: z.string().regex(/^0x[0-9a-fA-F]+$/),
+  })
+  .strict()
+
 const rpcPayloadSchema = z
   .object({
     ok: z.literal(true),
@@ -26,9 +34,10 @@ const rpcPayloadSchema = z
     envelope: z.unknown(),
     envelopeHash: bytes32Schema,
     submissionId: z.string().optional(),
-    poc: z.unknown(),
+    poc: z.unknown().optional(),
+    encryptedPoc: encryptedPocSchema.optional(),
   })
-  .strict()
+  .passthrough()
 
 export type OasisRpcPayloadErrorKind =
   | "invalid_payload"
@@ -46,7 +55,8 @@ export type OasisRpcPayload = {
   envelope: OasisEnvelope
   envelopeHash: `0x${string}`
   submissionId?: string
-  poc: unknown
+  poc?: unknown
+  encryptedPoc?: z.infer<typeof encryptedPocSchema>
 }
 
 export type OasisRpcPayloadResult =
@@ -102,6 +112,16 @@ export function validateOasisRpcPayload(args: {
       error: {
         kind: "invalid_payload",
         message: `Invalid oasis rpc payload: ${parsed.error.message}`,
+      },
+    }
+  }
+
+  if (parsed.data.poc === undefined && parsed.data.encryptedPoc === undefined) {
+    return {
+      ok: false,
+      error: {
+        kind: "invalid_payload",
+        message: "RPC payload must include `poc` or `encryptedPoc`",
       },
     }
   }
@@ -172,6 +192,7 @@ export function validateOasisRpcPayload(args: {
       envelopeHash: declaredHash,
       submissionId: parsed.data.submissionId,
       poc: parsed.data.poc,
+      encryptedPoc: parsed.data.encryptedPoc,
     },
   }
 }
