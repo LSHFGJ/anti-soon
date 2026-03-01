@@ -8,6 +8,8 @@ contract VNetFlowTest is Test {
     BountyHub public hub;
     address constant FORWARDER = address(0xF0);
     address constant TARGET = address(0xBEEF);
+    bytes4 constant REPORT_ENVELOPE_MAGIC = 0x41535250;
+    uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
     address owner = address(this);
     address auditor = address(0xA1);
     address auditor2 = address(0xA2);
@@ -76,6 +78,37 @@ contract VNetFlowTest is Test {
         assertGt(pAfter.vnetCreatedAt, 0, "VNet creation timestamp should be set");
     }
 
+    function test_fullFlow_typedVnetInitReport_updatesProjectState() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 1 ether}(
+            TARGET,
+            0.5 ether,
+            12345,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 7 days,
+            block.timestamp + 14 days,
+            3 days,
+            rules
+        );
+
+        string memory vnetRpcUrl = "https://rpc.tenderly.co/vnet/typed";
+        bytes32 baseSnapshotId = keccak256("typed-snapshot");
+        bytes memory report = _buildTypedReport(
+            REPORT_TYPE_VNET_SUCCESS,
+            abi.encode(projectId, vnetRpcUrl, baseSnapshotId)
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport("", report);
+
+        BountyHub.Project memory project = hub.projects(projectId);
+        assertEq(uint8(project.vnetStatus), uint8(BountyHub.VnetStatus.Active), "typed vnet report should activate project VNet");
+        assertEq(project.vnetRpcUrl, vnetRpcUrl, "typed vnet report should store rpc url");
+        assertEq(project.baseSnapshotId, baseSnapshotId, "typed vnet report should store snapshot id");
+    }
+
     function test_fullFlow_verifyPoCWithVnet() public {
         // Register project
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
@@ -128,6 +161,81 @@ contract VNetFlowTest is Test {
         assertEq(drainAmount, 10 ether, "Drain amount should be 10 ether");
         assertEq(uint8(severity), uint8(BountyHub.Severity.CRITICAL), "Severity should be CRITICAL");
         assertGt(payoutAmount, 0, "Payout should be calculated");
+    }
+
+    function test_fullFlow_legacyVerifyPocReport_verifiesSubmission() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 10 ether}(
+            TARGET,
+            1 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            rules
+        );
+
+        bytes32 salt = keccak256("typed-verify-salt");
+        string memory cipherUri = "ipfs://typed-verify";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherUri)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(projectId, commitHash, cipherUri);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(auditor);
+        hub.revealPoC(submissionId, salt);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", abi.encode(submissionId, true, 1 ether));
+
+        (, , , , , , , BountyHub.SubmissionStatus status, uint256 drainAmountWei, , uint256 payoutAmount, , , , ) =
+            hub.submissions(submissionId);
+        assertEq(uint8(status), uint8(BountyHub.SubmissionStatus.Verified), "legacy verify report should verify submission");
+        assertEq(drainAmountWei, 1 ether, "legacy verify report should persist drain amount");
+        assertGt(payoutAmount, 0, "legacy verify report should calculate payout");
+    }
+
+    function test_fullFlow_malformedLegacyVerifyPocPayload_revertsWithoutStateMutation() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 10 ether}(
+            TARGET,
+            1 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            rules
+        );
+
+        bytes32 salt = keccak256("legacy-malformed-salt");
+        string memory cipherUri = "ipfs://legacy-malformed";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherUri)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(projectId, commitHash, cipherUri);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(auditor);
+        hub.revealPoC(submissionId, salt);
+
+        bytes memory malformedReport = abi.encode(submissionId);
+
+        vm.expectRevert();
+        vm.prank(FORWARDER);
+        hub.onReport("", malformedReport);
+
+        (, , , , , , , BountyHub.SubmissionStatus status, uint256 drainAmountWei, , uint256 payoutAmount, , , , ) =
+            hub.submissions(submissionId);
+        assertEq(uint8(status), uint8(BountyHub.SubmissionStatus.Revealed), "malformed legacy verify report must not change submission state");
+        assertEq(drainAmountWei, 0, "malformed legacy verify report must not set drain amount");
+        assertEq(payoutAmount, 0, "malformed legacy verify report must not set payout amount");
     }
 
     function test_fullFlow_vnetCreationFailure() public {
@@ -228,5 +336,9 @@ contract VNetFlowTest is Test {
 
         assertGt(payout1, 0, "First submission should have payout amount");
         assertEq(payout2, 0, "Second submission should have no payout yet");
+    }
+
+    function _buildTypedReport(uint8 reportType, bytes memory payload) internal pure returns (bytes memory) {
+        return abi.encode(REPORT_ENVELOPE_MAGIC, reportType, payload);
     }
 }

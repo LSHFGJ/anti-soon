@@ -43,10 +43,28 @@ echo "Project ID: $PROJECT_ID"
 
 # Check vnetStatus (should be 1 = Pending)
 PROJECT_DATA=$(cast call $BOUNTY_HUB "projects(uint256)" $PROJECT_ID --rpc-url $RPC_URL)
+PROJECT_DATA=${PROJECT_DATA#0x}
 
-VNET_STATUS_HEX=$(echo "$PROJECT_DATA" | cut -c 769-770)
-VNET_STATUS=$((16#$VNET_STATUS_HEX))
-echo "VNet Status: $VNET_STATUS (1=Pending)"
+PROJECT_WORDS=()
+for ((i=0; i<${#PROJECT_DATA}; i+=64)); do
+    PROJECT_WORDS+=("${PROJECT_DATA:i:64}")
+done
+
+STATUS_WORD11=$(cast to-dec "0x${PROJECT_WORDS[11]}" 2>/dev/null || true)
+STATUS_WORD12=$(cast to-dec "0x${PROJECT_WORDS[12]}" 2>/dev/null || true)
+
+if [[ "$STATUS_WORD11" =~ ^[0-3]$ ]]; then
+    VNET_STATUS="$STATUS_WORD11"
+    VNET_STATUS_SOURCE="word[11]"
+elif [[ "$STATUS_WORD12" =~ ^[0-3]$ ]]; then
+    VNET_STATUS="$STATUS_WORD12"
+    VNET_STATUS_SOURCE="word[12]"
+else
+    echo "FAIL: Could not decode vnetStatus from projects() response"
+    exit 1
+fi
+
+echo "VNet Status: $VNET_STATUS (1=Pending, parsed from $VNET_STATUS_SOURCE)"
 
 if [ "$VNET_STATUS" != "1" ]; then
     echo "FAIL: Expected vnetStatus=1 (Pending), got $VNET_STATUS"

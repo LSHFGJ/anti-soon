@@ -5,7 +5,6 @@ const mockUseWallet = vi.fn();
 const mockGenerateRandomSalt = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
-const mockQueueRevealIfEnabled = vi.fn();
 
 vi.mock("../hooks/useWallet", () => ({
 	useWallet: () => mockUseWallet(),
@@ -20,11 +19,6 @@ vi.mock("../lib/oasisUpload", () => ({
 	uploadEncryptedPoC: (...args: unknown[]) => mockUploadEncryptedPoC(...args),
 }));
 
-vi.mock("../lib/revealQueue", () => ({
-	queueRevealIfEnabled: (...args: unknown[]) =>
-		mockQueueRevealIfEnabled(...args),
-}));
-
 import { usePoCSubmission } from "../hooks/usePoCSubmission";
 
 function deferred<T>() {
@@ -37,7 +31,7 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-describe("usePoCSubmission queue fallback", () => {
+describe("usePoCSubmission lifecycle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 
@@ -64,21 +58,26 @@ describe("usePoCSubmission queue fallback", () => {
 					"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			},
 		);
-		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});
 
-	it("keeps commit result when optional queueing fails", async () => {
+	it("commits then reveals and returns both transaction hashes", async () => {
 		const receiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
 		}>();
+		const revealReceiptDeferred = deferred<{ logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }> }>();
 
 		const walletClient = {
-			writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			writeContract: vi
+				.fn()
+				.mockResolvedValueOnce("0xcommit")
+				.mockResolvedValueOnce("0xreveal"),
 		};
 		const publicClient = {
-			readContract: vi.fn().mockResolvedValue([]),
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-			waitForTransactionReceipt: vi.fn().mockReturnValue(receiptDeferred.promise),
+			waitForTransactionReceipt: vi
+				.fn()
+				.mockReturnValueOnce(receiptDeferred.promise)
+				.mockReturnValueOnce(revealReceiptDeferred.promise),
 		};
 
 		mockUseWallet.mockReturnValue({
@@ -87,8 +86,6 @@ describe("usePoCSubmission queue fallback", () => {
 			publicClient,
 			isConnected: true,
 		});
-
-		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
 
 		const { result } = renderHook(() => usePoCSubmission());
 
@@ -103,6 +100,9 @@ describe("usePoCSubmission queue fallback", () => {
 		await act(async () => {
 			receiptDeferred.resolve({ logs: [] });
 		});
+		await act(async () => {
+			revealReceiptDeferred.resolve({ logs: [] });
+		});
 
 		let submitResult:
 			| { submissionId?: bigint; commitTxHash?: `0x${string}`; revealTxHash?: `0x${string}` }
@@ -111,8 +111,9 @@ describe("usePoCSubmission queue fallback", () => {
 			submitResult = await submitPromise;
 		});
 
-		expect(result.current.state.phase).toBe("committed");
+		expect(result.current.state.phase).toBe("revealed");
 		expect(submitResult?.commitTxHash).toBe("0xcommit");
+		expect(submitResult?.revealTxHash).toBe("0xreveal");
 		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
 			expect.objectContaining({
 				poc: '{"poc":"json"}',
@@ -162,16 +163,21 @@ describe("usePoCSubmission queue fallback", () => {
 
 	it("resolves signer address from wallet client when hook address is malformed", async () => {
 		const walletClient = {
-			writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			writeContract: vi
+				.fn()
+				.mockResolvedValueOnce("0xcommit")
+				.mockResolvedValueOnce("0xreveal"),
 			getAddresses: vi
 				.fn()
 				.mockResolvedValue(["0x1111111111111111111111111111111111111111"]),
 		};
 
 		const publicClient = {
-			readContract: vi.fn().mockResolvedValue([]),
 			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-			waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+			waitForTransactionReceipt: vi
+				.fn()
+				.mockResolvedValueOnce({ logs: [] })
+				.mockResolvedValueOnce({ logs: [] }),
 		};
 
 		mockUseWallet.mockReturnValue({
@@ -181,15 +187,13 @@ describe("usePoCSubmission queue fallback", () => {
 			isConnected: true,
 		});
 
-		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
-
 		const { result } = renderHook(() => usePoCSubmission());
 
 		await act(async () => {
 			await result.current.submitPoC(1n, '{"poc":"json"}');
 		});
 
-		expect(result.current.state.phase).toBe("committed");
+		expect(result.current.state.phase).toBe("revealed");
 		expect(mockUploadEncryptedPoC).toHaveBeenCalledWith(
 			expect.objectContaining({
 				auditor: "0x1111111111111111111111111111111111111111",

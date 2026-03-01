@@ -12,6 +12,12 @@ contract BountyHubTest is Test {
     bytes32 constant COMMIT_BY_SIG_TYPEHASH = keccak256("CommitPoCBySig(address auditor,uint256 projectId,bytes32 commitHash,bytes32 cipherURIHash,uint256 nonce,uint256 deadline)");
     bytes32 constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes32 constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
+    bytes4 constant REPORT_ENVELOPE_MAGIC = 0x41535250;
+    uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
+    bytes32 constant WORKFLOW_VERIFY_POC_ID = keccak256("verify-poc");
+    bytes32 constant WORKFLOW_VNET_INIT_ID = keccak256("vnet-init");
+    bytes10 constant WORKFLOW_NAME = bytes10("verifypoc1");
+    address constant WORKFLOW_OWNER = address(0xCAFE);
     address owner = address(this);
     address auditor = address(0xA1);
     address otherUser = address(0xA2);
@@ -641,11 +647,118 @@ contract BountyHubTest is Test {
         return abi.encode(subId, isValid, drain);
     }
 
+    function _buildTypedReport(uint8 reportType, bytes memory payload) internal pure returns (bytes memory) {
+        return abi.encode(REPORT_ENVELOPE_MAGIC, reportType, payload);
+    }
+
     function test_submitPoC_reverts_legacyDisabled_withFundedProject() public {
         _registerProjectViaV2Defaults(5 ether, 2 ether);
         vm.expectRevert("UNSUPPORTED_LEGACY_SUBMIT_POC");
         vm.prank(auditor);
         hub.submitPoC(0, keccak256("poc"), "ipfs://poc");
+    }
+
+    function test_onReport_acceptsAuthorizedWorkflowMetadata_forVerificationReport() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        // Multi-workflow provenance model allows both active lifecycle workflows.
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_VNET_INIT_ID, true);
+
+        vm.prank(FORWARDER);
+        hub.onReport(_metadataForWorkflow(WORKFLOW_VERIFY_POC_ID), abi.encode(subId, true, 1 ether));
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Verified), "Authorized workflow should process report");
+    }
+
+    function test_onReport_revertsOnUnauthorizedWorkflowMetadata_forVerificationReport() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+
+        bytes32 rogueWorkflowId = keccak256("rogue-workflow");
+        vm.expectRevert(abi.encodeWithSelector(BountyHub.UnauthorizedWorkflowProvenance.selector, rogueWorkflowId));
+        vm.prank(FORWARDER);
+        hub.onReport(_metadataForWorkflow(rogueWorkflowId), abi.encode(subId, true, 1 ether));
+    }
+
+    function test_onReport_revertsOnMalformedMetadata_whenWorkflowGuardrailEnabled() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+
+        vm.expectRevert(abi.encodeWithSelector(BountyHub.InvalidReportMetadataLength.selector, uint256(0)));
+        vm.prank(FORWARDER);
+        hub.onReport("", abi.encode(subId, true, 1 ether));
+    }
+
+    function test_processReport_typedEnvelopeValidation() public {
+        uint256 projectId = _registerProjectViaV2Defaults(1 ether, 0.5 ether);
+
+        string memory vnetRpcUrl = "https://rpc.tenderly.co/typed-validation";
+        bytes32 baseSnapshotId = keccak256("typed-validation-snapshot");
+        bytes memory validTypedReport = _buildTypedReport(
+            REPORT_TYPE_VNET_SUCCESS,
+            abi.encode(projectId, vnetRpcUrl, baseSnapshotId)
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport("", validTypedReport);
+
+        BountyHub.Project memory project = hub.projects(projectId);
+        assertEq(uint8(project.vnetStatus), uint8(BountyHub.VnetStatus.Active), "Typed envelope should set VNet active");
+        assertEq(project.vnetRpcUrl, vnetRpcUrl, "Typed envelope should update VNet RPC URL");
+        assertEq(project.baseSnapshotId, baseSnapshotId, "Typed envelope should update base snapshot");
+
+        bytes memory malformedEnvelope = abi.encodePacked(REPORT_ENVELOPE_MAGIC, uint8(REPORT_TYPE_VNET_SUCCESS));
+        vm.expectRevert(abi.encodeWithSelector(BountyHub.MalformedTypedReportEnvelope.selector));
+        vm.prank(FORWARDER);
+        hub.onReport("", malformedEnvelope);
+
+        bytes memory malformedPayloadReport = _buildTypedReport(REPORT_TYPE_VNET_SUCCESS, abi.encode(uint256(projectId)));
+        vm.expectRevert();
+        vm.prank(FORWARDER);
+        hub.onReport("", malformedPayloadReport);
+    }
+
+    function test_processReport_revertsOnUnknownReportType() public {
+        uint256 projectId = _registerProjectViaV2Defaults(1 ether, 0.5 ether);
+        bytes memory report = _buildTypedReport(99, abi.encode(projectId));
+
+        vm.expectRevert("Unknown report type");
+        vm.prank(FORWARDER);
+        hub.onReport("", report);
+
+        BountyHub.Project memory project = hub.projects(projectId);
+        assertEq(uint8(project.vnetStatus), uint8(BountyHub.VnetStatus.Pending), "Unknown report type must not mutate project state");
+    }
+
+    function test_processReport_legacyFallbackBoundary() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(subId, true, 1 ether));
+
+        BountyHub.Submission memory verifiedSub = _getSubmission(subId);
+        assertEq(
+            uint8(verifiedSub.status),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            "Legacy fallback should be enabled by default"
+        );
+
+        hub.setLegacyReportFallbackEnabled(false);
+
+        vm.expectRevert(abi.encodeWithSelector(BountyHub.LegacyReportFallbackDisabled.selector));
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(subId, true, 1 ether));
+
+        BountyHub.Submission memory unchangedSub = _getSubmission(subId);
+        assertEq(
+            uint8(unchangedSub.status),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            "Legacy fallback disable must block legacy report processing"
+        );
     }
 
     function test_processReport_severity_critical() public {
@@ -960,6 +1073,10 @@ contract BountyHubTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function _metadataForWorkflow(bytes32 workflowId) internal pure returns (bytes memory) {
+        return abi.encodePacked(workflowId, WORKFLOW_NAME, WORKFLOW_OWNER);
     }
 
     function test_commitReveal_oasisFlow() public {

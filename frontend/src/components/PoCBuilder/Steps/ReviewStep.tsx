@@ -58,12 +58,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 						title: "PoC Committed",
 						description: "Your PoC reference has been submitted successfully.",
 					});
-				} else if (phase === "queued") {
-					success({
-						title: "Auto Reveal Queued",
-						description:
-							"Reveal is queued and will be executable after commit deadline.",
-					});
 				} else if (phase === "revealed") {
 					success({
 						title: "PoC Revealed",
@@ -129,13 +123,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 									[ RESET ]
 								</button>
 							</div>
-						</div>
-					)}
-
-					{state.warning && (
-						<div className="text-[var(--color-secondary)] border border-[var(--color-secondary)] p-4 mb-4 bg-[rgba(124,58,237,0.08)]">
-							<div className="font-mono mb-2">NOTICE:</div>
-							<div className="text-sm">{state.warning}</div>
 						</div>
 					)}
 
@@ -228,34 +215,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 						</div>
 					)}
 
-					{state.phase === "queued" && (
-						<div className="p-6 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.05)] mb-4">
-							<div className="flex items-center gap-2">
-								<CheckIcon /> AUTO_REVEAL_QUEUED
-							</div>
-
-							<div className="text-sm text-[var(--color-text)] mb-3">
-								Access authorization is queued. Relayer can execute reveal after
-								commit deadline.
-							</div>
-
-							{state.revealTxHash && (
-								<div className="text-sm mb-3 break-all">
-									<span className="text-[var(--color-text-dim)]">
-										Queue TX:{" "}
-									</span>
-									<code className="text-[var(--color-secondary)] text-xs">
-										{state.revealTxHash}
-									</code>
-								</div>
-							)}
-
-							<div className="mt-4 p-3 bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] text-sm font-mono">
-								Use the footer action next to [ PREVIOUS ] to reveal now.
-							</div>
-						</div>
-					)}
-
 					{state.phase === "revealing" && (
 						<Spinner>Submitting access authorization...</Spinner>
 					)}
@@ -316,14 +275,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				return (
 					<Button type="button" onClick={reveal} className="font-mono">
 						[ REVEAL_POC ]
-					</Button>
-				);
-			}
-
-			if (state.phase === "queued") {
-				return (
-					<Button type="button" onClick={reveal} variant="outline" className="font-mono">
-						[ REVEAL_NOW ]
 					</Button>
 				);
 			}

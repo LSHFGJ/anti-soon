@@ -163,31 +163,11 @@ export const BOUNTY_HUB_V2_ABI = [
 		outputs: [],
 	},
 	{
-		name: "queueRevealBySig",
-		type: "function",
-		stateMutability: "nonpayable",
-		inputs: [
-			{ name: "_auditor", type: "address" },
-			{ name: "_submissionId", type: "uint256" },
-			{ name: "_salt", type: "bytes32" },
-			{ name: "_deadline", type: "uint256" },
-			{ name: "_signature", type: "bytes" },
-		],
-		outputs: [],
-	},
-	{
 		name: "executeQueuedReveal",
 		type: "function",
 		stateMutability: "nonpayable",
 		inputs: [{ name: "_submissionId", type: "uint256" }],
 		outputs: [],
-	},
-	{
-		name: "sigNonces",
-		type: "function",
-		stateMutability: "view",
-		inputs: [{ name: "", type: "address" }],
-		outputs: [{ name: "", type: "uint256" }],
 	},
 	{
 		name: "nextProjectId",

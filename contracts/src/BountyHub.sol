@@ -132,8 +132,15 @@ contract BountyHub is ReceiverTemplate {
     bytes32 private constant REVEAL_BY_SIG_TYPEHASH = keccak256("RevealPoCBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes32 private constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes4 private constant REPORT_ENVELOPE_MAGIC = 0x41535250;
+    uint256 private constant REPORT_METADATA_LENGTH = 62;
+    uint256 private constant REPORT_TYPED_ENVELOPE_HEAD_LENGTH = 96;
+    uint256 private constant REPORT_TYPED_ENVELOPE_MIN_LENGTH = 128;
     uint8 private constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 private constant REPORT_TYPE_VNET_FAILED = 2;
+
+    mapping(bytes32 => bool) private s_authorizedWorkflows;
+    uint256 private s_authorizedWorkflowCount;
+    bool public legacyReportFallbackEnabled = true;
 
     // ═══════════ Events ═══════════
 
@@ -158,6 +165,13 @@ contract BountyHub is ReceiverTemplate {
     event UniqueRevealCandidateSet(uint256 indexed projectId, uint256 indexed submissionId);
     event UniqueRevealCandidateCleared(uint256 indexed projectId, uint256 indexed submissionId);
     event UniqueWinnerLocked(uint256 indexed projectId, uint256 indexed submissionId);
+    event AuthorizedWorkflowUpdated(bytes32 indexed workflowId, bool authorized);
+    event LegacyReportFallbackUpdated(bool enabled);
+
+    error UnauthorizedWorkflowProvenance(bytes32 workflowId);
+    error InvalidReportMetadataLength(uint256 providedLength);
+    error MalformedTypedReportEnvelope();
+    error LegacyReportFallbackDisabled();
 
     // V3 Events
     event ProjectRegisteredV3(
@@ -172,6 +186,35 @@ contract BountyHub is ReceiverTemplate {
     constructor(address _forwarderAddress) ReceiverTemplate(_forwarderAddress) {}
 
     // ═══════════ Project Management (V2) ═══════════
+
+    /// @notice Configure workflow provenance allowlist for report processing.
+    /// @dev This guardrail is additive to ReceiverTemplate forwarder checks and only enforced when at least one workflow is authorized.
+    function setAuthorizedWorkflow(bytes32 workflowId, bool authorized) external onlyOwner {
+        bool current = s_authorizedWorkflows[workflowId];
+        if (current == authorized) {
+            return;
+        }
+
+        s_authorizedWorkflows[workflowId] = authorized;
+        if (authorized) {
+            s_authorizedWorkflowCount += 1;
+        } else {
+            s_authorizedWorkflowCount -= 1;
+        }
+
+        emit AuthorizedWorkflowUpdated(workflowId, authorized);
+    }
+
+    function isAuthorizedWorkflow(bytes32 workflowId) external view returns (bool) {
+        return s_authorizedWorkflows[workflowId];
+    }
+
+    /// @notice Controls whether the legacy verification report format is accepted.
+    /// @dev Keep enabled until verify-poc migrates to typed reports.
+    function setLegacyReportFallbackEnabled(bool enabled) external onlyOwner {
+        legacyReportFallbackEnabled = enabled;
+        emit LegacyReportFallbackUpdated(enabled);
+    }
 
     /// @notice Register a new bounty project with V2 features
     /// @param _targetContract The vulnerable contract to test
@@ -647,9 +690,10 @@ contract BountyHub is ReceiverTemplate {
     /// @dev Legacy V2 verification format: (submissionId, isValid, drainAmountWei)
     /// @param report Encoded report data from CRE
     function _processReport(bytes calldata report) internal override {
+        _enforceWorkflowProvenance();
+
         if (_isTypedReport(report)) {
-            (bytes4 magic, uint8 reportType, bytes memory payload) = abi.decode(report, (bytes4, uint8, bytes));
-            require(magic == REPORT_ENVELOPE_MAGIC, "Invalid report magic");
+            (uint8 reportType, bytes memory payload) = _decodeTypedReportEnvelope(report);
 
             if (reportType == REPORT_TYPE_VNET_SUCCESS) {
                 (uint256 projectId, string memory vnetRpcUrl, bytes32 baseSnapshotId) =
@@ -667,11 +711,75 @@ contract BountyHub is ReceiverTemplate {
             revert("Unknown report type");
         }
 
+        if (!legacyReportFallbackEnabled) {
+            revert LegacyReportFallbackDisabled();
+        }
+
         _processVerificationReport(report);
     }
 
+    function _decodeTypedReportEnvelope(bytes calldata report)
+        internal
+        pure
+        returns (uint8 reportType, bytes memory payload)
+    {
+        if (report.length < REPORT_TYPED_ENVELOPE_MIN_LENGTH) {
+            revert MalformedTypedReportEnvelope();
+        }
+
+        uint256 payloadOffset;
+        uint256 payloadLength;
+        assembly ("memory-safe") {
+            payloadOffset := calldataload(add(report.offset, 64))
+        }
+        if (payloadOffset != REPORT_TYPED_ENVELOPE_HEAD_LENGTH) {
+            revert MalformedTypedReportEnvelope();
+        }
+
+        assembly ("memory-safe") {
+            payloadLength := calldataload(add(report.offset, payloadOffset))
+        }
+        if (payloadLength > report.length - REPORT_TYPED_ENVELOPE_MIN_LENGTH) {
+            revert MalformedTypedReportEnvelope();
+        }
+
+        uint256 paddedPayloadLength = ((payloadLength + 31) / 32) * 32;
+        if (report.length != REPORT_TYPED_ENVELOPE_MIN_LENGTH + paddedPayloadLength) {
+            revert MalformedTypedReportEnvelope();
+        }
+
+        bytes4 magic;
+        (magic, reportType, payload) = abi.decode(report, (bytes4, uint8, bytes));
+        if (magic != REPORT_ENVELOPE_MAGIC) {
+            revert MalformedTypedReportEnvelope();
+        }
+    }
+
+    function _enforceWorkflowProvenance() internal view {
+        if (s_authorizedWorkflowCount == 0) {
+            return;
+        }
+
+        (bytes32 workflowId, uint256 metadataLength) = _decodeOnReportMetadataForGuardrail();
+        if (metadataLength != REPORT_METADATA_LENGTH) {
+            revert InvalidReportMetadataLength(metadataLength);
+        }
+        if (!s_authorizedWorkflows[workflowId]) {
+            revert UnauthorizedWorkflowProvenance(workflowId);
+        }
+    }
+
+    function _decodeOnReportMetadataForGuardrail() internal pure returns (bytes32 workflowId, uint256 metadataLength) {
+        assembly ("memory-safe") {
+            let metadataOffset := calldataload(4)
+            let metadataHead := add(4, metadataOffset)
+            metadataLength := calldataload(metadataHead)
+            workflowId := calldataload(add(metadataHead, 32))
+        }
+    }
+
     function _isTypedReport(bytes calldata report) internal pure returns (bool) {
-        if (report.length < 32) {
+        if (report.length < 4) {
             return false;
         }
 

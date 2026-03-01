@@ -1,0 +1,9 @@
+{
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "bountyHubAddress": "0x0000000000000000000000000000000000000000",
+  "gasLimit": "300000",
+  "juryPolicy": {
+    "allowDirectSettlement": false,
+    "requireOwnerResolution": true
+  }
+}

@@ -23,16 +23,30 @@ import { z } from "zod"
 
 // ═══════════════════ Config ═══════════════════
 
+const EVM_ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+const ownerSchema = z
+  .string()
+  .regex(EVM_ADDRESS_REGEX, "owner must be a non-zero EVM address")
+  .refine(
+    (owner) => owner.toLowerCase() !== ZERO_ADDRESS,
+    "owner must be a non-zero EVM address",
+  )
+
 const configSchema = z.object({
   chainSelectorName: z.string(),
   bountyHubAddress: z.string(),
   gasLimit: z.string(),
   tenderlyAccountSlug: z.string(),
   tenderlyProjectSlug: z.string(),
-  owner: z.string(), // DON owner address for vaultDonSecrets
+  owner: ownerSchema, // DON owner address for vaultDonSecrets
 })
 
 type Config = z.infer<typeof configSchema>
+
+export function parseConfig(config: unknown): Config {
+  return configSchema.parse(config)
+}
 
 // ═══════════════════ Types ═══════════════════
 
@@ -74,6 +88,40 @@ const TypedReportEnvelopeParams = parseAbiParameters(
 const REPORT_ENVELOPE_MAGIC = "0x41535250" as const
 const REPORT_TYPE_VNET_SUCCESS = 1
 const REPORT_TYPE_VNET_FAILED = 2
+
+export function encodeVnetSuccessTypedReport(
+  projectId: bigint,
+  vnetRpcUrl: string,
+  baseSnapshotId: `0x${string}`,
+): `0x${string}` {
+  const reportData = encodeAbiParameters(VnetReportParams, [
+    projectId,
+    vnetRpcUrl,
+    baseSnapshotId,
+  ])
+
+  return encodeAbiParameters(TypedReportEnvelopeParams, [
+    REPORT_ENVELOPE_MAGIC,
+    REPORT_TYPE_VNET_SUCCESS,
+    reportData,
+  ])
+}
+
+export function encodeVnetFailedTypedReport(
+  projectId: bigint,
+  reason: string,
+): `0x${string}` {
+  const reportData = encodeAbiParameters(VnetFailedParams, [
+    projectId,
+    reason,
+  ])
+
+  return encodeAbiParameters(TypedReportEnvelopeParams, [
+    REPORT_ENVELOPE_MAGIC,
+    REPORT_TYPE_VNET_FAILED,
+    reportData,
+  ])
+}
 
 // ═══════════════════ VNet Creation Logic ═══════════════════
 
@@ -408,16 +456,7 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
     runtime.log(`VNet initialization failed for project ${projectId}`)
     
     const failureReason = "VNet creation failed after max retries"
-    const reportData = encodeAbiParameters(VnetFailedParams, [
-      projectId,
-      failureReason,
-    ])
-
-    const typedReportData = encodeAbiParameters(TypedReportEnvelopeParams, [
-      REPORT_ENVELOPE_MAGIC,
-      REPORT_TYPE_VNET_FAILED,
-      reportData,
-    ])
+    const typedReportData = encodeVnetFailedTypedReport(projectId, failureReason)
 
     const report = runtime
       .report({
@@ -448,17 +487,11 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
   // VNet creation succeeded - report success to contract
   runtime.log(`VNet initialized: rpc=${result.vnetRpcUrl}, snapshot=${result.baseSnapshotId}`)
 
-  const reportData = encodeAbiParameters(VnetReportParams, [
+  const typedReportData = encodeVnetSuccessTypedReport(
     projectId,
     result.vnetRpcUrl,
     result.baseSnapshotId as `0x${string}`,
-  ])
-
-  const typedReportData = encodeAbiParameters(TypedReportEnvelopeParams, [
-    REPORT_ENVELOPE_MAGIC,
-    REPORT_TYPE_VNET_SUCCESS,
-    reportData,
-  ])
+  )
 
   const report = runtime
     .report({
@@ -489,14 +522,16 @@ const onProjectRegistered = (runtime: Runtime<Config>, log: EVMLog): string => {
 // ═══════════════════ Workflow Init ═══════════════════
 
 const initWorkflow = (config: Config) => {
+  const parsedConfig = parseConfig(config)
+
   const network = getNetwork({
     chainFamily: "evm",
-    chainSelectorName: config.chainSelectorName,
+    chainSelectorName: parsedConfig.chainSelectorName,
     isTestnet: true,
   })
 
   if (!network) {
-    throw new Error(`Network not found: ${config.chainSelectorName}`)
+    throw new Error(`Network not found: ${parsedConfig.chainSelectorName}`)
   }
 
   const evmClient = new EVMClient(network.chainSelector.selector)
@@ -510,7 +545,7 @@ const initWorkflow = (config: Config) => {
   return [
     handler(
       evmClient.logTrigger({
-        addresses: [hexToBase64(config.bountyHubAddress)],
+        addresses: [hexToBase64(parsedConfig.bountyHubAddress)],
         topics: [
           { values: [hexToBase64(projectRegisteredHash)] },
         ],

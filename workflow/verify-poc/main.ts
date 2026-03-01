@@ -57,6 +57,15 @@ const configSchema = z.object({
   oasisRpcUrl: z.string().optional(),
   sepoliaRpcUrl: z.string().optional(),
   mainnetRpcUrl: z.string(),
+  defaultRules: z.object({
+    maxAttackerSeedWei: z.string(),
+    maxWarpSeconds: z.string(),
+    allowImpersonation: z.boolean(),
+    criticalDrainWei: z.string(),
+    highDrainWei: z.string(),
+    mediumDrainWei: z.string(),
+    lowDrainWei: z.string(),
+  }),
 })
 
 type Config = z.infer<typeof configSchema>
@@ -77,6 +86,20 @@ type ProjectRules = {
     highDrainWei: bigint
     mediumDrainWei: bigint
     lowDrainWei: bigint
+  }
+}
+
+function projectRulesFromConfig(config: Config): ProjectRules {
+  return {
+    maxAttackerSeedWei: BigInt(config.defaultRules.maxAttackerSeedWei),
+    maxWarpSeconds: BigInt(config.defaultRules.maxWarpSeconds),
+    allowImpersonation: config.defaultRules.allowImpersonation,
+    thresholds: {
+      criticalDrainWei: BigInt(config.defaultRules.criticalDrainWei),
+      highDrainWei: BigInt(config.defaultRules.highDrainWei),
+      mediumDrainWei: BigInt(config.defaultRules.mediumDrainWei),
+      lowDrainWei: BigInt(config.defaultRules.lowDrainWei),
+    },
   }
 }
 
@@ -109,6 +132,18 @@ type PoCData = {
 const BountyResultParamsV2 = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei"
 )
+
+export function encodeVerifyPocLegacyReport(
+  submissionId: bigint,
+  isValid: boolean,
+  drainAmountWei: bigint,
+): `0x${string}` {
+  return encodeAbiParameters(BountyResultParamsV2, [
+    submissionId,
+    isValid,
+    drainAmountWei,
+  ])
+}
 
 const VNET_STATUS_ACTIVE = 2
 const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
@@ -761,17 +796,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
   runtime.log(`Idempotency accepted. key=${idempotencyKey}`)
 
   try {
-    const defaultRules: ProjectRules = {
-      maxAttackerSeedWei: 1000000000000000000000n,
-      maxWarpSeconds: 365n * 24n * 60n * 60n,
-      allowImpersonation: true,
-      thresholds: {
-        criticalDrainWei: 1000000000000000000000n,
-        highDrainWei: 100000000000000000000n,
-        mediumDrainWei: 10000000000000000000n,
-        lowDrainWei: 1000000000000000000n,
-      }
-    }
+    const defaultRules = projectRulesFromConfig(runtime.config)
 
     const verifyResult = runtime
       .runInNodeMode(
@@ -794,11 +819,11 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
     const evmClient = new EVMClient(network.chainSelector.selector)
 
-    const reportData = encodeAbiParameters(BountyResultParamsV2, [
+    const reportData = encodeVerifyPocLegacyReport(
       submissionId,
       verifyResult.isValid,
       verifyResult.drainAmountWei,
-    ])
+    )
 
     const report = runtime
       .report({

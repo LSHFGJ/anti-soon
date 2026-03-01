@@ -3,6 +3,8 @@ staging-settings:
     - chain-name: ethereum-testnet-sepolia
       url: https://ethereum-sepolia-rpc.publicnode.com
   account:
-    workflow-owner-address: ""
+    workflow-owner-address: "0xC1A97C6a4030a2089e1D9dA771De552bd67234a3"
   workflows:
     - workflow: workflow/verify-poc/workflow.yaml
+    - workflow: workflow/vnet-init/workflow.yaml
+    - workflow: workflow/jury-orchestrator/workflow.yaml

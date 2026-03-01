@@ -5,7 +5,6 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { normalizeEthereumAddress } from "../lib/address";
 import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
-import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
 	computeCommitHash,
 	generateRandomSalt,
@@ -17,7 +16,6 @@ export const SUBMISSION_LIFECYCLE_PHASES = [
 	"encrypting",
 	"committing",
 	"committed",
-	"queued",
 	"revealing",
 	"revealed",
 	"failed",
@@ -34,8 +32,6 @@ interface CommitState {
 	commitHash?: `0x${string}`;
 	commitTxHash?: `0x${string}`;
 	revealTxHash?: `0x${string}`;
-	autoRevealQueued?: boolean;
-	warning?: string;
 	error?: string;
 }
 
@@ -89,7 +85,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				...s,
 				phase: "encrypting",
 				error: undefined,
-				warning: undefined,
 			}));
 
 			const salt = generateRandomSalt();
@@ -158,36 +153,6 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				phase: "committed",
 				submissionId,
 			}));
-
-			let queuedRevealTxHash: `0x${string}` | null = null;
-			try {
-				queuedRevealTxHash = await queueRevealIfEnabled({
-					publicClient,
-					walletClient,
-					auditor: walletAddress,
-					projectId,
-					submissionId,
-					salt,
-				});
-			} catch (queueErr: unknown) {
-				const queueMessage = extractErrorMessage(queueErr, "unknown queue error");
-				console.warn("Optional auto-reveal queue failed:", queueErr);
-				setState((s) => ({
-					...s,
-					phase: "committed",
-					warning: `Commit succeeded, but auto-reveal queue failed: ${queueMessage}. You can continue with manual reveal.`,
-				}));
-			}
-
-			if (queuedRevealTxHash) {
-				setState((s) => ({
-					...s,
-					phase: "queued",
-					revealTxHash: queuedRevealTxHash,
-					autoRevealQueued: true,
-					warning: undefined,
-				}));
-			}
 		} catch (err: unknown) {
 			console.error("Commit error:", err);
 			const message = extractErrorMessage(err);

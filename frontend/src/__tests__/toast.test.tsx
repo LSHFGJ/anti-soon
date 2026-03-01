@@ -4,8 +4,21 @@ import { Toaster } from '@/components/ui/sonner'
 import { useToast, toast } from '@/hooks/use-toast'
 import { ToastProvider } from '@/components/ToastProvider'
 
+const {
+  defaultToastMock,
+  successToastMock,
+  errorToastMock,
+  warningToastMock,
+  infoToastMock,
+} = vi.hoisted(() => ({
+  defaultToastMock: vi.fn(),
+  successToastMock: vi.fn(),
+  errorToastMock: vi.fn(),
+  warningToastMock: vi.fn(),
+  infoToastMock: vi.fn(),
+}))
+
 vi.mock('sonner', () => {
-  const defaultToastMock = vi.fn()
   return {
     Toaster: vi.fn(({ ...props }) => (
       <div data-testid="sonner-toaster" data-position={props.position} data-theme={props.theme}>
@@ -13,17 +26,17 @@ vi.mock('sonner', () => {
       </div>
     )),
     toast: Object.assign(defaultToastMock, {
-      success: vi.fn(),
-      error: vi.fn(),
-      warning: vi.fn(),
-      info: vi.fn(),
+      success: successToastMock,
+      error: errorToastMock,
+      warning: warningToastMock,
+      info: infoToastMock,
     }),
   }
 })
 
 import * as sonner from 'sonner'
 
-const getDefaultToastMock = () => vi.mocked(sonner.toast) as unknown as ReturnType<typeof vi.fn>
+const getDefaultToastMock = () => defaultToastMock
 
 describe('Toast System', () => {
   beforeEach(() => {

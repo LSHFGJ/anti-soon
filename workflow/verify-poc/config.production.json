@@ -5,5 +5,14 @@
   "tenderlyAccountSlug": "LSHFGJ",
   "tenderlyProjectSlug": "anti-soon",
   "oasisRpcUrl": "https://sapphire.oasis.io",
-  "mainnetRpcUrl": "https://eth.drpc.org"
+  "mainnetRpcUrl": "https://eth.drpc.org",
+  "defaultRules": {
+    "maxAttackerSeedWei": "1000000000000000000000",
+    "maxWarpSeconds": "31536000",
+    "allowImpersonation": true,
+    "criticalDrainWei": "1000000000000000000000",
+    "highDrainWei": "100000000000000000000",
+    "mediumDrainWei": "10000000000000000000",
+    "lowDrainWei": "1000000000000000000"
+  }
 }

@@ -6,7 +6,6 @@ const mockUseWallet = vi.fn();
 const mockGenerateRandomSalt = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
-const mockQueueRevealIfEnabled = vi.fn();
 
 vi.mock("../hooks/useWallet", () => ({
 	useWallet: () => mockUseWallet(),
@@ -19,11 +18,6 @@ vi.mock("../utils/encryption", () => ({
 
 vi.mock("../lib/oasisUpload", () => ({
 	uploadEncryptedPoC: (...args: unknown[]) => mockUploadEncryptedPoC(...args),
-}));
-
-vi.mock("../lib/revealQueue", () => ({
-	queueRevealIfEnabled: (...args: unknown[]) =>
-		mockQueueRevealIfEnabled(...args),
 }));
 
 import {
@@ -61,7 +55,6 @@ describe("commit/reveal lifecycle state model", () => {
 			oasisTxHash:
 				"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		});
-		mockQueueRevealIfEnabled.mockResolvedValue(null);
 	});
 
 	it("keeps lifecycle phases aligned across both hooks", () => {
@@ -70,7 +63,6 @@ describe("commit/reveal lifecycle state model", () => {
 			"encrypting",
 			"committing",
 			"committed",
-			"queued",
 			"revealing",
 			"revealed",
 			"failed",
@@ -304,58 +296,4 @@ describe("commit/reveal lifecycle state model", () => {
 		expect(result.current.state.error).toBeUndefined();
 	});
 
-	it("keeps committed phase when optional queueing fails", async () => {
-		const waitReceiptDeferred = deferred<{
-			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
-		}>();
-		const uploadDeferred = deferred<{
-			cipherURI: string;
-			oasisTxHash: `0x${string}`;
-		}>();
-
-		const publicClient = {
-			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-			waitForTransactionReceipt: vi
-				.fn()
-				.mockReturnValue(waitReceiptDeferred.promise),
-		};
-		const walletClient = {
-			writeContract: vi.fn().mockResolvedValue("0xcommit"),
-		};
-
-		mockUseWallet.mockReturnValue({
-			address: "0x1111111111111111111111111111111111111111",
-			walletClient,
-			publicClient,
-			isConnected: true,
-		});
-		mockUploadEncryptedPoC.mockReturnValue(uploadDeferred.promise);
-		mockQueueRevealIfEnabled.mockRejectedValue(new Error("queue unavailable"));
-
-		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
-
-		let commitPromise!: Promise<void>;
-		await act(async () => {
-			commitPromise = result.current.commit();
-		});
-
-		await act(async () => {
-			uploadDeferred.resolve(
-				{
-					cipherURI:
-						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
-					oasisTxHash:
-						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				},
-			);
-			await Promise.resolve();
-		});
-
-		await act(async () => {
-			waitReceiptDeferred.resolve({ logs: [] });
-			await commitPromise;
-		});
-
-		expect(result.current.state.phase).toBe("committed");
-	});
 });

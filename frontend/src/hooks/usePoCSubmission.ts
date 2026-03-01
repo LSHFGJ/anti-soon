@@ -5,7 +5,6 @@ import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { normalizeEthereumAddress } from "../lib/address";
 import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
-import { queueRevealIfEnabled } from "../lib/revealQueue";
 import {
 	computeCommitHash,
 	generateRandomSalt,
@@ -17,7 +16,6 @@ export const SUBMISSION_LIFECYCLE_PHASES = [
 	"encrypting",
 	"committing",
 	"committed",
-	"queued",
 	"revealing",
 	"revealed",
 	"failed",
@@ -34,7 +32,6 @@ interface SubmissionState {
 	commitHash?: `0x${string}`;
 	commitTxHash?: `0x${string}`;
 	revealTxHash?: `0x${string}`;
-	autoRevealQueued?: boolean;
 	warning?: string;
 	error?: string;
 }
@@ -160,53 +157,6 @@ export const usePoCSubmission = () => {
 
 				setState((s) => ({ ...s, phase: "committed", submissionId }));
 
-				let queuedRevealTxHash: `0x${string}` | null = null;
-				let queueFailed = false;
-				try {
-					queuedRevealTxHash = await queueRevealIfEnabled({
-						publicClient,
-						walletClient,
-						auditor: walletAddress,
-						projectId,
-						submissionId,
-						salt,
-					});
-				} catch (queueErr: unknown) {
-					const queueMessage = extractErrorMessage(
-						queueErr,
-						"unknown queue error",
-					);
-					console.warn("Optional auto-reveal queue failed:", queueErr);
-					queueFailed = true;
-					setState((s) => ({
-						...s,
-						phase: "committed",
-						warning: `Commit succeeded, but auto-reveal queue failed: ${queueMessage}. Continue with direct reveal flow.`,
-					}));
-				}
-
-				if (queuedRevealTxHash) {
-					setState((s) => ({
-						...s,
-						phase: "queued",
-						revealTxHash: queuedRevealTxHash,
-						autoRevealQueued: true,
-						warning: undefined,
-					}));
-					return {
-						submissionId,
-						commitTxHash,
-						revealTxHash: queuedRevealTxHash,
-					};
-				}
-
-				if (queueFailed) {
-					return {
-						submissionId,
-						commitTxHash,
-					};
-				}
-
 				setState((s) => ({ ...s, phase: "revealing" }));
 
 				const { request: revealRequest } = await publicClient.simulateContract({
@@ -255,7 +205,6 @@ export const usePoCSubmission = () => {
 			state.phase !== "idle" &&
 			state.phase !== "failed" &&
 			state.phase !== "committed" &&
-			state.phase !== "queued" &&
 			state.phase !== "revealed",
 		submissionId: state.submissionId,
 		commitTxHash: state.commitTxHash,
