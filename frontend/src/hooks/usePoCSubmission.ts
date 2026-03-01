@@ -152,12 +152,30 @@ export const usePoCSubmission = () => {
 				}
 
 				if (!submissionId) {
-					submissionId = BigInt(Date.now());
+					setFailed(
+						`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
+					);
+					return undefined;
 				}
 
 				setState((s) => ({ ...s, phase: "committed", submissionId }));
 
 				setState((s) => ({ ...s, phase: "revealing" }));
+
+				const canReveal = (await publicClient.readContract({
+					account: walletAddress,
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "canReveal",
+					args: [submissionId],
+				})) as boolean;
+
+				if (!canReveal) {
+					setFailed(
+						"Reveal is not available yet. For MULTI projects wait until commit deadline; for UNIQUE projects ensure your submission is the active candidate.",
+					);
+					return undefined;
+				}
 
 				const { request: revealRequest } = await publicClient.simulateContract({
 					account: walletAddress,

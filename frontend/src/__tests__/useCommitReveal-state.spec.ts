@@ -36,6 +36,37 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
+const POC_COMMITTED_EVENT_TOPIC = keccak256(
+	toBytes("PoCCommitted(uint256,uint256,address,bytes32)"),
+);
+const MOCK_AUDITOR_ADDRESS =
+	"0x1111111111111111111111111111111111111111";
+const MOCK_COMMIT_HASH =
+	"0x1111111111111111111111111111111111111111111111111111111111111111";
+
+function toUintTopic(value: bigint): `0x${string}` {
+	return `0x${value.toString(16).padStart(64, "0")}` as `0x${string}`;
+}
+
+function toAddressTopic(address: string): `0x${string}` {
+	return `0x${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}` as `0x${string}`;
+}
+
+function buildPoCCommittedLog(submissionId: bigint = 1n): {
+	data: `0x${string}`;
+	topics: `0x${string}`[];
+} {
+	return {
+		data: MOCK_COMMIT_HASH,
+		topics: [
+			POC_COMMITTED_EVENT_TOPIC,
+			toUintTopic(submissionId),
+			toUintTopic(1n),
+			toAddressTopic(MOCK_AUDITOR_ADDRESS),
+		],
+	};
+}
+
 describe("commit/reveal lifecycle state model", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -89,7 +120,8 @@ describe("commit/reveal lifecycle state model", () => {
 			},
 			publicClient: {
 				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+				waitForTransactionReceipt:
+					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -116,7 +148,8 @@ describe("commit/reveal lifecycle state model", () => {
 			},
 			publicClient: {
 				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+				waitForTransactionReceipt:
+					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -152,7 +185,8 @@ describe("commit/reveal lifecycle state model", () => {
 			},
 			publicClient: {
 				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+				waitForTransactionReceipt:
+					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -217,6 +251,29 @@ describe("commit/reveal lifecycle state model", () => {
 		);
 	});
 
+	it("fails when commit receipt is missing PoCCommitted event", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain("PoCCommitted event was missing");
+	});
+
 	it("uses deterministic commit transition ordering and supports reset recovery", async () => {
 		const waitReceiptDeferred = deferred<{
 			logs: Array<{ data: `0x${string}`; topics: `0x${string}`[] }>;
@@ -268,7 +325,7 @@ describe("commit/reveal lifecycle state model", () => {
 		expect(result.current.state.phase).toBe("committing");
 
 		await act(async () => {
-			waitReceiptDeferred.resolve({ logs: [] });
+			waitReceiptDeferred.resolve({ logs: [buildPoCCommittedLog(42n)] });
 			await commitPromise;
 		});
 

@@ -28,14 +28,14 @@ export function getSubmissionTimeline(
   status: number, 
   commitTimestamp: bigint, 
   revealTimestamp: bigint, 
-  challenged: boolean
+  hasActiveDispute: boolean
 ): TimelineStep[] {
   const steps: TimelineStep[] = [
     { label: 'Committed', completed: status >= 0, active: status === 0, timestamp: commitTimestamp },
     { label: 'Revealed', completed: status >= 1, active: status === 1, timestamp: revealTimestamp },
   ]
   
-  if (challenged) {
+  if (hasActiveDispute) {
     steps.push({ label: 'Disputed', completed: status >= 3, active: status === 3, timestamp: undefined })
   } else {
     steps.push({ label: 'Verified', completed: status >= 2, active: status === 2, timestamp: undefined })

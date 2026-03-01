@@ -41,20 +41,20 @@ describe('Builder default project context', () => {
     vi.clearAllMocks()
   })
 
-  it('uses the first active project as default when no explicit project context exists', async () => {
-    mockReadContract.mockResolvedValue(3n)
-    mockReadProjectsByIds.mockResolvedValue([
-      createMockProject({ id: 0n, active: false }),
-      createMockProject({ id: 1n, active: true }),
-      createMockProject({ id: 2n, active: true }),
-    ])
+	it('uses the first active project with active VNet as default when no explicit project context exists', async () => {
+		mockReadContract.mockResolvedValue(3n)
+		mockReadProjectsByIds.mockResolvedValue([
+			createMockProject({ id: 0n, active: false }),
+			createMockProject({ id: 1n, active: true, vnetStatus: 1 }),
+			createMockProject({ id: 2n, active: true }),
+		])
 
-    renderBuilder('/builder')
+		renderBuilder('/builder')
 
-    await waitFor(() => {
-      expect(screen.getByTestId('builder-project-context')).toHaveTextContent('DEFAULT_PROJECT_ID: #1')
-      expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('1')
-    })
+		await waitFor(() => {
+			expect(screen.getByTestId('builder-project-context')).toHaveTextContent('DEFAULT_PROJECT_ID: #2')
+			expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('2')
+		})
 
     expect(mockReadContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'nextProjectId' }))
     expect(mockReadProjectsByIds).toHaveBeenCalledWith([0n, 1n, 2n])

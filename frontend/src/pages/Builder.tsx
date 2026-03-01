@@ -10,6 +10,8 @@ type BuilderLocationState = {
   projectId?: string | number | bigint
 }
 
+const VNET_STATUS_ACTIVE = 2
+
 export function parseProjectId(value: string | number | bigint | null | undefined): bigint | null {
   if (value === null || value === undefined) return null
 
@@ -79,10 +81,12 @@ export function Builder() {
 
         const projectIds = Array.from({ length: Number(nextProjectId) }, (_, index) => BigInt(index))
         const projects = await readProjectsByIds(projectIds)
-        const firstActiveProject = projects.find((project) => project.active)
+        const firstReadyProject = projects.find(
+          (project) => project.active && project.vnetStatus === VNET_STATUS_ACTIVE,
+        )
 
         if (!cancelled) {
-          setDefaultProjectId(firstActiveProject?.id ?? null)
+          setDefaultProjectId(firstReadyProject?.id ?? null)
         }
       } catch {
         if (!cancelled) {

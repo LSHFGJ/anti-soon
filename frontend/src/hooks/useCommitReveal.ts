@@ -145,7 +145,10 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}
 
 			if (!submissionId) {
-				submissionId = BigInt(Date.now());
+				setFailed(
+					`Commit confirmed but PoCCommitted event was missing in tx logs (${txHash}). Open the tx in explorer and retry from submission detail.`,
+				);
+				return;
 			}
 
 			setState((s) => ({
@@ -188,6 +191,21 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 		try {
 			setState((s) => ({ ...s, phase: "revealing", error: undefined }));
+
+			const canReveal = (await publicClient.readContract({
+				account: walletAddress,
+				address: BOUNTY_HUB_ADDRESS,
+				abi: BOUNTY_HUB_V2_ABI,
+				functionName: "canReveal",
+				args: [state.submissionId],
+			})) as boolean;
+
+			if (!canReveal) {
+				setFailed(
+					"Reveal is not available yet. For MULTI projects wait until commit deadline; for UNIQUE projects ensure your submission is the active candidate.",
+				);
+				return;
+			}
 
 			const { request } = await publicClient.simulateContract({
 				account: walletAddress,

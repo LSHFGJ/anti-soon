@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { BOUNTY_HUB_ADDRESS } from '../config'
 import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
 
 describe('getLogsWithRangeFallback', () => {
@@ -50,7 +51,7 @@ describe('getLogsWithRangeFallback', () => {
         getCode,
         getBlockNumber: vi.fn().mockResolvedValue(latestBlock),
       } as never,
-      '0x8b12D6F28453be1eEf2D5ff151df3a2eE68d7f97',
+      BOUNTY_HUB_ADDRESS,
       latestBlock,
     )
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
@@ -37,6 +37,11 @@ type SubmissionTuple = readonly [
 ]
 
 const STATUS_LABELS = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
+const SUBMISSION_STATUS_VERIFIED = 2
+const SUBMISSION_STATUS_DISPUTED = 3
+const SUBMISSION_STATUS_FINALIZED = 4
+const SUBMISSION_STATUS_INVALID = 5
+const MIN_CHALLENGE_BOND_WEI = 10_000_000_000_000_000n
 
 export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
@@ -47,6 +52,38 @@ export function SubmissionDetail() {
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
+  const refreshSubmissionData = useCallback(async (submissionId: bigint) => {
+    const subData = await publicClient.readContract({
+      address: BOUNTY_HUB_ADDRESS,
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'submissions',
+      args: [submissionId]
+    }) as SubmissionTuple
+
+    const fetchedSubmission: Submission = {
+      id: submissionId,
+      auditor: subData[0],
+      projectId: subData[1],
+      commitHash: subData[2],
+      cipherURI: subData[3],
+      salt: subData[4],
+      commitTimestamp: subData[5],
+      revealTimestamp: subData[6],
+      status: subData[7],
+      drainAmountWei: subData[8],
+      severity: subData[9],
+      payoutAmount: subData[10],
+      disputeDeadline: subData[11],
+      challenged: subData[12],
+      challenger: subData[13],
+      challengeBond: subData[14]
+    }
+
+    setSubmission(fetchedSubmission)
+    const fetchedProject: Project = await readProjectById(fetchedSubmission.projectId)
+    setProject(fetchedProject)
+  }, [])
+
   useEffect(() => {
     if (!id) return
 
@@ -56,36 +93,7 @@ export function SubmissionDetail() {
       try {
         setIsLoading(true)
         setError(null)
-
-        const subData = await publicClient.readContract({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'submissions',
-          args: [submissionId]
-        }) as SubmissionTuple
-
-        const fetchedSubmission: Submission = {
-          id: submissionId,
-          auditor: subData[0],
-          projectId: subData[1],
-          commitHash: subData[2],
-          cipherURI: subData[3],
-          salt: subData[4],
-          commitTimestamp: subData[5],
-          revealTimestamp: subData[6],
-          status: subData[7],
-          drainAmountWei: subData[8],
-          severity: subData[9],
-          payoutAmount: subData[10],
-          disputeDeadline: subData[11],
-          challenged: subData[12],
-          challenger: subData[13],
-          challengeBond: subData[14]
-        }
-        setSubmission(fetchedSubmission)
-
-        const fetchedProject: Project = await readProjectById(fetchedSubmission.projectId)
-        setProject(fetchedProject)
+        await refreshSubmissionData(submissionId)
       } catch (err) {
         console.error('Failed to fetch submission:', err)
         if (shouldUsePreviewFallback()) {
@@ -102,8 +110,8 @@ export function SubmissionDetail() {
       }
     }
 
-    fetchData()
-  }, [id])
+    void fetchData()
+  }, [id, refreshSubmissionData])
 
   const formatTimestamp = (timestamp: bigint) => {
     if (timestamp === 0n) return 'Pending...'
@@ -121,8 +129,13 @@ export function SubmissionDetail() {
 
     try {
       setActionLoading('challenge')
+      const now = BigInt(Math.floor(Date.now() / 1000))
+      if (submission.disputeDeadline === 0n || now > submission.disputeDeadline) {
+        setError('Dispute window has closed for this submission')
+        return
+      }
 
-      const challengeBond = project?.maxPayoutPerBug ? project.maxPayoutPerBug / 10n : 0n
+      const challengeBond = MIN_CHALLENGE_BOND_WEI
 
       const hash = await walletClient.writeContract({
         address: BOUNTY_HUB_ADDRESS,
@@ -135,13 +148,7 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-
-      setSubmission({
-        ...submission,
-        challenged: true,
-        challenger: address,
-        challengeBond
-      })
+      await refreshSubmissionData(submission.id)
     } catch (err) {
       console.error('Challenge failed:', err)
       setError('Failed to submit challenge')
@@ -166,12 +173,7 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-
-      setSubmission({
-        ...submission,
-        status: overturn ? 5 : 4,
-        challenged: false
-      })
+      await refreshSubmissionData(submission.id)
     } catch (err) {
       console.error('Resolve failed:', err)
       setError('Failed to resolve dispute')
@@ -196,11 +198,7 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-
-      setSubmission({
-        ...submission,
-        status: 4
-      })
+      await refreshSubmissionData(submission.id)
     } catch (err) {
       console.error('Finalize failed:', err)
       setError('Failed to finalize submission')
@@ -209,16 +207,36 @@ export function SubmissionDetail() {
     }
   }
 
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  const challengeBond = MIN_CHALLENGE_BOND_WEI
+  const hasActiveDispute = submission?.status === SUBMISSION_STATUS_DISPUTED
+  const disputeWindowOpen = Boolean(submission && submission.disputeDeadline > 0n && submission.disputeDeadline >= now)
+  const disputeWindowClosed = Boolean(submission && submission.disputeDeadline > 0n && now > submission.disputeDeadline)
   const isProjectOwner = Boolean(project && address && project.owner.toLowerCase() === address.toLowerCase())
-  const canChallenge = Boolean(submission?.status === 2 && !submission.challenged && isConnected)
-  const canResolve = Boolean(submission?.challenged && isProjectOwner && submission.status === 3)
-  const canFinalize = Boolean(submission && (submission.status === 2 || submission.status === 3) && !submission.challenged)
+  const canChallenge = Boolean(
+    submission?.status === SUBMISSION_STATUS_VERIFIED &&
+    !submission.challenged &&
+    disputeWindowOpen &&
+    isConnected,
+  )
+  const canResolve = Boolean(
+    hasActiveDispute &&
+    submission?.challenged &&
+    isProjectOwner &&
+    disputeWindowOpen,
+  )
+  const canFinalize = Boolean(
+    submission &&
+    (submission.status === SUBMISSION_STATUS_VERIFIED || submission.status === SUBMISSION_STATUS_DISPUTED) &&
+    disputeWindowClosed &&
+    isConnected,
+  )
 
   const getStatusBadgeVariant = (): 'success' | 'error' | 'warning' | 'info' => {
-    if (submission?.status === 5) return 'error'
-    if (submission?.challenged) return 'error'
-    if (submission?.status === 4) return 'success'
-    if (submission?.status === 2) return 'success'
+    if (submission?.status === SUBMISSION_STATUS_INVALID) return 'error'
+    if (hasActiveDispute) return 'error'
+    if (submission?.status === SUBMISSION_STATUS_FINALIZED) return 'success'
+    if (submission?.status === SUBMISSION_STATUS_VERIFIED) return 'success'
     if (submission?.status === 1) return 'info'
     return 'warning'
   }
@@ -264,7 +282,7 @@ export function SubmissionDetail() {
     submission.status,
     submission.commitTimestamp,
     submission.revealTimestamp,
-    submission.challenged
+    hasActiveDispute
   )
 
   return (
@@ -379,10 +397,10 @@ export function SubmissionDetail() {
 
                     <StatusBanner
                       className="mt-4"
-                      variant={submission.status === 5 || submission.challenged ? 'error' : 'success'}
+                      variant={submission.status === SUBMISSION_STATUS_INVALID || hasActiveDispute ? 'error' : 'success'}
                       message={
                         <span className="font-bold tracking-wider">
-                          {submission.status === 5 ? '[ INVALID ]' : submission.challenged ? '[ DISPUTED ]' : '[ VALID ]'}
+                          {submission.status === SUBMISSION_STATUS_INVALID ? '[ INVALID ]' : hasActiveDispute ? '[ DISPUTED ]' : '[ VALID ]'}
                         </span>
                       }
                     />
@@ -390,16 +408,16 @@ export function SubmissionDetail() {
                 )}
             </NeonPanel>
 
-            <NeonPanel tone={submission.challenged ? 'error' : 'default'} contentClassName="p-4">
-              <h2 className={`text-sm font-mono tracking-wider mb-3 ${submission.challenged ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
-                {submission.challenged ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
+            <NeonPanel tone={hasActiveDispute ? 'error' : 'default'} contentClassName="p-4">
+              <h2 className={`text-sm font-mono tracking-wider mb-3 ${hasActiveDispute ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
+                {hasActiveDispute ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
               </h2>
-                {submission.status === 4 ? (
+                {submission.status === SUBMISSION_STATUS_FINALIZED ? (
                   <div className="text-center py-4 text-[var(--color-text-dim)] font-mono">
                     <p className="text-[var(--color-primary)]">[ FINALIZED ]</p>
                     <p className="text-xs mt-2">No further actions available</p>
                   </div>
-                ) : submission.challenged ? (
+                ) : hasActiveDispute ? (
                   <>
                     <div className="space-y-3 font-mono text-sm mb-4">
                       <div className="flex justify-between">
@@ -442,9 +460,25 @@ export function SubmissionDetail() {
                           </Button>
                         </div>
                       </>
+                    ) : canFinalize ? (
+                      <>
+                        <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
+                          &gt; Dispute window has passed without resolution. Any connected address can finalize payout.
+                        </p>
+                        <Button 
+                          onClick={handleFinalize}
+                          disabled={actionLoading !== null}
+                          className="w-full bg-transparent border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-[var(--color-bg)] font-mono"
+                        >
+                          {actionLoading === 'finalize' ? (
+                            <><span className="spinner w-3 h-3 mr-2 border-[var(--color-bg)] border-t-transparent" /> FINALIZING...</>
+                          ) : '[ FINALIZE PAYOUT ]'}
+                        </Button>
+                      </>
                     ) : (
                       <p className="text-[var(--color-text-dim)] font-mono text-xs">
                         &gt; Awaiting resolution from project owner
+                        {!isConnected && ' (Connect wallet to finalize if timeout is reached)'}
                       </p>
                     )}
                   </>
@@ -452,7 +486,7 @@ export function SubmissionDetail() {
                   <>
                     <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
                       &gt; Challenge this verification result if you believe it's incorrect.
-                      Requires a bond of {project ? formatEther(project.maxPayoutPerBug / 10n) : '0'} ETH.
+                      Requires a minimum bond of {formatEther(challengeBond)} ETH.
                     </p>
                     <Button 
                       onClick={handleChallenge}
@@ -464,10 +498,10 @@ export function SubmissionDetail() {
                       ) : '[ CHALLENGE RESULT ]'}
                     </Button>
                   </>
-                ) : canFinalize && isProjectOwner ? (
+                ) : canFinalize ? (
                   <>
                     <p className="text-[var(--color-text-dim)] font-mono text-xs mb-4">
-                      &gt; Dispute window has passed. Finalize to release payout.
+                      &gt; Dispute window has passed. Any connected address can finalize payout.
                     </p>
                     <Button 
                       onClick={handleFinalize}
@@ -482,7 +516,7 @@ export function SubmissionDetail() {
                 ) : (
                   <p className="text-[var(--color-text-dim)] font-mono text-xs">
                     &gt; No dispute actions available
-                    {!isConnected && ' (Connect wallet to challenge)'}
+                    {!isConnected && ' (Connect wallet to interact)'}
                   </p>
                 )}
             </NeonPanel>

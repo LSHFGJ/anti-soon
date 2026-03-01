@@ -305,6 +305,13 @@ export const BOUNTY_HUB_V2_ABI = [
 			{ name: "winnerSubmissionId", type: "uint256" },
 		],
 	},
+	{
+		name: "canReveal",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_submissionId", type: "uint256" }],
+		outputs: [{ name: "", type: "bool" }],
+	},
 	// Events
 	{
 		name: "ProjectRegisteredV2",
