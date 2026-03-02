@@ -5,11 +5,23 @@ export const VERIFY_POC_IDEMPOTENCY_VERSION =
 export const VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR =
   "VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT" as const
 
-export type VerifyPocIdempotencyStatus = "processing" | "completed"
+export type VerifyPocIdempotencyStatus =
+  | "processing"
+  | "completed"
+  | "quarantined"
 
 export type VerifyPocIdempotencyDecision = {
   shouldProcess: boolean
-  reason: "first_seen" | "in_flight" | "already_completed"
+  reason:
+    | "first_seen"
+    | "in_flight"
+    | "already_completed"
+    | "quarantined"
+    | "reclaimed_quarantined"
+}
+
+export type VerifyPocIdempotencyClaimOptions = {
+  allowQuarantinedReclaim?: boolean
 }
 
 export type VerifyPocIdempotencyInput = {
@@ -170,7 +182,8 @@ export function assertVerifyPocIdempotencyMappingStable(
 
 export function claimVerifyPocIdempotencySlot(
   stateByKey: Map<string, VerifyPocIdempotencyStatus>,
-  key: string
+  key: string,
+  options?: VerifyPocIdempotencyClaimOptions,
 ): VerifyPocIdempotencyDecision {
   const current = stateByKey.get(key)
   if (current === "processing") {
@@ -178,6 +191,14 @@ export function claimVerifyPocIdempotencySlot(
   }
   if (current === "completed") {
     return { shouldProcess: false, reason: "already_completed" }
+  }
+  if (current === "quarantined") {
+    if (!options?.allowQuarantinedReclaim) {
+      return { shouldProcess: false, reason: "quarantined" }
+    }
+
+    stateByKey.set(key, "processing")
+    return { shouldProcess: true, reason: "reclaimed_quarantined" }
   }
 
   stateByKey.set(key, "processing")
@@ -189,6 +210,13 @@ export function markVerifyPocIdempotencyCompleted(
   key: string
 ): void {
   stateByKey.set(key, "completed")
+}
+
+export function markVerifyPocIdempotencyQuarantined(
+  stateByKey: Map<string, VerifyPocIdempotencyStatus>,
+  key: string,
+): void {
+  stateByKey.set(key, "quarantined")
 }
 
 export function releaseVerifyPocIdempotencySlot(

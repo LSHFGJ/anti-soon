@@ -4,6 +4,7 @@ import {
   claimVerifyPocIdempotencySlot,
   deriveVerifyPocIdempotencyKey,
   markVerifyPocIdempotencyCompleted,
+  markVerifyPocIdempotencyQuarantined,
   releaseVerifyPocIdempotencySlot,
   VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR,
   type VerifyPocIdempotencyMappingState,
@@ -167,5 +168,22 @@ describe("verify-poc idempotency", () => {
     const retry = claimVerifyPocIdempotencySlot(state, key)
     expect(retry.shouldProcess).toBe(true)
     expect(retry.reason).toBe("first_seen")
+  })
+
+  it("fails closed for quarantined status unless reclaim is explicitly enabled", () => {
+    const state = new Map<string, VerifyPocIdempotencyStatus>()
+    const key = "0xfeed"
+
+    markVerifyPocIdempotencyQuarantined(state, key)
+
+    const blocked = claimVerifyPocIdempotencySlot(state, key)
+    expect(blocked.shouldProcess).toBe(false)
+    expect(blocked.reason).toBe("quarantined")
+
+    const reclaimed = claimVerifyPocIdempotencySlot(state, key, {
+      allowQuarantinedReclaim: true,
+    })
+    expect(reclaimed.shouldProcess).toBe(true)
+    expect(reclaimed.reason).toBe("reclaimed_quarantined")
   })
 })

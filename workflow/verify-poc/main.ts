@@ -1,50 +1,50 @@
 import {
-  EVMClient,
-  HTTPClient,
-  handler,
-  getNetwork,
-  hexToBase64,
   bytesToHex,
-  TxStatus,
-  Runner,
   consensusIdenticalAggregation,
+  EVMClient,
+  getNetwork,
+  handler,
+  hexToBase64,
+  HTTPClient,
+  Runner,
+  TxStatus,
+  type EVMLog,
   type Runtime,
   type NodeRuntime,
-  type EVMLog,
 } from "@chainlink/cre-sdk"
 import {
-  decodeFunctionResult,
-  encodeFunctionData,
-  encodeAbiParameters,
-  parseAbiParameters,
-  parseAbi,
-  keccak256,
-  toBytes,
   decodeAbiParameters,
+  decodeFunctionResult,
+  encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
+  parseAbi,
+  parseAbiParameters,
+  toBytes,
 } from "viem"
 import { z } from "zod"
+import { encodeJsonBodyBase64 } from "./src/httpBody"
+import type { VerifyPocIdempotencyInput } from "./src/idempotency"
 import {
-  assertVerifyPocIdempotencyMappingStable,
-  claimVerifyPocIdempotencySlot,
-  deriveVerifyPocIdempotencyKey,
-  markVerifyPocIdempotencyCompleted,
-  releaseVerifyPocIdempotencySlot,
-  type VerifyPocIdempotencyMappingState,
-  type VerifyPocIdempotencyStatus,
-} from "./src/idempotency"
+  assertDurableVerifyPocIdempotencyMappingStable,
+  claimDurableVerifyPocIdempotencySlot,
+  loadVerifyPocIdempotencyStore,
+  markDurableVerifyPocIdempotencyCompleted,
+  markDurableVerifyPocIdempotencyQuarantined,
+  type VerifyPocIdempotencyStore,
+} from "./src/idempotencyStore"
+import {
+  parseOasisReferenceUri,
+  type OasisReference,
+} from "./src/oasisAttestation"
+import {
+  validateOasisRpcPayload,
+} from "./src/oasisRpcRead"
 import {
   decodeSubmissionReadResult,
   encodeSubmissionReadCall,
   type ChainSubmissionRecord,
 } from "./src/submissionReader"
-import {
-  parseOasisReferenceUri,
-  type OasisReference,
-} from "./src/oasisAttestation"
-import { encodeJsonBodyBase64 } from "./src/httpBody"
-import {
-  validateOasisRpcPayload,
-} from "./src/oasisRpcRead"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -146,13 +146,15 @@ export function encodeVerifyPocLegacyReport(
 }
 
 const VNET_STATUS_ACTIVE = 2
-const processedRevealIdempotency = new Map<string, VerifyPocIdempotencyStatus>()
-const processedRevealIdempotencyMappingBySourceEvent =
-  new Map<string, VerifyPocIdempotencyMappingState>()
 const VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_VERSION =
   "anti-soon.verify-poc.revealed-map.v1"
 const VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_MODE = "poc_revealed"
+const VERIFY_POC_IDEMPOTENCY_STORE_PATH_ENV =
+  "VERIFY_POC_IDEMPOTENCY_STORE_PATH"
+const DEFAULT_VERIFY_POC_IDEMPOTENCY_STORE_PATH =
+  ".verify-poc-idempotency-store.json"
 const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
+let verifyPocIdempotencyStore: VerifyPocIdempotencyStore | undefined
 
 const ProjectStructAbi = parseAbiParameters(
   "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
@@ -199,6 +201,33 @@ type ProjectVnetInfo = {
   vnetRpcUrl: string
   baseSnapshotId: string
   vnetStatus: number
+}
+
+function readProcessEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as {
+    process?: { env?: Record<string, string | undefined> }
+  }
+  return runtimeGlobal.process?.env?.[name]
+}
+
+function getVerifyPocIdempotencyStore(
+  runtime: Runtime<Config>,
+): VerifyPocIdempotencyStore {
+  if (!verifyPocIdempotencyStore) {
+    const configuredPath = readProcessEnv(
+      VERIFY_POC_IDEMPOTENCY_STORE_PATH_ENV,
+    )
+    const filePath =
+      configuredPath && configuredPath.length > 0
+        ? configuredPath
+        : DEFAULT_VERIFY_POC_IDEMPOTENCY_STORE_PATH
+    verifyPocIdempotencyStore = loadVerifyPocIdempotencyStore(filePath)
+    runtime.log(
+      `Loaded durable idempotency store: path=${filePath}, recoveredProcessing=${verifyPocIdempotencyStore.recoveredProcessingCount}`,
+    )
+  }
+
+  return verifyPocIdempotencyStore
 }
 
 function encodeProjectCall(projectId: bigint): string {
@@ -753,9 +782,10 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     )(submissionId)
     .result()
   const { cipherURI, projectId } = submission
+  const idempotencyStore = getVerifyPocIdempotencyStore(runtime)
 
   const idempotencySource = log as unknown as Record<string, unknown>
-  const idempotencyInput = {
+  const idempotencyInput: VerifyPocIdempotencyInput = {
     mappingVersion: VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_VERSION,
     mappingMode: VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_MODE,
     chainSelectorName: runtime.config.chainSelectorName,
@@ -776,14 +806,14 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
         : undefined,
   }
 
-  const idempotencyKey = deriveVerifyPocIdempotencyKey(idempotencyInput)
-  assertVerifyPocIdempotencyMappingStable(
-    processedRevealIdempotencyMappingBySourceEvent,
+  const mappedIdempotency = assertDurableVerifyPocIdempotencyMappingStable(
+    idempotencyStore,
     idempotencyInput
   )
+  const idempotencyKey = mappedIdempotency.idempotencyKey
 
-  const idempotencyDecision = claimVerifyPocIdempotencySlot(
-    processedRevealIdempotency,
+  const idempotencyDecision = claimDurableVerifyPocIdempotencySlot(
+    idempotencyStore,
     idempotencyKey
   )
   if (!idempotencyDecision.shouldProcess) {
@@ -844,14 +874,23 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
     if (writeResult.txStatus === TxStatus.SUCCESS) {
       const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32))
-      markVerifyPocIdempotencyCompleted(processedRevealIdempotency, idempotencyKey)
+      markDurableVerifyPocIdempotencyCompleted(idempotencyStore, idempotencyKey)
       runtime.log(`Result written on-chain. tx=${txHash}`)
       return txHash
     }
 
     throw new Error(`EVM Write failed: ${writeResult.txStatus}`)
   } catch (error) {
-    releaseVerifyPocIdempotencySlot(processedRevealIdempotency, idempotencyKey)
+    try {
+      markDurableVerifyPocIdempotencyQuarantined(idempotencyStore, idempotencyKey)
+      runtime.log(`Idempotency quarantined after failure. key=${idempotencyKey}`)
+    } catch (quarantineError) {
+      runtime.log(
+        `Failed to persist idempotency quarantine for key=${idempotencyKey}: ${String(
+          quarantineError,
+        )}`,
+      )
+    }
     throw error
   }
 }

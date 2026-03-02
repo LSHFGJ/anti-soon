@@ -6,10 +6,10 @@ import { readProjectById } from '../lib/projectReads'
 import { StatCard } from '../components/shared/StatCard'
 import { CountdownTimer } from '../components/shared/CountdownTimer'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
-import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
+import { NeonPanel, PageHeader, StatusBanner, MetaRow } from '../components/shared/ui-primitives'
 import { publicClient } from '../lib/publicClient'
 import { STATUS_LABELS, type Project, type Submission, type ProjectRules } from '../types'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -50,16 +50,33 @@ type RulesTuple = readonly [
   }
 ]
 
+function ThresholdCard({ label, amountWei, colorVar }: { label: string, amountWei: bigint, colorVar: string }) {
+  return (
+    <div className="flex flex-col p-3 border border-[var(--color-bg-light)] bg-black/20 rounded-sm">
+      <span className={`font-mono text-xs mb-1`} style={{ color: colorVar }}>{label}</span>
+      <span className="font-mono text-sm">&gt; {formatEther(amountWei)} ETH</span>
+    </div>
+  )
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-sm font-mono tracking-widest text-[var(--color-text-dim)] uppercase mb-4 pb-2 border-b border-[var(--color-bg-light)]">
+      {children}
+    </h2>
+  )
+}
+
 function ProjectDetailSkeleton() {
   return (
     <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
-      <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4">
-        <Skeleton className="h-4 w-32 mb-4" />
+      <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4 overflow-y-auto">
+        <Skeleton className="h-4 w-32 mb-6" />
         <div className="flex items-center gap-4 mb-2">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-6 w-20" />
         </div>
-        <Skeleton className="h-1 w-48 mb-8" />
+        <Skeleton className="h-4 w-64 mb-8" />
         
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[1, 2, 3, 4].map((i) => (
@@ -72,27 +89,49 @@ function ProjectDetailSkeleton() {
           ))}
         </div>
         
-        <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)] mb-8">
-          <CardHeader>
-            <Skeleton className="h-6 w-32" />
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-6">
-              {[1, 2].map((i) => (
-                <div key={i} className="space-y-2">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-8 w-full" />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)]">
+            <CardContent className="p-6">
+              <Skeleton className="h-4 w-32 mb-4" />
+              <div className="grid grid-cols-2 gap-6 mb-8">
+                <div className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-full" /></div>
+                <div className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-8 w-full" /></div>
+              </div>
+              <Skeleton className="h-4 w-32 mb-4" />
+              <div className="space-y-4">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)]">
+            <CardContent className="p-6 flex flex-col">
+              <Skeleton className="h-4 w-32 mb-4" />
+              <div className="space-y-4 mb-8">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                ))}
+              </div>
+              <Skeleton className="h-4 w-32 mb-4" />
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
         
         <Card className="bg-[var(--color-bg-panel)]/80 border-[var(--color-bg-light)]">
-          <CardHeader>
+          <div className="p-6 border-b border-[var(--color-bg-light)]">
             <Skeleton className="h-6 w-40" />
-          </CardHeader>
-          <CardContent>
+          </div>
+          <CardContent className="p-6">
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="flex items-center gap-4">
@@ -302,19 +341,40 @@ export function ProjectDetail() {
     <div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
       <div className="container flex-1 flex flex-col min-h-0 max-w-6xl mx-auto px-4 overflow-y-auto">
         <div className="mb-8">
-          <Link
-            to="/explorer"
-            className="btn-cyber inline-flex mb-4"
-          >
-            [← Back to Explorer]
-          </Link>
+          <div className="mb-3">
+            <Link
+              to="/explorer"
+              className="text-[var(--color-text-dim)] hover:text-[var(--color-primary)] font-mono text-sm inline-flex items-center gap-2 transition-colors"
+            >
+              <span>←</span> BACK TO EXPLORER
+            </Link>
+          </div>
 
-          <PageHeader
-            title={`PROJECT #${project.id.toString()}`}
-            subtitle={`> TARGET: ${formatAddress(project.targetContract)}`}
-            suffix={<Badge variant={project.mode === 0 ? 'unique' : 'multi'}>{project.mode === 0 ? 'UNIQUE' : 'MULTI'}</Badge>}
-            rightSlot={<Badge variant={deadlineStatus.variant}>{deadlineStatus.text}</Badge>}
-          />
+          <div className="flex items-start justify-between gap-4">
+            <PageHeader
+              className="mb-0 flex-1"
+              title={`PROJECT #${project.id.toString()}`}
+              subtitle={`TARGET: ${formatAddress(project.targetContract)}`}
+              suffix={
+                <div className="flex items-center gap-2">
+                  <Badge variant={project.mode === 0 ? 'unique' : 'multi'}>
+                    {project.mode === 0 ? 'UNIQUE' : 'MULTI'}
+                  </Badge>
+                  <Badge variant={deadlineStatus.variant}>{deadlineStatus.text}</Badge>
+                </div>
+              }
+            />
+
+            {project.active ? (
+              <Link
+                to={`/builder?projectId=${project.id.toString()}&source=project-detail`}
+                className="inline-flex h-10 items-center gap-2 px-5 text-sm bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-primary)]/80 text-[var(--color-bg)] font-mono font-bold uppercase tracking-wider border border-[var(--color-primary)]/70 shadow-[0_0_18px_var(--color-primary-glow)] transition-all hover:shadow-[0_0_32px_var(--color-primary)]/60 hover:-translate-y-0.5"
+              >
+                <span>SUBMIT POC</span>
+                <span>→</span>
+              </Link>
+            ) : null}
+          </div>
 
           {error && (
             <StatusBanner
@@ -348,114 +408,84 @@ export function ProjectDetail() {
           />
         </div>
 
-        <NeonPanel className="mb-8" contentClassName="p-6">
-          <h2 className="text-lg font-mono tracking-wide mb-4">DEADLINES</h2>
-            <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          <NeonPanel contentClassName="p-6">
+            <SectionHeader>DEADLINES</SectionHeader>
+            <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <p className="text-[var(--color-text-dim)] font-mono text-xs uppercase">Commit Deadline</p>
-                <p className="font-mono text-sm">{formatTimestamp(project.commitDeadline)}</p>
+                <MetaRow label="Commit Deadline" value={formatTimestamp(project.commitDeadline)} />
                 <CountdownTimer deadline={project.commitDeadline} />
               </div>
               <div className="space-y-2">
-                <p className="text-[var(--color-text-dim)] font-mono text-xs uppercase">Reveal Deadline</p>
-                <p className="font-mono text-sm">{formatTimestamp(project.revealDeadline)}</p>
+                <MetaRow label="Reveal Deadline" value={formatTimestamp(project.revealDeadline)} />
                 <CountdownTimer deadline={project.revealDeadline} />
               </div>
             </div>
-        </NeonPanel>
 
-        {rules && (
-          <NeonPanel className="mb-8" contentClassName="p-6 space-y-6">
-              <h2 className="text-lg font-mono tracking-wide">RULES & THRESHOLDS</h2>
-              <div>
-                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">{'// EXECUTION_RULES'}</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
-                  <div>
-                    <span className="text-[var(--color-text-dim)]">MAX_ATTACKER_SEED: </span>
-                    <span>{formatEther(rules.maxAttackerSeedWei)} ETH</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-text-dim)]">MAX_TIME_WARP: </span>
-                    <span>{rules.maxWarpSeconds.toString()}s</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-text-dim)]">IMPERSONATION: </span>
+            <div className="mt-8">
+              <SectionHeader>PROJECT DETAILS</SectionHeader>
+              <div className="space-y-4 font-mono text-sm">
+                <MetaRow label="OWNER" value={<span className="break-all text-[var(--color-secondary)]">{project.owner}</span>} />
+                <MetaRow label="TARGET CONTRACT" value={<span className="break-all text-[var(--color-secondary)]">{project.targetContract}</span>} />
+                <MetaRow label="RULES HASH" value={<span className="break-all text-[var(--color-text)]">{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>} />
+              </div>
+            </div>
+          </NeonPanel>
+
+          {rules && (
+            <NeonPanel contentClassName="p-6 flex flex-col">
+              <SectionHeader>RULES</SectionHeader>
+              <div className="space-y-4 font-mono text-sm mb-8">
+                <MetaRow label="MAX ATTACKER SEED" value={`${formatEther(rules.maxAttackerSeedWei)} ETH`} inline />
+                <MetaRow label="MAX TIME WARP" value={`${rules.maxWarpSeconds.toString()}s`} inline />
+                <MetaRow label="DISPUTE WINDOW" value={`${project.disputeWindow.toString()}s`} inline />
+                <MetaRow 
+                  label="IMPERSONATION" 
+                  value={
                     <Badge variant={rules.allowImpersonation ? 'success' : 'error'}>
                       {rules.allowImpersonation ? 'ALLOWED' : 'DISABLED'}
                     </Badge>
-                  </div>
-                  <div>
-                    <span className="text-[var(--color-text-dim)]">DISPUTE_WINDOW: </span>
-                    <span>{project.disputeWindow.toString()}s</span>
-                  </div>
-                </div>
+                  } 
+                  inline 
+                />
               </div>
               
-              <div>
-                <p className="text-[var(--color-secondary)] font-mono text-xs mb-3">{'// SEVERITY_THRESHOLDS'}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(239,68,68,0.12),rgba(11,11,15,0.75))] px-3 py-3">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-error)]" />
-                    <p className="font-mono text-[10px] text-[var(--color-error)] tracking-[0.1em] uppercase pl-2">[ SEV-CRITICAL ]</p>
-                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.criticalDrainWei)} ETH</p>
-                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
-                  </div>
-                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(245,158,11,0.12),rgba(11,11,15,0.75))] px-3 py-3">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-warning)]" />
-                    <p className="font-mono text-[10px] text-[var(--color-warning)] tracking-[0.1em] uppercase pl-2">[ SEV-HIGH ]</p>
-                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.highDrainWei)} ETH</p>
-                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
-                  </div>
-                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(245,207,90,0.1),rgba(11,11,15,0.75))] px-3 py-3">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-gold)]" />
-                    <p className="font-mono text-[10px] text-[var(--color-gold)] tracking-[0.1em] uppercase pl-2">[ SEV-MEDIUM ]</p>
-                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.mediumDrainWei)} ETH</p>
-                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
-                  </div>
-                  <div className="relative overflow-hidden border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(124,58,237,0.12),rgba(11,11,15,0.75))] px-3 py-3">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--color-primary)]" />
-                    <p className="font-mono text-[10px] text-[var(--color-primary)] tracking-[0.1em] uppercase pl-2">[ SEV-LOW ]</p>
-                    <p className="font-mono text-base text-[var(--color-text)] mt-2 pl-2">&gt; {formatEther(rules.thresholds.lowDrainWei)} ETH</p>
-                    <p className="font-mono text-[10px] text-[var(--color-text-dim)] mt-1 pl-2 uppercase">auto-payout tier</p>
-                  </div>
-                </div>
+              <SectionHeader>THRESHOLDS</SectionHeader>
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <ThresholdCard label="CRITICAL" amountWei={rules.thresholds.criticalDrainWei} colorVar="var(--color-error)" />
+                <ThresholdCard label="HIGH" amountWei={rules.thresholds.highDrainWei} colorVar="var(--color-warning)" />
+                <ThresholdCard label="MEDIUM" amountWei={rules.thresholds.mediumDrainWei} colorVar="var(--color-gold)" />
+                <ThresholdCard label="LOW" amountWei={rules.thresholds.lowDrainWei} colorVar="var(--color-primary)" />
               </div>
-          </NeonPanel>
-        )}
+            </NeonPanel>
+          )}
+        </div>
 
-        {project.active && (
-          <div className="mb-8">
-            <Link 
-              to={`/builder?projectId=${project.id.toString()}&source=project-detail`}
-              className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-primary)]/80 text-[var(--color-bg)] font-mono font-bold uppercase tracking-widest text-sm transition-all hover:shadow-[0_0_30px_var(--color-primary)]/50 hover:-translate-y-0.5"
-            >
-              <span>SUBMIT POC</span>
-              <span>→</span>
-            </Link>
+        <NeonPanel className="mb-8" contentClassName="p-0">
+          <div className="p-6 border-b border-[var(--color-bg-light)] flex justify-between items-center">
+            <h2 className="text-lg font-mono tracking-wide">SUBMISSIONS [{submissions.length}]</h2>
           </div>
-        )}
-
-        <NeonPanel className="mb-8" contentClassName="p-6">
-            <h2 className="text-lg font-mono tracking-wide mb-4">SUBMISSIONS [{submissions.length}]</h2>
+          
+          <div className="p-6">
             {submissions.length === 0 ? (
-              <div className="py-12 border border-dashed border-[var(--color-bg-light)] text-center">
+              <div className="py-12 border border-dashed border-[var(--color-bg-light)] text-center bg-black/10 rounded-sm">
                 <p className="font-mono text-[var(--color-text-dim)] text-sm mb-2">&gt; No submissions yet</p>
                 <p className="font-mono text-[var(--color-text-dim)]/80 text-xs">
                   Be the first to submit a PoC for this project
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto -mx-6">
-                <table className="w-full font-mono text-sm">
+              <div className="overflow-x-auto -mx-6 px-6">
+                <table className="w-full font-mono text-sm whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-[var(--color-bg-light)] text-left">
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">ID</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">AUDITOR</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">STATUS</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">SEVERITY</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">DRAIN</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">PAYOUT</th>
-                      <th className="px-6 py-3 text-[var(--color-text-dim)] font-normal">COMMITTED</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal">ID</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal">AUDITOR</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal">STATUS</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal">SEVERITY</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal text-right">DRAIN</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal text-right">PAYOUT</th>
+                      <th className="px-4 py-3 text-[var(--color-text-dim)] font-normal">COMMITTED</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -464,28 +494,28 @@ export function ProjectDetail() {
                         key={sub.id.toString()}
                         className="border-b border-[var(--color-bg-light)] hover:bg-[var(--color-primary)]/5 transition-colors"
                       >
-                        <td className="px-6 py-3 text-[var(--color-text-dim)]">
+                        <td className="px-4 py-4 text-[var(--color-text-dim)]">
                           #{sub.id.toString()}
                         </td>
-                        <td className="px-6 py-3 text-[var(--color-secondary)]">
+                        <td className="px-4 py-4 text-[var(--color-secondary)]">
                           {formatAddress(sub.auditor)}
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-4 py-4">
                           <Badge variant={getStatusVariant(sub.status)}>
                             {STATUS_LABELS[sub.status]}
                           </Badge>
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-4 py-4">
                           <SeverityBadge severity={sub.severity} />
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-4 py-4 text-right">
                           {sub.drainAmountWei > 0n ? (
                             <span>{formatEther(sub.drainAmountWei)} ETH</span>
                           ) : (
                             <span className="text-[var(--color-text-dim)]">-</span>
                           )}
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-4 py-4 text-right">
                           {sub.payoutAmount > 0n ? (
                             <span className="text-[var(--color-primary)] font-bold">
                               {formatEther(sub.payoutAmount)} ETH
@@ -494,7 +524,7 @@ export function ProjectDetail() {
                             <span className="text-[var(--color-text-dim)]">-</span>
                           )}
                         </td>
-                        <td className="px-6 py-3 text-[var(--color-text-dim)]">
+                        <td className="px-4 py-4 text-[var(--color-text-dim)]">
                           {formatTimestamp(sub.commitTimestamp)}
                         </td>
                       </tr>
@@ -503,23 +533,7 @@ export function ProjectDetail() {
                 </table>
               </div>
             )}
-        </NeonPanel>
-
-        <NeonPanel contentClassName="p-4">
-            <div className="grid md:grid-cols-3 gap-4 font-mono text-sm">
-              <div>
-                <span className="text-[var(--color-text-dim)]">OWNER: </span>
-                <span className="text-[var(--color-secondary)] break-all">{project.owner}</span>
-              </div>
-              <div>
-                <span className="text-[var(--color-text-dim)]">TARGET_CONTRACT: </span>
-                <span className="text-[var(--color-secondary)] break-all">{project.targetContract}</span>
-              </div>
-              <div>
-                <span className="text-[var(--color-text-dim)]">RULES_HASH: </span>
-                <span className="break-all">{project.rulesHash.slice(0, 10)}...{project.rulesHash.slice(-8)}</span>
-              </div>
-            </div>
+          </div>
         </NeonPanel>
       </div>
     </div>
