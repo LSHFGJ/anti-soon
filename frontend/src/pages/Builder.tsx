@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
 import { PageHeader } from '../components/shared/ui-primitives'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { readProjectsByIds } from '../lib/projectReads'
 import { publicClient } from '../lib/publicClient'
+import type { Project } from '../types'
 
 type BuilderLocationState = {
   projectId?: string | number | bigint
@@ -57,16 +58,19 @@ export function Builder() {
   }, [location.state, pathProjectId, searchParams])
 
   const [defaultProjectId, setDefaultProjectId] = useState<bigint | null>(null)
+  const [manualProjectId, setManualProjectId] = useState<bigint | null>(null)
+  const [availableProjects, setAvailableProjects] = useState<Project[]>([])
+
+  useEffect(() => {
+    if (explicitProjectId !== null) {
+      setManualProjectId(null)
+    }
+  }, [explicitProjectId])
 
   useEffect(() => {
     let cancelled = false
 
-    const loadDefaultProjectId = async () => {
-      if (explicitProjectId !== null) {
-        setDefaultProjectId(null)
-        return
-      }
-
+    const loadProjectContext = async () => {
       try {
         const nextProjectId = await publicClient.readContract({
           address: BOUNTY_HUB_ADDRESS,
@@ -75,34 +79,99 @@ export function Builder() {
         }) as bigint
 
         if (nextProjectId === 0n) {
-          if (!cancelled) setDefaultProjectId(null)
+          let projects: Project[] = []
+
+          if (explicitProjectId !== null) {
+            try {
+              projects = await readProjectsByIds([explicitProjectId])
+            } catch {
+              projects = []
+            }
+          }
+
+          if (!cancelled) {
+            setAvailableProjects(projects)
+            setDefaultProjectId(null)
+          }
           return
         }
 
         const projectIds = Array.from({ length: Number(nextProjectId) }, (_, index) => BigInt(index))
         const projects = await readProjectsByIds(projectIds)
+        let resolvedProjects = projects
+
+        if (explicitProjectId !== null && !projects.some((project) => project.id === explicitProjectId)) {
+          try {
+            const explicitProjects = await readProjectsByIds([explicitProjectId])
+            if (explicitProjects.length > 0) {
+              resolvedProjects = [...explicitProjects, ...projects]
+            }
+          } catch {
+            resolvedProjects = projects
+          }
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        setAvailableProjects(resolvedProjects)
+
+        if (explicitProjectId !== null) {
+          setDefaultProjectId(null)
+          return
+        }
+
         const firstReadyProject = projects.find(
           (project) => project.active && project.vnetStatus === VNET_STATUS_ACTIVE,
         )
 
-        if (!cancelled) {
-          setDefaultProjectId(firstReadyProject?.id ?? null)
-        }
+        setDefaultProjectId(firstReadyProject?.id ?? null)
       } catch {
-        if (!cancelled) {
-          setDefaultProjectId(null)
+        if (cancelled) {
+          return
         }
+
+        if (explicitProjectId !== null) {
+          try {
+            const explicitProjects = await readProjectsByIds([explicitProjectId])
+            if (!cancelled) {
+              setAvailableProjects(explicitProjects)
+              setDefaultProjectId(null)
+            }
+            return
+          } catch {
+            if (!cancelled) {
+              setAvailableProjects([])
+              setDefaultProjectId(null)
+            }
+            return
+          }
+        }
+
+        setAvailableProjects([])
+        setDefaultProjectId(null)
       }
     }
 
-    void loadDefaultProjectId()
+    void loadProjectContext()
 
     return () => {
       cancelled = true
     }
   }, [explicitProjectId])
 
-  const submissionProjectId = explicitProjectId ?? defaultProjectId
+  const submissionProjectId = manualProjectId ?? explicitProjectId ?? defaultProjectId
+  const projectContextLabel =
+    manualProjectId !== null
+      ? 'SELECTED_PROJECT_ID'
+      : explicitProjectId !== null
+        ? 'CONTEXT_PROJECT_ID'
+        : 'DEFAULT_PROJECT_ID'
+
+  const handleProjectContextChange = useCallback((projectId: bigint) => {
+    setManualProjectId(projectId)
+  }, [])
 
   return (
     <main
@@ -111,7 +180,7 @@ export function Builder() {
     >
       <div className="container flex-1 flex flex-col min-h-0">
         <PageHeader
-          title="POC_BUILDER_V1.0"
+          title="BUILDER"
           subtitle="> Craft, authorize access, and submit your vulnerability proof-of-concept"
           className="mb-4"
           rightSlot={
@@ -120,13 +189,18 @@ export function Builder() {
                 data-testid="builder-project-context"
                 className="font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--color-secondary)]"
               >
-                {explicitProjectId !== null ? 'CONTEXT_PROJECT_ID' : 'DEFAULT_PROJECT_ID'}: #{submissionProjectId.toString()}
+                {projectContextLabel}: #{submissionProjectId.toString()}
               </span>
             ) : undefined
           }
         />
 
-        <PoCBuilder selectedProject={selectedProject} submissionProjectId={submissionProjectId} />
+        <PoCBuilder
+          selectedProject={selectedProject}
+          submissionProjectId={submissionProjectId}
+          availableProjects={availableProjects}
+          onProjectContextChange={handleProjectContextChange}
+        />
       </div>
     </main>
   )

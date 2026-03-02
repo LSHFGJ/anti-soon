@@ -155,7 +155,7 @@ const stepFields: Record<number, (keyof FormData)[]> = {
 
 export function CreateProject() {
   const navigate = useNavigate()
-  const { isConnected, address, connect, walletClient } = useWallet()
+  const { isConnected, address, connect, walletClient } = useWallet({ autoSwitchToSepolia: false })
   
   const [activeStep, setActiveStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)

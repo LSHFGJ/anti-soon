@@ -78,7 +78,7 @@ function RankBadge({ rank }: { rank: number }) {
 }
 
 export function Leaderboard() {
-  const { address: connectedAddress } = useWallet()
+  const { address: connectedAddress } = useWallet({ autoSwitchToSepolia: false })
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

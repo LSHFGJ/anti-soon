@@ -85,7 +85,8 @@ test.describe('Builder layout regression', () => {
     expect(owners[0]?.scrollOwner).toBe('primary')
     expect((owners[0]?.scrollHeight ?? 0) >= (owners[0]?.clientHeight ?? 0)).toBe(true)
 
-    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await page.screenshot({ path: MOBILE_EVIDENCE_PATH, fullPage: true })
   })
 
@@ -107,7 +108,8 @@ test.describe('Builder layout regression', () => {
     expect(owners[0]?.scrollOwner).toBe('primary')
     expect((owners[0]?.scrollHeight ?? 0) >= (owners[0]?.clientHeight ?? 0)).toBe(true)
 
-    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await page.screenshot({ path: DESKTOP_EVIDENCE_PATH, fullPage: true })
   })
 })

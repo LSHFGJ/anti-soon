@@ -14,7 +14,7 @@ const { mockUseWallet, mockReadContract, mockWaitForReceipt, mockReadProjectById
 }))
 
 vi.mock('../hooks/useWallet', () => ({
-  useWallet: () => mockUseWallet(),
+  useWallet: (...args: unknown[]) => mockUseWallet(...args),
 }))
 
 vi.mock('../lib/publicClient', () => ({
@@ -94,6 +94,21 @@ describe('SubmissionDetail lifecycle action alignment', () => {
 
   afterEach(() => {
     dateNowSpy.mockRestore()
+  })
+
+  it('disables automatic sepolia switching in submission detail wallet hook', async () => {
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockResolvedValue(makeSubmissionTuple())
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(mockUseWallet).toHaveBeenCalledWith({ autoSwitchToSepolia: false })
+    })
   })
 
   it('shows finalize action for disputed submissions after dispute timeout', async () => {

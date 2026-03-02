@@ -45,7 +45,7 @@ const MIN_CHALLENGE_BOND_WEI = 10_000_000_000_000_000n
 
 export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
-  const { address, walletClient, isConnected } = useWallet()
+  const { address, walletClient, isConnected } = useWallet({ autoSwitchToSepolia: false })
   const [submission, setSubmission] = useState<Submission | null>(null)
   const [project, setProject] = useState<Project | null>(null)
   const [isLoading, setIsLoading] = useState(true)

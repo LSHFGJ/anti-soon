@@ -5,6 +5,7 @@ import { TargetStep } from '../components/PoCBuilder/Steps/TargetStep'
 import { ConditionsStep } from '../components/PoCBuilder/Steps/ConditionsStep'
 import { TransactionsStep } from '../components/PoCBuilder/Steps/TransactionsStep'
 import { ImpactStep } from '../components/PoCBuilder/Steps/ImpactStep'
+import { createMockProject } from '../test/utils'
 
 vi.mock('../components/CodeEditor', () => ({
   CodeEditor: ({ value, onChange, placeholder }: { value: string; onChange: (next: string) => void; placeholder?: string }) =>
@@ -69,6 +70,68 @@ describe('PoC builder step latency boundaries', () => {
     expect(onUpdate).toHaveBeenLastCalledWith('targetContract', '0x11111111')
 
     vi.useRealTimers()
+  })
+
+  it('supports explorer project dropdown and syncs template-updated target fields', () => {
+    const onUpdate = vi.fn()
+    const onSelectProject = vi.fn()
+    const availableProjects = [
+      createMockProject({
+        id: 7n,
+        targetContract: '0x7777777777777777777777777777777777777777',
+        forkBlock: 22000000n,
+      }),
+    ]
+
+    const initialConfig = {
+      targetContract: '',
+      chain: 'Sepolia',
+      forkBlock: '',
+      abiJson: '[]',
+    }
+
+    const { container, rerender } = render(
+      React.createElement(TargetStep, {
+        config: initialConfig,
+        onUpdate,
+        onNext: () => undefined,
+        availableProjects,
+        selectedProjectId: 7n,
+        onSelectProject,
+      }),
+    )
+
+    const selects = container.querySelectorAll('select')
+    const projectSelect = selects.item(0) as HTMLSelectElement
+    expect(projectSelect.value).toBe('7')
+
+    act(() => {
+      fireEvent.change(projectSelect, { target: { value: '7' } })
+    })
+
+    expect(onSelectProject).toHaveBeenCalledWith(7n)
+
+    rerender(
+      React.createElement(TargetStep, {
+        config: {
+          targetContract: '0x7777777777777777777777777777777777777777',
+          chain: 'Mainnet',
+          forkBlock: '22000000',
+          abiJson: '[]',
+        },
+        onUpdate,
+        onNext: () => undefined,
+        availableProjects,
+        selectedProjectId: 7n,
+        onSelectProject,
+      }),
+    )
+
+    const targetInput = container.querySelector('input[placeholder="0x..."]') as HTMLInputElement
+    const chainSelect = container.querySelectorAll('select').item(1) as HTMLSelectElement
+
+    expect(targetInput.value).toBe('0x7777777777777777777777777777777777777777')
+    expect(chainSelect.value).toBe('Mainnet')
   })
 
   it('keeps conditions, transactions, and impact edits deterministic under burst input', () => {

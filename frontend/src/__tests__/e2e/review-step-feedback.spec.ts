@@ -20,13 +20,12 @@ test.describe('Task 10 review feedback reliability', () => {
 
     await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
 
-    const connectWalletCta = page.getByRole('button', { name: '[ CONNECT_WALLET ]' })
     const reviewPrevious = page.getByRole('button', { name: '[ PREVIOUS ]' })
-    const reviewCommit = page.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })
+    const reviewCommit = page.getByRole('button', { name: '[ COMMIT ]' })
 
-    await expect(connectWalletCta).toBeVisible()
     await expect(reviewPrevious).toBeVisible()
     await expect(reviewCommit).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await expect(page.getByText('1. COMMIT')).toHaveCount(0)
     await expect(page.getByText('2. REVEAL')).toHaveCount(0)
     await expect(page.getByText('3. VERIFYING')).toHaveCount(0)
@@ -37,7 +36,7 @@ test.describe('Task 10 review feedback reliability', () => {
       task: 'task-10-review-feedback-reliability',
       route: '/builder',
       assertions: {
-        hasConnectWalletCta: await connectWalletCta.isVisible(),
+        removedLegacyConnectWalletCta: (await page.getByRole('button', { name: '[ CONNECT_WALLET ]' }).count()) === 0,
         hasReviewPrevious: await reviewPrevious.isVisible(),
         hasReviewCommit: await reviewCommit.isVisible(),
         removedLegacyProgressIndicator: (await page.getByText('1. COMMIT').count()) === 0,

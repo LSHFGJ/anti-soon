@@ -1,11 +1,13 @@
-import React, { useMemo, useEffect, useCallback, useState } from 'react'
+import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
 import { usePoCSubmission } from '../../hooks/usePoCSubmission'
+import { useToast } from '../../hooks/use-toast'
 import { useWallet } from '../../hooks/useWallet'
 import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import type { PoCData } from '../../types/poc'
+import type { Project } from '../../types'
 import { Button } from '../ui/button'
 import { NeonPanel } from '../shared/ui-primitives'
 import { cn } from '../../lib/utils'
@@ -21,11 +23,30 @@ type DemoProject = (typeof import('../../config').DEMO_PROJECTS)[number]
 interface PoCBuilderProps {
   selectedProject?: DemoProject | null
   submissionProjectId: bigint | null
+  availableProjects?: Project[]
+  onProjectContextChange?: (projectId: bigint) => void
 }
 
 const stepLabels = ['TARGET', 'CONDITIONS', 'TRANSACTIONS', 'IMPACT', 'REVIEW'] as const
 const firstStep = 1
 const lastStep = stepLabels.length
+
+function inferChainFromProject(project: Project): string {
+  const rpcUrl = project.vnetRpcUrl.toLowerCase()
+
+  if (rpcUrl.includes('arbitrum')) return 'Arbitrum'
+  if (rpcUrl.includes('optimism')) return 'Optimism'
+  if (rpcUrl.includes('mainnet') && !rpcUrl.includes('sepolia')) return 'Mainnet'
+  return 'Sepolia'
+}
+
+function buildTemplateFromProject(project: Project): Partial<PoCData> {
+  return {
+    target: project.targetContract,
+    chain: inferChainFromProject(project),
+    forkBlock: Number(project.forkBlock),
+  }
+}
 
 const stepSurfaceVariants: Variants = {
   hidden: {
@@ -67,7 +88,12 @@ const StepSurface: React.FC<{
 
 StepSurface.displayName = 'StepSurface'
 
-export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submissionProjectId }) => {
+export const PoCBuilder: React.FC<PoCBuilderProps> = ({
+  selectedProject,
+  submissionProjectId,
+  availableProjects = [],
+  onProjectContextChange,
+}) => {
   const { 
     activeStep, 
     setActiveStep,
@@ -87,6 +113,44 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
     loadTemplate
   } = usePoCBuilder()
 
+  const selectedOnChainProject = useMemo(() => {
+    if (submissionProjectId === null) {
+      return null
+    }
+
+    return availableProjects.find((project) => project.id === submissionProjectId) ?? null
+  }, [availableProjects, submissionProjectId])
+
+  const appliedOnChainProjectIdRef = useRef<bigint | null>(null)
+
+  const handleOnChainProjectSelect = useCallback((projectId: bigint) => {
+    onProjectContextChange?.(projectId)
+
+    const selected = availableProjects.find((project) => project.id === projectId)
+    if (!selected) {
+      return
+    }
+
+    appliedOnChainProjectIdRef.current = selected.id
+    loadTemplate(buildTemplateFromProject(selected))
+    setActiveStep((prev) => (prev === 1 ? 1 : prev))
+  }, [availableProjects, loadTemplate, onProjectContextChange, setActiveStep])
+
+  useEffect(() => {
+    if (!selectedOnChainProject) {
+      appliedOnChainProjectIdRef.current = null
+      return
+    }
+
+    if (appliedOnChainProjectIdRef.current === selectedOnChainProject.id) {
+      return
+    }
+
+    appliedOnChainProjectIdRef.current = selectedOnChainProject.id
+    loadTemplate(buildTemplateFromProject(selectedOnChainProject))
+    setActiveStep((prev) => (prev === 1 ? 1 : prev))
+  }, [selectedOnChainProject, loadTemplate, setActiveStep])
+
   useEffect(() => {
     if (selectedProject) {
         loadTemplate({
@@ -102,26 +166,47 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
   }, [selectedProject, loadTemplate, setActiveStep])
 
   const [showTemplateModal, setShowTemplateModal] = useState(false)
+  const { info, success, warning } = useToast()
+
+  const loadExampleTemplate = useCallback((template: Partial<PoCData>, templateLabel: string) => {
+    loadTemplate(template)
+    setActiveStep(lastStep)
+    success({
+      title: 'Example PoC Loaded',
+      description: `${templateLabel} template applied. Review and adjust before submit.`,
+    })
+  }, [loadTemplate, setActiveStep, success])
 
   const handleLoadExample = useCallback(() => {
     if (selectedProject?.id === 'dummy-vault-001') {
       setShowTemplateModal(true)
+      info({
+        title: 'Select Example PoC',
+        description: 'Choose a DummyVault template from the modal.',
+      })
     } else {
-      if (confirm("Load 'Checkpointer Bypass' Template? This will overwrite current inputs.")) {
-        loadTemplate(H01_POC_TEMPLATE as unknown as Partial<PoCData>)
-        setActiveStep(5)
-      }
+      warning({
+        title: 'Load Example PoC?',
+        description: "This will overwrite current inputs with the Checkpointer Bypass template.",
+        action: {
+          label: 'LOAD',
+          onClick: () => loadExampleTemplate(H01_POC_TEMPLATE as unknown as Partial<PoCData>, 'Checkpointer Bypass'),
+        },
+        cancel: {
+          label: 'CANCEL',
+        },
+        duration: 6000,
+      })
     }
-  }, [selectedProject, loadTemplate, setActiveStep])
+  }, [selectedProject, info, warning, loadExampleTemplate])
 
   const handleTemplateSelect = useCallback((templateKey: string) => {
     const template = DUMMYVAULT_POC_TEMPLATES[templateKey as keyof typeof DUMMYVAULT_POC_TEMPLATES]
     if (template) {
-      loadTemplate(template.template as unknown as Partial<PoCData>)
       setShowTemplateModal(false)
-      setActiveStep(5)
+      loadExampleTemplate(template.template as unknown as Partial<PoCData>, template.name)
     }
-  }, [loadTemplate, setActiveStep])
+  }, [loadExampleTemplate])
 
   const {
     isSubmitting,
@@ -201,7 +286,11 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
             Step {activeStep}/{lastStep}: {stepLabels[activeStep - 1]}
           </p>
         </div>
-        {selectedProject ? (
+        {selectedOnChainProject ? (
+          <div className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
+            PROJECT: #{selectedOnChainProject.id.toString()}
+          </div>
+        ) : selectedProject ? (
           <div className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
             PROJECT: {selectedProject.name.toUpperCase()}
           </div>
@@ -215,7 +304,9 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
               config={targetConfig} 
               onUpdate={updateTargetConfig} 
               onNext={handleNext} 
-              onLoadExample={handleLoadExample}
+              availableProjects={availableProjects}
+              selectedProjectId={selectedOnChainProject?.id ?? null}
+              onSelectProject={handleOnChainProjectSelect}
               showStepNavigation={false}
             />
           </StepSurface>
@@ -264,6 +355,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
               onConnect={connect}
               onSubmit={handleSubmit}
               onBack={handleBack}
+              onLoadExample={handleLoadExample}
               projectId={submissionProjectId}
               useV2={true}
               showBackButton={true}
@@ -273,17 +365,20 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({ selectedProject, submiss
       </NeonPanel>
 
       {activeStep < lastStep ? (
-        <div className="mt-4 flex shrink-0 justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4">
+        <div className="mt-4 grid shrink-0 grid-cols-3 gap-3 border-t border-[var(--color-bg-light)] pt-4">
           <Button
             type="button"
             onClick={handleBack}
             disabled={activeStep === firstStep}
             variant="outline"
-            className={cn('btn-cyber', activeStep === firstStep && 'opacity-50 cursor-not-allowed')}
+            className={cn('btn-cyber justify-self-start', activeStep === firstStep && 'opacity-50 cursor-not-allowed')}
           >
             [ PREVIOUS ]
           </Button>
-          <Button type="button" onClick={handleNext} className="btn-cyber">
+          <Button type="button" onClick={handleLoadExample} variant="outline" className="btn-cyber justify-self-center">
+            [ LOAD_EXAMPLE_POC ]
+          </Button>
+          <Button type="button" onClick={handleNext} className="btn-cyber justify-self-end">
             [ NEXT ]
           </Button>
         </div>

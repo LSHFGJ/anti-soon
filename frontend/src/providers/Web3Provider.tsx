@@ -28,6 +28,8 @@ createAppKit({
   networks,
   projectId,
   metadata,
+  allowUnsupportedChain: true,
+  enableNetworkSwitch: false,
   features: {
     analytics: false
   }

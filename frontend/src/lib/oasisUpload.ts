@@ -277,12 +277,9 @@ export async function uploadEncryptedPoC({
     ? (wrapEthereumProvider(provider) as unknown as Eip1193Provider)
     : provider
 
-  await ensureChain(sapphireProvider, SAPPHIRE_CHAIN_ID_HEX)
+  await ensureChain(provider, SAPPHIRE_CHAIN_ID_HEX)
 
-  const providerAddress = await resolveProviderAddress(
-    sapphireProvider,
-    normalizedAuditor,
-  )
+  const providerAddress = await resolveProviderAddress(provider, normalizedAuditor)
   const pointer = buildPointer({
     poc,
     projectId,
@@ -343,8 +340,8 @@ export async function uploadEncryptedPoC({
     throw err
   }
 
-  await waitForReceipt(sapphireProvider, txHash)
-  await ensureChain(sapphireProvider, SEPOLIA_CHAIN_ID_HEX)
+  await waitForReceipt(provider, txHash)
+  await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX)
 
   return {
     cipherURI: `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${envelopeHash}`,

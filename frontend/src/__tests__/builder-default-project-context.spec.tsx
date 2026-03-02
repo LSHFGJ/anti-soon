@@ -19,8 +19,21 @@ vi.mock('../lib/projectReads', () => ({
 }))
 
 vi.mock('../components/PoCBuilder', () => ({
-  PoCBuilder: ({ submissionProjectId }: { submissionProjectId: bigint | null }) => (
-    <div data-testid="builder-submission-project">{submissionProjectId === null ? 'none' : submissionProjectId.toString()}</div>
+  PoCBuilder: ({
+    submissionProjectId,
+    availableProjects,
+  }: {
+    submissionProjectId: bigint | null
+    availableProjects?: Array<{ id: bigint }>
+  }) => (
+    <>
+      <div data-testid="builder-submission-project">{submissionProjectId === null ? 'none' : submissionProjectId.toString()}</div>
+      <div data-testid="builder-available-projects">
+        {availableProjects && availableProjects.length > 0
+          ? availableProjects.map((project) => project.id.toString()).join(',')
+          : 'none'}
+      </div>
+    </>
   ),
 }))
 
@@ -60,7 +73,12 @@ describe('Builder default project context', () => {
     expect(mockReadProjectsByIds).toHaveBeenCalledWith([0n, 1n, 2n])
   })
 
-  it('skips default loading when explicit context is provided', async () => {
+  it('keeps explicit context even while preloading project options', async () => {
+    mockReadContract.mockResolvedValue(1n)
+    mockReadProjectsByIds.mockResolvedValue([
+      createMockProject({ id: 0n, active: true }),
+    ])
+
     renderBuilder('/builder?projectId=9')
 
     await waitFor(() => {
@@ -68,7 +86,24 @@ describe('Builder default project context', () => {
       expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('9')
     })
 
-    expect(mockReadContract).not.toHaveBeenCalled()
-    expect(mockReadProjectsByIds).not.toHaveBeenCalled()
+    expect(mockReadContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'nextProjectId' }))
+    expect(mockReadProjectsByIds).toHaveBeenCalledWith([0n])
+  })
+
+  it('falls back to loading explicit project metadata when project index is empty', async () => {
+    mockReadContract.mockResolvedValue(0n)
+    mockReadProjectsByIds.mockResolvedValue([
+      createMockProject({ id: 9n, active: true }),
+    ])
+
+    renderBuilder('/builder?projectId=9')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-project-context')).toHaveTextContent('CONTEXT_PROJECT_ID: #9')
+      expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('9')
+      expect(screen.getByTestId('builder-available-projects')).toHaveTextContent('9')
+    })
+
+    expect(mockReadProjectsByIds).toHaveBeenCalledWith([9n])
   })
 })

@@ -217,10 +217,7 @@ test.describe('Encryption Flow E2E', () => {
       await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
-    const chainSelect = page.locator('select').first()
-    if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
-    }
+    await selectFirstMatchingOption(page, 'Sepolia Testnet')
     
     await page.screenshot({ 
       path: 'test-results/04-target-step-filled.png',
@@ -237,10 +234,7 @@ test.describe('Encryption Flow E2E', () => {
       await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
-    const chainSelect = page.locator('select').first()
-    if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
-    }
+    await selectFirstMatchingOption(page, 'Sepolia Testnet')
     
     const inputs = page.locator('input')
     const forkBlockInput = inputs.nth(1)
@@ -269,7 +263,8 @@ test.describe('Encryption Flow E2E', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
-    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await expect(page.getByText('1. COMMIT')).toHaveCount(0)
     await expect(page.getByText('2. REVEAL')).toHaveCount(0)
     await expect(page.getByText('3. VERIFYING')).toHaveCount(0)
@@ -289,10 +284,7 @@ test.describe('Encryption Flow E2E', () => {
       await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
-    const chainSelect = page.locator('select').first()
-    if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
-    }
+    await selectFirstMatchingOption(page, 'Sepolia Testnet')
     
     const inputs = page.locator('input')
     const forkBlockInput = inputs.nth(1)
@@ -345,10 +337,7 @@ test.describe('Encryption Flow E2E', () => {
       await targetInput.fill(BOUNTY_HUB_ADDRESS)
     }
     
-    const chainSelect = page.locator('select').first()
-    if (await chainSelect.isVisible()) {
-      await chainSelect.selectOption({ label: 'Sepolia Testnet' })
-    }
+    await selectFirstMatchingOption(page, 'Sepolia Testnet')
     
     const inputs = page.locator('input')
     const forkBlockInput = inputs.nth(1)
@@ -379,7 +368,8 @@ test.describe('Encryption Flow E2E', () => {
     
     await page.waitForTimeout(1000)
     
-    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText('1. COMMIT')
     await expect(page.locator('body')).not.toContainText('2. REVEAL')
     await expect(page.locator('body')).not.toContainText('3. VERIFYING')

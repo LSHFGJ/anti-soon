@@ -6,6 +6,8 @@ import { ReviewStep } from '../components/PoCBuilder/Steps/ReviewStep'
 const mockUseCommitReveal = vi.fn()
 const mockToastSuccess = vi.fn()
 const mockToastError = vi.fn()
+const mockToastWarning = vi.fn()
+const mockToastInfo = vi.fn()
 
 vi.mock('../hooks/useCommitReveal', () => ({
   useCommitReveal: (...args: unknown[]) => mockUseCommitReveal(...args)
@@ -14,7 +16,9 @@ vi.mock('../hooks/useCommitReveal', () => ({
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({
     success: (...args: unknown[]) => mockToastSuccess(...args),
-    error: (...args: unknown[]) => mockToastError(...args)
+    error: (...args: unknown[]) => mockToastError(...args),
+    warning: (...args: unknown[]) => mockToastWarning(...args),
+    info: (...args: unknown[]) => mockToastInfo(...args),
   })
 }))
 
@@ -57,7 +61,7 @@ describe('ReviewStep feedback reliability', () => {
     })
   })
 
-  it('renders revealed-state verification messaging', () => {
+  it('renders revealed-state verification action without inline messaging', () => {
     mockUseCommitReveal.mockReturnValue({
       ...baseCommitReveal,
       state: {
@@ -69,7 +73,8 @@ describe('ReviewStep feedback reliability', () => {
 
     renderReviewStep()
 
-    expect(screen.getByText(/CRE verification is now in progress/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '[ VIEW_VERIFICATION_STATUS ]' })).toBeVisible()
+    expect(screen.queryByText(/CRE verification is now in progress/i)).not.toBeInTheDocument()
   })
 
   it('emits success toasts only on phase transitions without duplicates', () => {
@@ -141,7 +146,7 @@ describe('ReviewStep feedback reliability', () => {
     )
   })
 
-  it('shows recoverable failure with deterministic retry and reset actions', () => {
+  it('keeps failed-state retry and reset actions clickable without inline error banners', () => {
     const reveal = vi.fn()
     const reset = vi.fn()
 
@@ -159,10 +164,16 @@ describe('ReviewStep feedback reliability', () => {
 
     renderReviewStep()
 
-    expect(screen.getByText('ERROR:')).toBeInTheDocument()
-    expect(screen.getByText(/Reveal failed: rpc timeout/i)).toBeInTheDocument()
+    expect(screen.queryByText('ERROR:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Reveal failed: rpc timeout/i)).not.toBeInTheDocument()
+    expect(mockToastError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Transaction Failed',
+        description: 'Reveal failed: rpc timeout',
+      }),
+    )
 
-    fireEvent.click(screen.getByRole('button', { name: '[ RETRY_REVEAL ]' }))
+    fireEvent.click(screen.getByRole('button', { name: '[ RETRY ]' }))
     expect(reveal).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: '[ RESET ]' }))
@@ -172,24 +183,35 @@ describe('ReviewStep feedback reliability', () => {
   it('shows actionable project-context CTAs when project is missing', () => {
     renderReviewStep({ projectId: null })
 
-    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeDisabled()
-    expect(screen.getByTestId('review-project-context-required')).toBeInTheDocument()
-    expect(screen.getByText('PROJECT_CONTEXT_REQUIRED')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '[ OPEN_EXPLORER ]' })).toHaveAttribute('href', '/explorer')
-    expect(screen.getByRole('link', { name: '[ RETRY_CONTEXT ]' })).toHaveAttribute('href', '/builder')
+    const commitButton = screen.getByRole('button', { name: '[ COMMIT ]' })
+    expect(commitButton).toBeEnabled()
+    fireEvent.click(commitButton)
+
+    expect(mockToastWarning).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'PROJECT_CONTEXT_REQUIRED',
+        action: expect.objectContaining({ label: '[ OPEN_EXPLORER ]' }),
+        cancel: expect.objectContaining({ label: '[ RETRY_CONTEXT ]' }),
+      }),
+    )
   })
 
   it('shows commit CTA when wallet is connected and project context exists', () => {
     renderReviewStep({ isConnected: true, projectId: 1n })
 
-    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
   })
 
-  it('keeps commit CTA visible but disabled before wallet connect', () => {
-    renderReviewStep({ isConnected: false, projectId: 1n })
+  it('keeps commit CTA clickable before wallet connect and prompts connect on click', () => {
+    const onConnect = vi.fn()
+    renderReviewStep({ isConnected: false, projectId: 1n, onConnect })
 
-    expect(screen.getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '[ CONNECT_WALLET ]' })).not.toBeInTheDocument()
+
+    const commitButton = screen.getByRole('button', { name: '[ COMMIT ]' })
+    expect(commitButton).toBeEnabled()
+    fireEvent.click(commitButton)
+    expect(onConnect).toHaveBeenCalledTimes(1)
   })
 
   it('renders primary action on the same row as previous in review footer', () => {
@@ -197,6 +219,6 @@ describe('ReviewStep feedback reliability', () => {
 
     const actionRow = screen.getByTestId('review-action-row')
     expect(within(actionRow).getByRole('button', { name: '[ PREVIOUS ]' })).toBeVisible()
-    expect(within(actionRow).getByRole('button', { name: '[ COMMIT_POC_REFERENCE ]' })).toBeVisible()
+    expect(within(actionRow).getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
   })
 })

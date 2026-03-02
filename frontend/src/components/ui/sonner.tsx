@@ -10,12 +10,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-[var(--color-bg)] group-[.toaster]:text-[var(--color-text)] group-[.toaster]:border-[var(--color-primary)] group-[.toaster]:shadow-[0_0_20px_var(--color-primary-dim)] group-[.toaster]:font-mono",
-          description: "group-[.toast]:text-[var(--color-text-dim)]",
+            "group toast !w-[min(92vw,560px)] !max-w-[560px] !items-start !gap-3 bg-[var(--color-bg)] text-[var(--color-text)] border-[var(--color-primary)] shadow-[0_0_20px_var(--color-primary-dim)] font-mono",
+          title:
+            "whitespace-normal break-words leading-snug",
+          description:
+            "text-[var(--color-text-dim)] whitespace-normal break-words leading-relaxed",
+          content:
+            "flex-1 min-w-0",
           actionButton:
-            "group-[.toast]:bg-[var(--color-primary)] group-[.toast]:text-[var(--color-bg)] group-[.toast]:hover:shadow-[0_0_15px_var(--color-primary)]",
+            "h-auto max-w-[9rem] shrink whitespace-normal break-words px-2 py-1.5 text-[11px] leading-tight bg-[var(--color-primary)] text-[var(--color-bg)] hover:shadow-[0_0_15px_var(--color-primary)]",
           cancelButton:
-            "group-[.toast]:bg-transparent group-[.toast]:border-[var(--color-error)] group-[.toast]:text-[var(--color-error)]",
+            "h-auto max-w-[9rem] shrink whitespace-normal break-words px-2 py-1.5 text-[11px] leading-tight bg-transparent border-[var(--color-error)] text-[var(--color-error)]",
           success:
             "group-[.toast]:border-[var(--color-primary)] group-[.toast]:text-[var(--color-primary)]",
           error:

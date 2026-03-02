@@ -51,9 +51,18 @@ async function measureInputToPaintSample(page: Page, value: string): Promise<num
       throw new Error('Target input not found for input-to-paint baseline')
     }
 
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value',
+    )?.set
+    if (!valueSetter) {
+      throw new Error('Unable to resolve native HTMLInputElement value setter')
+    }
+
     const start = performance.now()
-    input.value = nextValue
+    valueSetter.call(input, nextValue)
     input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
     await new Promise<void>((resolvePaint) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolvePaint()))
     })
@@ -165,7 +174,8 @@ test.describe('Builder + Submit baseline', () => {
 
     await page.getByRole('button', { name: navStepButtonName('REVIEW') }).click()
     await expect(page.getByText(stepTitleByLabel.REVIEW)).toBeVisible()
-    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
   })
 
   test('logs intentional selector failure for baseline reliability checks', async ({ page }) => {

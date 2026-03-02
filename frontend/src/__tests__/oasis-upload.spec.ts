@@ -40,6 +40,25 @@ function createMockProvider(txHash: `0x${string}`, account = '0x1111111111111111
   return { provider, calls }
 }
 
+function setRuntimeStorageContract(value?: string) {
+  const runtime = globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
+  const previous = runtime.__ANTI_SOON_OASIS_STORAGE_CONTRACT__
+
+  if (typeof value === 'string') {
+    runtime.__ANTI_SOON_OASIS_STORAGE_CONTRACT__ = value
+  } else {
+    delete runtime.__ANTI_SOON_OASIS_STORAGE_CONTRACT__
+  }
+
+  return () => {
+    if (typeof previous === 'string') {
+      runtime.__ANTI_SOON_OASIS_STORAGE_CONTRACT__ = previous
+    } else {
+      delete runtime.__ANTI_SOON_OASIS_STORAGE_CONTRACT__
+    }
+  }
+}
+
 describe('oasis upload helper', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -94,37 +113,47 @@ describe('oasis upload helper', () => {
   })
 
   it('fails closed when VITE_OASIS_STORAGE_CONTRACT is missing', async () => {
+    const restoreRuntimeStorage = setRuntimeStorageContract('not-an-address')
     vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', '')
     const { provider } = createMockProvider(`0x${'a'.repeat(64)}` as const)
 
-    await expect(
-      uploadEncryptedPoC({
-        poc: '{"target":"dummy","secret":"super-sensitive-poc"}',
-        projectId: 7n,
-        auditor: '0x2222222222222222222222222222222222222222',
-        ethereumProvider: provider as unknown,
-      }),
-    ).rejects.toThrow(
-      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
-    )
+    try {
+      await expect(
+        uploadEncryptedPoC({
+          poc: '{"target":"dummy","secret":"super-sensitive-poc"}',
+          projectId: 7n,
+          auditor: '0x2222222222222222222222222222222222222222',
+          ethereumProvider: provider as unknown,
+        }),
+      ).rejects.toThrow(
+        'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+      )
+    } finally {
+      restoreRuntimeStorage()
+    }
   })
 
   it('fails closed when VITE_OASIS_STORAGE_CONTRACT is invalid', async () => {
+    const restoreRuntimeStorage = setRuntimeStorageContract('not-an-address')
     vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', 'not-an-address')
     const { provider } = createMockProvider(`0x${'d'.repeat(64)}` as const)
 
-    await expect(
-      uploadEncryptedPoC({
-        poc: '{"target":"dummy"}',
-        projectId: 11n,
-        auditor: '0x2222222222222222222222222222222222222222',
-        ethereumProvider: provider as unknown,
-      }),
-    ).rejects.toThrow(
-      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
-    )
+    try {
+      await expect(
+        uploadEncryptedPoC({
+          poc: '{"target":"dummy"}',
+          projectId: 11n,
+          auditor: '0x2222222222222222222222222222222222222222',
+          ethereumProvider: provider as unknown,
+        }),
+      ).rejects.toThrow(
+        'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+      )
 
-    expect(provider.request).not.toHaveBeenCalled()
+      expect(provider.request).not.toHaveBeenCalled()
+    } finally {
+      restoreRuntimeStorage()
+    }
   })
 
   it('throws when poc json is invalid', async () => {
@@ -139,21 +168,26 @@ describe('oasis upload helper', () => {
   })
 
   it('does not send a transaction when storage contract is missing', async () => {
+    const restoreRuntimeStorage = setRuntimeStorageContract('not-an-address')
     vi.stubEnv('VITE_OASIS_STORAGE_CONTRACT', '')
     const { provider } = createMockProvider(`0x${'c'.repeat(64)}` as const)
 
-    await expect(
-      uploadEncryptedPoC({
-        poc: '{"target":"dummy"}',
-        projectId: 9n,
-        auditor: '0x2222222222222222222222222222222222222222',
-        ethereumProvider: provider as unknown,
-      }),
-    ).rejects.toThrow(
-      'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
-    )
+    try {
+      await expect(
+        uploadEncryptedPoC({
+          poc: '{"target":"dummy"}',
+          projectId: 9n,
+          auditor: '0x2222222222222222222222222222222222222222',
+          ethereumProvider: provider as unknown,
+        }),
+      ).rejects.toThrow(
+        'VITE_OASIS_STORAGE_CONTRACT must be set to a valid Ethereum address before uploading PoCs.',
+      )
 
-    expect(provider.request).not.toHaveBeenCalled()
+      expect(provider.request).not.toHaveBeenCalled()
+    } finally {
+      restoreRuntimeStorage()
+    }
   })
 
   it('uses envelope hash as cipherURI fragment for slot references', async () => {

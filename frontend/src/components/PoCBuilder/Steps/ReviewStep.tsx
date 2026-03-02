@@ -14,40 +14,31 @@ interface ReviewStepProps {
 	onConnect: () => void;
 	onSubmit: () => void;
 	onBack: () => void;
+	onLoadExample?: () => void;
 	projectId: bigint | null;
 	useV2?: boolean;
 	showBackButton?: boolean;
 }
 
-const Spinner: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-	<div className="flex items-center justify-center gap-3 p-4 text-[var(--color-secondary)]">
-		<span className="spinner"></span>
-		<span className="font-mono">{children}</span>
-	</div>
-);
-
-const CheckIcon: React.FC = () => (
-	<span className="text-[var(--color-primary)] mr-2">✓</span>
-);
-
 export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 	({
 		pocJson,
 		isConnected,
-		isSubmitting: _isSubmitting,
-		submissionHash: _submissionHash,
-		error: _error,
 		onConnect,
-		onSubmit: _onSubmit,
 		onBack,
+		onLoadExample,
 		projectId,
-		useV2: _useV2 = true,
 		showBackButton = true,
 	}) => {
 		const commitReveal = useCommitReveal(projectId, pocJson);
 		const phase = commitReveal.state.phase;
 		const phaseError = commitReveal.state.error;
-		const { success, error: toastError } = useToast();
+		const {
+			success,
+			error: toastError,
+			warning: toastWarning,
+			info: toastInfo,
+		} = useToast();
 		const notifiedPhaseRef = useRef(phase);
 		const notifiedErrorRef = useRef<string | undefined>(undefined);
 
@@ -91,215 +82,156 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			}
 		}, [phase, phaseError, success, toastError]);
 
-		const renderV2Flow = () => {
-			const { state, commit, reveal, reset } = commitReveal;
-			const projectContextMissing = projectId === null;
-			const canCommit = isConnected && !projectContextMissing;
-			const revealAvailable = Boolean(state.submissionId && state.salt);
-			const retryLabel = revealAvailable
-				? "[ RETRY_REVEAL ]"
-				: "[ RETRY_COMMIT ]";
-			const onRetry = revealAvailable ? reveal : commit;
-
-			return (
-				<div className="mt-6">
-					{state.error && (
-						<div className="text-[var(--color-error)] border border-[var(--color-error)] p-4 mb-4 bg-[rgba(255,0,0,0.05)]">
-							<div className="font-mono mb-2">ERROR:</div>
-							<div className="text-sm">{state.error}</div>
-							<div className="flex gap-2 flex-wrap mt-3">
-								<button
-									type="button"
-									onClick={onRetry}
-									className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
-								>
-									{retryLabel}
-								</button>
-								<button
-									type="button"
-									onClick={reset}
-									className="bg-transparent border border-[var(--color-error)] text-[var(--color-error)] px-4 py-2 cursor-pointer font-mono text-xs"
-								>
-									[ RESET ]
-								</button>
-							</div>
-						</div>
-					)}
-
-					{state.phase === "idle" && (
-						<div className="flex gap-4 flex-wrap">
-							{!isConnected ? (
-								<button
-									type="button"
-									onClick={onConnect}
-									className="px-8 py-3 bg-[var(--color-secondary)] text-[var(--color-bg)] border-none cursor-pointer font-mono"
-								>
-									[ CONNECT_WALLET ]
-								</button>
-							) : null}
-							{isConnected && projectContextMissing ? (
-								<div
-									data-testid="review-project-context-required"
-									className="w-full border border-[var(--color-error)] bg-[rgba(255,0,0,0.05)] text-[var(--color-error)] px-4 py-3 font-mono text-xs"
-								>
-									<div className="mb-2">PROJECT_CONTEXT_REQUIRED</div>
-									<div>
-										No active project is selected, so commit cannot be submitted.
-									</div>
-									<div className="mt-3 flex gap-2 flex-wrap">
-										<a
-											href="/explorer"
-											className="inline-flex items-center border border-[var(--color-error)] px-3 py-2 text-[var(--color-error)] no-underline"
-										>
-											[ OPEN_EXPLORER ]
-										</a>
-										<a
-											href="/builder"
-											className="inline-flex items-center border border-[var(--color-error)] px-3 py-2 text-[var(--color-error)] no-underline"
-										>
-											[ RETRY_CONTEXT ]
-										</a>
-									</div>
-								</div>
-							) : null}
-							{canCommit ? (
-								<div className="border border-[var(--color-secondary)] bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] px-4 py-3 font-mono text-xs">
-									Ready to commit. Use the footer action next to [ PREVIOUS ].
-								</div>
-							) : null}
-						</div>
-					)}
-
-					{state.phase === "encrypting" && (
-						<Spinner>Preparing ACL storage payload...</Spinner>
-					)}
-
-					{state.phase === "committing" && (
-						<Spinner>Committing PoC reference to blockchain...</Spinner>
-					)}
-
-					{state.phase === "committed" && (
-						<div className="p-6 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.05)] mb-4">
-							<div className="flex items-center gap-2">
-								<CheckIcon /> PHASE_1_COMPLETE
-							</div>
-
-							<div className="text-sm mb-3">
-								<span className="text-[var(--color-text-dim)]">
-									Submission ID:{" "}
-								</span>
-								<span className="text-[var(--color-secondary)] font-mono">
-									{state.submissionId?.toString()}
-								</span>
-							</div>
-
-							{state.commitTxHash && (
-								<div className="text-sm mb-3 break-all">
-									<span className="text-[var(--color-text-dim)]">
-										Commit TX:{" "}
-									</span>
-									<code className="text-[var(--color-secondary)] text-xs">
-										{state.commitTxHash}
-									</code>
-								</div>
-							)}
-
-							<div className="mt-4 p-4 bg-neutral-900/80 rounded text-xs text-[var(--color-text-dim)]">
-								Your PoC reference is stored via Oasis confidential storage with ACL access controls.
-								Authorize reveal access when ready to trigger verification.
-							</div>
-
-							<div className="mt-4 p-3 bg-[rgba(124,58,237,0.08)] text-[var(--color-secondary)] text-sm font-mono">
-								Use the footer action next to [ PREVIOUS ] to reveal.
-							</div>
-						</div>
-					)}
-
-					{state.phase === "revealing" && (
-						<Spinner>Submitting access authorization...</Spinner>
-					)}
-
-					{state.phase === "revealed" && (
-						<div className="p-6 border border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)] mb-4">
-							<div className="flex items-center gap-2">
-								<CheckIcon /> POC_REVEALED
-							</div>
-
-							<div className="text-sm text-[var(--color-text)] mb-4">
-								CRE verification is now in progress. The network will:
-							</div>
-
-							<ol className="m-0 pl-6 text-[var(--color-text-dim)] text-sm leading-relaxed">
-								<li>Resolve your ACL-protected PoC from Oasis storage</li>
-								<li>Create Tenderly fork at specified block</li>
-								<li>Execute the exploit in sandbox</li>
-								<li>Measure impact and classify severity</li>
-								<li>Auto-release bounty if valid</li>
-							</ol>
-
-							<div className="mt-4 p-3 bg-[var(--color-secondary)] text-[var(--color-bg)] text-center font-mono text-sm">
-								<a
-									href={`/submission/${state.submissionId}`}
-									className="text-[var(--color-bg)] no-underline"
-								>
-									VIEW VERIFICATION STATUS →
-								</a>
-							</div>
-						</div>
-					)}
-				</div>
-			);
+		const showProjectContextToast = () => {
+			toastWarning({
+				title: "PROJECT_CONTEXT_REQUIRED",
+				description:
+					"No active project is selected, so commit cannot be submitted.",
+				action: {
+					label: "[ OPEN_EXPLORER ]",
+					onClick: () => {
+						window.location.assign("/explorer");
+					},
+				},
+				cancel: {
+					label: "[ RETRY_CONTEXT ]",
+					onClick: () => {
+						window.location.assign("/builder");
+					},
+				},
+				duration: 6000,
+			});
 		};
 
 		const renderFooterPrimaryAction = () => {
-			const { state, commit, reveal } = commitReveal;
+			const { state, commit, reveal, reset } = commitReveal;
 			const missingProjectContext = projectId === null;
 			const canCommit = isConnected && !missingProjectContext;
 			const revealAvailable = Boolean(state.submissionId && state.salt);
 			const onRetry = revealAvailable ? reveal : commit;
+			const handleCommitClick = () => {
+				if (canCommit) {
+					commit();
+					return;
+				}
+
+				if (!isConnected) {
+					onConnect();
+					toastWarning({
+						title: "WALLET_CONNECTION_REQUIRED",
+						description: "Connect your wallet to continue the commit flow.",
+					});
+					return;
+				}
+
+				showProjectContextToast();
+			};
 
 			if (state.phase === "idle") {
 				return (
 					<Button
 						type="button"
-						onClick={canCommit ? commit : undefined}
-						disabled={!canCommit}
-						className="font-mono"
+						onClick={handleCommitClick}
+						className="font-mono btn-cyber justify-self-end"
 					>
-						[ COMMIT_POC_REFERENCE ]
+						[ COMMIT ]
 					</Button>
 				);
 			}
 
 			if (state.phase === "committed") {
+				const handleRevealClick = () => {
+					if (!isConnected) {
+						onConnect();
+						toastWarning({
+							title: "WALLET_CONNECTION_REQUIRED",
+							description: "Reconnect wallet before revealing your PoC.",
+						});
+						return;
+					}
+
+					reveal();
+				};
+
 				return (
-					<Button type="button" onClick={reveal} className="font-mono">
+					<Button
+						type="button"
+						onClick={handleRevealClick}
+						className="font-mono btn-cyber justify-self-end"
+					>
 						[ REVEAL_POC ]
 					</Button>
 				);
 			}
 
 			if (state.phase === "failed") {
+				const handleRetryClick = () => {
+					if (!isConnected) {
+						onConnect();
+						toastWarning({
+							title: "WALLET_CONNECTION_REQUIRED",
+							description: "Connect your wallet to retry this transaction.",
+						});
+						return;
+					}
+
+					if (!revealAvailable && missingProjectContext) {
+						showProjectContextToast();
+						return;
+					}
+
+					onRetry();
+				};
+
+				const handleResetClick = () => {
+					reset();
+					toastInfo({
+						title: "FLOW_RESET",
+						description: "Submission flow has been reset. You can commit again.",
+					});
+				};
+
 				return (
-					<Button type="button" onClick={onRetry} variant="outline" className="font-mono">
-						[ RETRY ]
-					</Button>
+					<div className="justify-self-end flex gap-2">
+						<Button
+							type="button"
+							onClick={handleResetClick}
+							variant="outline"
+							className="font-mono btn-cyber"
+						>
+							[ RESET ]
+						</Button>
+						<Button
+							type="button"
+							onClick={handleRetryClick}
+							variant="outline"
+							className="font-mono btn-cyber"
+						>
+							[ RETRY ]
+						</Button>
+					</div>
 				);
 			}
 
 			if (state.phase === "revealed") {
 				return (
-					<a
-						href={`/submission/${state.submissionId}`}
-						className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-mono text-primary-foreground no-underline"
-					>
-						[ VIEW_VERIFICATION_STATUS ]
-					</a>
+					<Button asChild type="button" className="font-mono btn-cyber justify-self-end">
+						<a href={`/submission/${state.submissionId}`}>[ VIEW_VERIFICATION_STATUS ]</a>
+					</Button>
 				);
 			}
 
 			return (
-				<Button type="button" disabled className="font-mono">
+				<Button
+					type="button"
+					onClick={() => {
+						toastInfo({
+							title: "TRANSACTION_IN_PROGRESS",
+							description: "Current transaction is processing. Please wait for completion.",
+						});
+					}}
+					className="font-mono btn-cyber justify-self-end"
+				>
 					[ PROCESSING... ]
 				</Button>
 			);
@@ -308,8 +240,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 		return (
 			<div className="step-content">
 				<StepGuidance {...STEP_GUIDES.review} />
-
-				{renderV2Flow()}
 
 				<Card className="bg-card/50 border-primary/20">
 					<CardHeader className="flex flex-row items-center justify-between py-3">
@@ -330,10 +260,22 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				{showBackButton ? (
 					<div
 						data-testid="review-action-row"
-						className="mt-4 flex items-center justify-between gap-4 border-t border-[var(--color-bg-light)] pt-4"
+						className="mt-4 grid shrink-0 grid-cols-3 gap-3 border-t border-[var(--color-bg-light)] pt-4"
 					>
-						<Button variant="outline" onClick={onBack} className="font-mono">
+						<Button
+							variant="outline"
+							onClick={onBack}
+							className="font-mono btn-cyber justify-self-start"
+						>
 							[ PREVIOUS ]
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={onLoadExample}
+							className="font-mono btn-cyber justify-self-center"
+						>
+							[ LOAD_EXAMPLE_POC ]
 						</Button>
 						{renderFooterPrimaryAction()}
 					</div>

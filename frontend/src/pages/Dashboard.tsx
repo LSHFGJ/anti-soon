@@ -42,7 +42,7 @@ type SubmissionTuple = readonly [
 ]
 
 export function Dashboard() {
-  const { address, isConnected, isConnecting, connect } = useWallet()
+  const { address, isConnected, isConnecting, connect } = useWallet({ autoSwitchToSepolia: false })
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

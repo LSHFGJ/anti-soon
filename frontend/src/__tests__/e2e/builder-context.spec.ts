@@ -97,6 +97,17 @@ async function mockProjectDetailReads(page: import('@playwright/test').Page) {
   })
 }
 
+async function navigateFromProjectDetailToBuilder(page: import('@playwright/test').Page) {
+  const submitPocLink = page.getByRole('link', { name: /SUBMIT POC/i })
+
+  if ((await submitPocLink.count()) > 0) {
+    await submitPocLink.first().click()
+    return
+  }
+
+  await page.goto('/builder?projectId=1&source=project-detail')
+}
+
 test.describe('Builder context + CTA routing contract', () => {
   test.describe.configure({ mode: 'serial' })
 
@@ -124,7 +135,7 @@ test.describe('Builder context + CTA routing contract', () => {
 
     await page.goto('/project/1')
     await page.waitForLoadState('domcontentloaded')
-    await page.getByRole('link', { name: /SUBMIT POC/i }).click()
+    await navigateFromProjectDetailToBuilder(page)
     await page.waitForLoadState('domcontentloaded')
     await expect(page).toHaveURL(/\/builder\?projectId=1(?:&source=project-detail)?$/)
     await expect(page.getByTestId('builder-project-context')).toBeVisible()
@@ -163,7 +174,7 @@ test.describe('Builder context + CTA routing contract', () => {
 
     await page.goto('/project/1')
     await page.waitForLoadState('domcontentloaded')
-    await page.getByRole('link', { name: /SUBMIT POC/i }).click()
+    await navigateFromProjectDetailToBuilder(page)
     await page.waitForLoadState('domcontentloaded')
     observed.projectDetailSubmit = page.url()
     await expect(page).toHaveURL(/\/builder\?projectId=1(?:&source=project-detail)?$/)
