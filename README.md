@@ -168,8 +168,8 @@ cd workflow/verify-poc && npm install && cd ../..
 # Install frontend dependencies
 cd frontend && npm install && cd ..
 
-# Build contracts
-cd contracts && forge build && cd ..
+# Install and build contracts (dependencies are managed by Foundry, not committed)
+cd contracts && forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-commit && forge build && cd ..
 ```
 
 ### Run Tests
