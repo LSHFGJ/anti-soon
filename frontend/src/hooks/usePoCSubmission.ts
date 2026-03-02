@@ -4,6 +4,16 @@ import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { normalizeEthereumAddress } from "../lib/address";
 import { extractErrorMessage } from "../lib/errorMessage";
+import {
+	buildRevealRetryState,
+	clearCommitRevealRecoveryContext,
+	loadCommitRevealRecoveryContext,
+	normalizeHex,
+	parseSubmissionOnChainSnapshot,
+	persistCommitRevealRecoveryContext,
+	type RevealRetryState,
+	ZERO_HEX_32,
+} from "../lib/commitRevealRecovery";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
 import {
 	computeCommitHash,
@@ -31,7 +41,9 @@ interface SubmissionState {
 	cipherURI?: string;
 	commitHash?: `0x${string}`;
 	commitTxHash?: `0x${string}`;
+	oasisTxHash?: `0x${string}`;
 	revealTxHash?: `0x${string}`;
+	revealRetry?: RevealRetryState;
 	warning?: string;
 	error?: string;
 }
@@ -49,7 +61,12 @@ export const usePoCSubmission = () => {
 	});
 
 	const setFailed = useCallback((message: string) => {
-		setState((s) => ({ ...s, phase: "failed", error: message }));
+		setState((s) => ({
+			...s,
+			phase: "failed",
+			error: message,
+			revealRetry: undefined,
+		}));
 	}, []);
 
 	const resolveWalletAddress = useCallback(async (): Promise<`0x${string}` | null> => {
@@ -91,25 +108,51 @@ export const usePoCSubmission = () => {
 					...s,
 					phase: "encrypting",
 					error: undefined,
+					revealRetry: undefined,
 					warning: undefined,
 				}));
 
-				const salt = generateRandomSalt();
+				const recovered = loadCommitRevealRecoveryContext(projectId);
+				const salt = recovered?.salt ?? generateRandomSalt();
+				let cipherURI = recovered?.cipherURI;
+				let commitHash = recovered?.commitHash;
+				let oasisTxHash = recovered?.oasisTxHash;
+				let submissionId = recovered?.submissionId;
 
 				setState((s) => ({ ...s, phase: "committing" }));
 
-				const uploadResult = await uploadEncryptedPoC({
-					poc: pocData,
+				if (!cipherURI || !commitHash || !oasisTxHash) {
+					const uploadResult = await uploadEncryptedPoC({
+						poc: pocData,
+						projectId,
+						auditor: walletAddress,
+					});
+					cipherURI = uploadResult.cipherURI;
+					oasisTxHash = uploadResult.oasisTxHash;
+					const cipherHash = keccak256(toBytes(cipherURI));
+					commitHash = computeCommitHash(
+						cipherHash,
+						walletAddress as Address,
+						salt,
+					);
+				}
+
+				if (!cipherURI || !commitHash || !oasisTxHash) {
+					clearCommitRevealRecoveryContext();
+					setFailed(
+						"Submission failed: recovery context is incomplete. Reset and try again.",
+					);
+					return undefined;
+				}
+
+				persistCommitRevealRecoveryContext({
 					projectId,
-					auditor: walletAddress,
-				});
-				const { cipherURI } = uploadResult;
-				const cipherHash = keccak256(toBytes(cipherURI));
-				const commitHash = computeCommitHash(
-					cipherHash,
-					walletAddress as Address,
 					salt,
-				);
+					cipherURI,
+					commitHash,
+					oasisTxHash,
+					submissionId,
+				});
 
 				setState((s) => ({
 					...s,
@@ -117,50 +160,122 @@ export const usePoCSubmission = () => {
 					salt,
 					cipherURI,
 					commitHash,
+					oasisTxHash,
+					submissionId,
+					revealRetry: undefined,
 				}));
 
-				const { request } = await publicClient.simulateContract({
-					account: walletAddress,
-					address: BOUNTY_HUB_ADDRESS,
-					abi: BOUNTY_HUB_V2_ABI,
-					functionName: "commitPoC",
-					args: [projectId, commitHash, cipherURI],
-				});
-
-				const commitTxHash = await walletClient.writeContract(request);
-
-				setState((s) => ({ ...s, commitTxHash }));
-
-				const receipt = await publicClient.waitForTransactionReceipt({
-					hash: commitTxHash,
-				});
-
-				let submissionId: bigint | undefined;
-				for (const log of receipt.logs) {
-					try {
-						const decoded = decodeEventLog({
-							abi: BOUNTY_HUB_V2_ABI,
-							data: log.data,
-							topics: log.topics,
-						});
-						if (decoded.eventName === "PoCCommitted" && decoded.args) {
-							const args = decoded.args as { submissionId?: bigint };
-							submissionId = args.submissionId;
-							break;
-						}
-					} catch {}
-				}
-
+				let commitTxHash: `0x${string}` | undefined;
 				if (!submissionId) {
-					setFailed(
-						`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
-					);
-					return undefined;
+					const { request } = await publicClient.simulateContract({
+						account: walletAddress,
+						address: BOUNTY_HUB_ADDRESS,
+						abi: BOUNTY_HUB_V2_ABI,
+						functionName: "commitPoC",
+						args: [projectId, commitHash, cipherURI],
+					});
+
+					commitTxHash = await walletClient.writeContract(request);
+
+					setState((s) => ({ ...s, commitTxHash }));
+
+					const receipt = await publicClient.waitForTransactionReceipt({
+						hash: commitTxHash,
+					});
+
+					for (const log of receipt.logs) {
+						try {
+							const decoded = decodeEventLog({
+								abi: BOUNTY_HUB_V2_ABI,
+								data: log.data,
+								topics: log.topics,
+							});
+							if (decoded.eventName === "PoCCommitted" && decoded.args) {
+								const args = decoded.args as { submissionId?: bigint };
+								submissionId = args.submissionId;
+								break;
+							}
+						} catch {}
+					}
+
+					if (!submissionId) {
+						setFailed(
+							`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
+						);
+						return undefined;
+					}
+
+					persistCommitRevealRecoveryContext({
+						projectId,
+						salt,
+						cipherURI,
+						commitHash,
+						oasisTxHash,
+						commitTxHash,
+						submissionId,
+					});
 				}
 
 				setState((s) => ({ ...s, phase: "committed", submissionId }));
 
 				setState((s) => ({ ...s, phase: "revealing" }));
+
+				const submission = await publicClient.readContract({
+					account: walletAddress,
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "submissions",
+					args: [submissionId],
+				});
+
+				const snapshot = parseSubmissionOnChainSnapshot(submission);
+				if (!snapshot) {
+					setFailed(
+						"Submission failed: on-chain submission snapshot is unreadable. Reset and recommit.",
+					);
+					return undefined;
+				}
+
+				if (snapshot.projectId !== projectId) {
+					clearCommitRevealRecoveryContext();
+					setFailed(
+						"Submission failed: recovered submission belongs to a different project. Reset and recommit.",
+					);
+					return undefined;
+				}
+
+				if (normalizeHex(snapshot.commitHash) !== normalizeHex(commitHash)) {
+					clearCommitRevealRecoveryContext();
+					setFailed(
+						"Submission failed: recovered submission does not match the stored commit hash. Reset and recommit.",
+					);
+					return undefined;
+				}
+
+				const onChainSalt = normalizeHex(snapshot.salt);
+				const recoveredSalt = normalizeHex(salt);
+
+				if (onChainSalt !== normalizeHex(ZERO_HEX_32) && onChainSalt !== recoveredSalt) {
+					clearCommitRevealRecoveryContext();
+					setFailed(
+						"Submission failed: submissionId/salt pair mismatch detected on-chain. Reset and recommit.",
+					);
+					return undefined;
+				}
+
+				if (snapshot.revealTimestamp > 0n || onChainSalt === recoveredSalt) {
+					setState((s) => ({
+						...s,
+						phase: "revealed",
+						error: undefined,
+						revealRetry: undefined,
+					}));
+					clearCommitRevealRecoveryContext();
+					return {
+						submissionId,
+						commitTxHash,
+					};
+				}
 
 				const canReveal = (await publicClient.readContract({
 					account: walletAddress,
@@ -171,9 +286,15 @@ export const usePoCSubmission = () => {
 				})) as boolean;
 
 				if (!canReveal) {
-					setFailed(
-						"Reveal is not available yet. For MULTI projects wait until commit deadline; for UNIQUE projects ensure your submission is the active candidate.",
-					);
+					setState((s) => ({
+						...s,
+						phase: "failed",
+						error:
+							"Reveal is currently blocked by timing or UNIQUE-candidate rules. Retry after recheckIntervalMs.",
+						warning:
+							"REVEAL_RECHECK_REQUIRED: polling canReveal is required before retrying reveal.",
+						revealRetry: buildRevealRetryState(submissionId),
+					}));
 					return undefined;
 				}
 
@@ -192,6 +313,7 @@ export const usePoCSubmission = () => {
 				await publicClient.waitForTransactionReceipt({ hash: revealTxHash });
 
 				setState((s) => ({ ...s, phase: "revealed" }));
+				clearCommitRevealRecoveryContext();
 
 				return {
 					submissionId,
@@ -212,6 +334,7 @@ export const usePoCSubmission = () => {
 	);
 
 	const reset = useCallback(() => {
+		clearCommitRevealRecoveryContext();
 		setState({ phase: "idle" });
 	}, []);
 

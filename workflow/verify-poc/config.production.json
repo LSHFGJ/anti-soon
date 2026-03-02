@@ -5,6 +5,14 @@
   "tenderlyAccountSlug": "LSHFGJ",
   "tenderlyProjectSlug": "anti-soon",
   "oasisRpcUrl": "https://sapphire.oasis.io",
+  "oasisRpcFallbackUrls": [],
+  "sepoliaRpcFallbackUrls": ["https://rpc.sepolia.org"],
+  "rpcReadRetry": {
+    "maxAttempts": 3,
+    "baseDelayMs": 250,
+    "backoffMultiplier": 2,
+    "maxDelayMs": 2000
+  },
   "mainnetRpcUrl": "https://eth.drpc.org",
   "defaultRules": {
     "maxAttackerSeedWei": "1000000000000000000000",

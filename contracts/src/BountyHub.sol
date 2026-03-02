@@ -153,6 +153,14 @@ contract BountyHub is ReceiverTemplate {
     event ProjectRegisteredV2(uint256 indexed projectId, address indexed owner, CompetitionMode mode);
     event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash);
     event PoCCommitMetadata(uint256 indexed submissionId, bytes32 metadataHash);
+    event PoCSyncAnchor(
+        uint256 indexed submissionId,
+        uint256 indexed projectId,
+        address indexed auditor,
+        bytes32 commitHash,
+        bytes32 metadataHash,
+        uint256 commitTimestamp
+    );
     event PoCRevealed(uint256 indexed submissionId);
     event RevealQueued(uint256 indexed submissionId, address indexed auditor, uint256 deadline);
     event QueuedRevealExecuted(uint256 indexed submissionId, address indexed executor);
@@ -479,6 +487,7 @@ contract BountyHub is ReceiverTemplate {
 
         emit PoCCommitted(submissionId, _projectId, _auditor, _commitHash);
         emit PoCCommitMetadata(submissionId, metadataHash);
+        emit PoCSyncAnchor(submissionId, _projectId, _auditor, _commitHash, metadataHash, sub.commitTimestamp);
     }
 
     /// @notice Phase 2: Auditor reveals commitment salt to unlock ACL workflow
@@ -1003,6 +1012,22 @@ contract BountyHub is ReceiverTemplate {
             return block.timestamp > p.commitDeadline;
         }
         return true;
+    }
+
+    /// @notice Get sync reconciliation fields for a submission in one access path
+    /// @param _submissionId The submission ID
+    /// @return commitTimestamp Commit timestamp set during commit
+    /// @return revealTimestamp Reveal timestamp set during reveal (0 before reveal)
+    /// @return metadataHash Keccak256 hash anchor of committed cipher URI
+    function getSubmissionSyncState(
+        uint256 _submissionId
+    )
+        external
+        view
+        returns (uint256 commitTimestamp, uint256 revealTimestamp, bytes32 metadataHash)
+    {
+        Submission storage sub = submissions[_submissionId];
+        return (sub.commitTimestamp, sub.revealTimestamp, submissionMetadataHash[_submissionId]);
     }
 
     /// @notice Check if a submission can be finalized

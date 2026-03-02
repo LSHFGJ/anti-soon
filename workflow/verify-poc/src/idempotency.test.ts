@@ -3,11 +3,16 @@ import {
   assertVerifyPocIdempotencyMappingStable,
   claimVerifyPocIdempotencySlot,
   deriveVerifyPocIdempotencyKey,
+  deriveVerifyPocScopedIdempotencyKey,
+  deriveVerifyPocSyncId,
   markVerifyPocIdempotencyCompleted,
   releaseVerifyPocIdempotencySlot,
+  transitionVerifyPocSyncState,
+  VERIFY_POC_INVALID_SYNC_TRANSITION_ERROR,
   VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR,
   type VerifyPocIdempotencyMappingState,
   type VerifyPocIdempotencyStatus,
+  type VerifyPocSyncState,
 } from "./idempotency"
 
 describe("verify-poc idempotency", () => {
@@ -56,7 +61,102 @@ describe("verify-poc idempotency", () => {
       submissionId: 10n,
     }
 
-    expect(deriveVerifyPocIdempotencyKey(base) === deriveVerifyPocIdempotencyKey(changed)).toBe(false)
+    expect(
+      deriveVerifyPocIdempotencyKey(base) === deriveVerifyPocIdempotencyKey(changed)
+    ).toBe(false)
+  })
+
+  it("derives canonical syncId from projectId, submissionId, envelopeHash", () => {
+    const projectId = 42n
+    const submissionId = 7n
+    const envelopeHashA =
+      "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    const envelopeHashB =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    const syncIdA = deriveVerifyPocSyncId({
+      projectId,
+      submissionId,
+      envelopeHash: envelopeHashA,
+    })
+    const syncIdB = deriveVerifyPocSyncId({
+      projectId,
+      submissionId,
+      envelopeHash: envelopeHashB,
+    })
+
+    expect(syncIdA).toBe(syncIdB)
+  })
+
+  it("scopes idempotency key by canonical syncId and source-event fingerprint", () => {
+    const sourceEventFingerprint =
+      "0x1111111111111111111111111111111111111111111111111111111111111111"
+    const syncIdA = deriveVerifyPocSyncId({
+      projectId: 9n,
+      submissionId: 2n,
+      envelopeHash:
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })
+    const syncIdB = deriveVerifyPocSyncId({
+      projectId: 9n,
+      submissionId: 2n,
+      envelopeHash:
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    })
+
+    const scopedA = deriveVerifyPocScopedIdempotencyKey({
+      syncId: syncIdA,
+      sourceEventFingerprint,
+    })
+    const scopedARepeat = deriveVerifyPocScopedIdempotencyKey({
+      syncId: syncIdA,
+      sourceEventFingerprint,
+    })
+    const scopedB = deriveVerifyPocScopedIdempotencyKey({
+      syncId: syncIdB,
+      sourceEventFingerprint,
+    })
+
+    expect(scopedA).toBe(scopedARepeat)
+    expect(scopedA === scopedB).toBe(false)
+  })
+
+  it("sync state machine happy path", () => {
+    const syncStateById = new Map<string, VerifyPocSyncState>()
+    const syncId = deriveVerifyPocSyncId({
+      projectId: 1n,
+      submissionId: 2n,
+      envelopeHash:
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+    })
+
+    transitionVerifyPocSyncState(syncStateById, syncId, "SAPPHIRE_WRITTEN", {
+      allowInitialize: true,
+    })
+    transitionVerifyPocSyncState(syncStateById, syncId, "SEPOLIA_COMMITTED")
+    transitionVerifyPocSyncState(syncStateById, syncId, "SEPOLIA_REVEALED")
+    transitionVerifyPocSyncState(syncStateById, syncId, "WORKFLOW_VERIFIED")
+    transitionVerifyPocSyncState(syncStateById, syncId, "REPORT_WRITTEN")
+
+    expect(syncStateById.get(syncId)).toBe("REPORT_WRITTEN")
+  })
+
+  it("sync state machine rejects invalid transition", () => {
+    const syncStateById = new Map<string, VerifyPocSyncState>()
+    const syncId = deriveVerifyPocSyncId({
+      projectId: 8n,
+      submissionId: 9n,
+      envelopeHash:
+        "0x2222222222222222222222222222222222222222222222222222222222222222",
+    })
+
+    transitionVerifyPocSyncState(syncStateById, syncId, "SAPPHIRE_WRITTEN", {
+      allowInitialize: true,
+    })
+
+    expect(() =>
+      transitionVerifyPocSyncState(syncStateById, syncId, "REPORT_WRITTEN")
+    ).toThrow(VERIFY_POC_INVALID_SYNC_TRANSITION_ERROR)
   })
 
   it("allows first claim and skips duplicate claims", () => {
@@ -100,7 +200,10 @@ describe("verify-poc idempotency", () => {
     expect(duplicate.sourceEventKey).toBe(first.sourceEventKey)
     expect(duplicate.idempotencyKey).toBe(first.idempotencyKey)
 
-    const duplicateClaim = claimVerifyPocIdempotencySlot(processingState, duplicate.idempotencyKey)
+    const duplicateClaim = claimVerifyPocIdempotencySlot(
+      processingState,
+      duplicate.idempotencyKey
+    )
     expect(duplicateClaim.shouldProcess).toBe(false)
     expect(duplicateClaim.reason).toBe("already_completed")
   })
@@ -125,9 +228,9 @@ describe("verify-poc idempotency", () => {
       mappingVersion: "anti-soon.verify-poc.idempotency-map.v2",
     }
 
-    expect(() => assertVerifyPocIdempotencyMappingStable(mappingState, drifted)).toThrow(
-      VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR
-    )
+    expect(() =>
+      assertVerifyPocIdempotencyMappingStable(mappingState, drifted)
+    ).toThrow(VERIFY_POC_IDEMPOTENCY_MAPPING_DRIFT_ERROR)
   })
 
   it("rejects replayed source event after successful completion", () => {
@@ -145,17 +248,23 @@ describe("verify-poc idempotency", () => {
     }
 
     const mapped = assertVerifyPocIdempotencyMappingStable(mappingState, input)
-    const firstClaim = claimVerifyPocIdempotencySlot(processingState, mapped.idempotencyKey)
+    const firstClaim = claimVerifyPocIdempotencySlot(
+      processingState,
+      mapped.idempotencyKey
+    )
     expect(firstClaim.shouldProcess).toBe(true)
     markVerifyPocIdempotencyCompleted(processingState, mapped.idempotencyKey)
 
     const replayMapped = assertVerifyPocIdempotencyMappingStable(mappingState, input)
-    const replayClaim = claimVerifyPocIdempotencySlot(processingState, replayMapped.idempotencyKey)
+    const replayClaim = claimVerifyPocIdempotencySlot(
+      processingState,
+      replayMapped.idempotencyKey
+    )
     expect(replayClaim.shouldProcess).toBe(false)
     expect(replayClaim.reason).toBe("already_completed")
   })
 
-  it("releases processing slot on failure to allow retry", () => {
+  it("quarantines processing slot on release and blocks retry", () => {
     const state = new Map<string, VerifyPocIdempotencyStatus>()
     const key = "0xabcd"
 
@@ -165,7 +274,7 @@ describe("verify-poc idempotency", () => {
     releaseVerifyPocIdempotencySlot(state, key)
 
     const retry = claimVerifyPocIdempotencySlot(state, key)
-    expect(retry.shouldProcess).toBe(true)
-    expect(retry.reason).toBe("first_seen")
+    expect(retry.shouldProcess).toBe(false)
+    expect(retry.reason).toBe("quarantined")
   })
 })
