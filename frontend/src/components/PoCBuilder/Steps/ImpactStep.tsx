@@ -21,6 +21,7 @@ interface ImpactStepProps {
   onNext: () => void
   onBack: () => void
   showStepNavigation?: boolean
+  readOnly?: boolean
 }
 
 const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] = [
@@ -30,7 +31,7 @@ const IMPACT_TYPES: { value: ImpactType; label: string; description: string }[] 
   { value: 'other', label: 'Other', description: 'Other vulnerability type' },
 ]
 
-export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack, showStepNavigation = true }) => {
+export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpdate, onNext, onBack, showStepNavigation = true, readOnly = false }) => {
   const [draft, setDraft] = useState({
     type: config.type,
     estimatedLoss: config.estimatedLoss,
@@ -50,21 +51,30 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
   })
 
   const handleTypeChange = useCallback((value: ImpactType) => {
+    if (readOnly) {
+      return
+    }
     setDraft((prev) => ({ ...prev, type: value }))
     onUpdate('type', value)
-  }, [onUpdate])
+  }, [onUpdate, readOnly])
 
   const handleLossChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) {
+      return
+    }
     const nextValue = e.target.value
     setDraft((prev) => ({ ...prev, estimatedLoss: nextValue }))
     schedule('estimatedLoss', nextValue)
-  }, [schedule])
+  }, [readOnly, schedule])
 
   const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (readOnly) {
+      return
+    }
     const nextValue = e.target.value
     setDraft((prev) => ({ ...prev, description: nextValue }))
     schedule('description', nextValue)
-  }, [schedule])
+  }, [readOnly, schedule])
 
   const handleBack = useCallback(() => {
     flushAll()
@@ -91,21 +101,21 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
             <Label htmlFor="impact-type" className="text-[var(--color-text)] text-sm font-medium">
               Vulnerability Type
             </Label>
-            <Select value={draft.type} onValueChange={handleTypeChange}>
-              <SelectTrigger id="impact-type" className="font-mono text-sm bg-background/50">
+            <Select value={draft.type} onValueChange={handleTypeChange} disabled={readOnly}>
+              <SelectTrigger
+                id="impact-type"
+                className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors"
+              >
                 <SelectValue placeholder="Select impact type" />
               </SelectTrigger>
-              <SelectContent className="bg-card border-primary/20">
+              <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
                 {IMPACT_TYPES.map((type) => (
                   <SelectItem 
                     key={type.value} 
                     value={type.value}
-                    className="font-mono focus:bg-primary/10"
+                    className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]"
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="font-semibold">{type.label}</span>
-                      <span className="text-xs text-muted-foreground">{type.description}</span>
-                    </div>
+                    {type.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -127,12 +137,10 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
               value={draft.estimatedLoss}
               onChange={handleLossChange}
               onBlur={() => flush('estimatedLoss')}
+              disabled={readOnly}
               placeholder="e.g. 1000000000000000000000 (1000 ETH)"
               className="font-mono bg-background/50"
             />
-            <p className="text-xs text-muted-foreground">
-              Enter the amount in wei (1 ETH = 10<sup>18</sup> wei)
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -145,6 +153,7 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
               value={draft.description}
               onChange={handleDescriptionChange}
               onBlur={() => flush('description')}
+              disabled={readOnly}
               placeholder="Describe the vulnerability impact and how the exploit works..."
               className="font-mono bg-background/50 resize-y min-h-[84px]"
             />

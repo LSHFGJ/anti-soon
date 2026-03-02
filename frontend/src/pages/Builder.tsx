@@ -162,13 +162,6 @@ export function Builder() {
   }, [explicitProjectId])
 
   const submissionProjectId = manualProjectId ?? explicitProjectId ?? defaultProjectId
-  const projectContextLabel =
-    manualProjectId !== null
-      ? 'SELECTED_PROJECT_ID'
-      : explicitProjectId !== null
-        ? 'CONTEXT_PROJECT_ID'
-        : 'DEFAULT_PROJECT_ID'
-
   const handleProjectContextChange = useCallback((projectId: bigint) => {
     setManualProjectId(projectId)
   }, [])
@@ -183,16 +176,6 @@ export function Builder() {
           title="BUILDER"
           subtitle="> Craft, authorize access, and submit your vulnerability proof-of-concept"
           className="mb-4"
-          rightSlot={
-            submissionProjectId !== null ? (
-              <span
-                data-testid="builder-project-context"
-                className="font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--color-secondary)]"
-              >
-                {projectContextLabel}: #{submissionProjectId.toString()}
-              </span>
-            ) : undefined
-          }
         />
 
         <PoCBuilder

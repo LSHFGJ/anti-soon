@@ -226,7 +226,7 @@ export function Dashboard() {
           <StatCard label="TOTAL EARNED" value={`${formatEther(totalEarned)} ETH`} />
           <StatCard label="SUBMISSIONS" value={totalCount} color="var(--color-text)" />
           <StatCard label="VALID" value={validCount} color="var(--color-secondary)" subValue={totalCount > 0 ? `${Math.round((validCount / totalCount) * 100)}% rate` : undefined} />
-          <StatCard label="PENDING" value={pendingCount} color="var(--color-warning)" subValue="awaiting finalization" />
+          <StatCard label="PENDING" value={pendingCount} color="var(--color-warning)" />
         </div>
 
         {pendingPayouts.length > 0 && (

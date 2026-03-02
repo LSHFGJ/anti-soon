@@ -121,13 +121,13 @@ export function Explorer() {
               Status:
             </span>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors">
+              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
-                <SelectItem value="active" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Active</SelectItem>
-                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">All</SelectItem>
-                <SelectItem value="inactive" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Inactive</SelectItem>
+                <SelectItem value="active" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Active</SelectItem>
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">All</SelectItem>
+                <SelectItem value="inactive" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Inactive</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -137,13 +137,13 @@ export function Explorer() {
               Mode:
             </span>
             <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as ModeFilter)}>
-              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors">
+              <SelectTrigger className="w-32 h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
-                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">All</SelectItem>
-                <SelectItem value="unique" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Unique</SelectItem>
-                <SelectItem value="multi" className="text-[var(--color-text)] text-xs font-mono focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)]">Multi</SelectItem>
+                <SelectItem value="all" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">All</SelectItem>
+                <SelectItem value="unique" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Unique</SelectItem>
+                <SelectItem value="multi" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Multi</SelectItem>
               </SelectContent>
             </Select>
           </div>

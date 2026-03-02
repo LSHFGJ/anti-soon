@@ -269,14 +269,16 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 						>
 							[ PREVIOUS ]
 						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={onLoadExample}
-							className="font-mono btn-cyber justify-self-center"
-						>
-							[ LOAD_EXAMPLE_POC ]
-						</Button>
+						{onLoadExample ? (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={onLoadExample}
+								className="font-mono btn-cyber justify-self-center"
+							>
+								[ LOAD_EXAMPLE_POC ]
+							</Button>
+						) : <div />}
 						{renderFooterPrimaryAction()}
 					</div>
 				) : null}

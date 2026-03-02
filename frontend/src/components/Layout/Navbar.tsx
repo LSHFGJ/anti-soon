@@ -1,8 +1,75 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { createPublicClient, defineChain, formatEther, http } from 'viem'
 import { useWallet } from '../../hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { publicClient } from '@/lib/publicClient'
+
+const LOW_GAS_BALANCE_WEI = 10_000_000_000_000_000n
+const GAS_BALANCE_REFRESH_MS = 30_000
+
+const sapphireTestnetChain = defineChain({
+  id: 23295,
+  name: 'Oasis Sapphire Testnet',
+  nativeCurrency: {
+    name: 'TEST',
+    symbol: 'TEST',
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://testnet.sapphire.oasis.io'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Oasis Explorer',
+      url: 'https://explorer.oasis.io/testnet/sapphire',
+    },
+  },
+})
+
+const sapphirePublicClient = createPublicClient({
+  chain: sapphireTestnetChain,
+  transport: http('https://testnet.sapphire.oasis.io'),
+})
+
+interface ChainGasBalance {
+  label: string
+  symbol: string
+  value: bigint | null
+  faucetUrl: string
+  error?: string
+}
+
+const INITIAL_GAS_BALANCES: ChainGasBalance[] = [
+  {
+    label: 'Ethereum Sepolia',
+    symbol: 'ETH',
+    value: null,
+    faucetUrl: 'https://www.alchemy.com/faucets/ethereum-sepolia',
+  },
+  {
+    label: 'Oasis Sapphire Testnet',
+    symbol: 'TEST',
+    value: null,
+    faucetUrl: 'https://faucet.testnet.oasis.io/',
+  },
+]
+
+function formatGasBalance(value: bigint | null): string {
+  if (value === null) {
+    return '--'
+  }
+
+  const asNumber = Number(formatEther(value))
+  if (!Number.isFinite(asNumber)) {
+    return formatEther(value)
+  }
+
+  return asNumber.toFixed(4)
+}
 
 interface ChainIndicator {
   label: string
@@ -12,7 +79,7 @@ interface ChainIndicator {
 function resolveChainIndicator(chainId: number | null, chainName: string | null): ChainIndicator {
   if (chainId === 11155111) {
     return {
-      label: 'Sepolia',
+      label: 'Ethereum Sepolia',
       iconPath: '/chains/ethereum.svg',
     }
   }
@@ -26,14 +93,14 @@ function resolveChainIndicator(chainId: number | null, chainName: string | null)
 
   if (chainId === 23294 || chainId === 23295) {
     return {
-      label: 'Oasis Sapphire',
+      label: 'Oasis Sapphire Testnet',
       iconPath: '/chains/oasis-sapphire.svg',
     }
   }
 
   if (chainName?.toLowerCase().includes('sapphire')) {
     return {
-      label: chainName,
+      label: chainName.toLowerCase().includes('testnet') ? chainName : 'Oasis Sapphire Testnet',
       iconPath: '/chains/oasis-sapphire.svg',
     }
   }
@@ -48,7 +115,11 @@ export function Navbar() {
   const { isConnected, address, chainId, chainName, connect, disconnect } = useWallet({ autoSwitchToSepolia: false })
   const location = useLocation()
   const navRef = useRef<HTMLElement | null>(null)
+  const gasBalanceFetchedAtRef = useRef<number>(0)
+  const gasBalanceFetchedAddressRef = useRef<string | null>(null)
   const chainIndicator = resolveChainIndicator(chainId, chainName)
+  const [isGasBalanceLoading, setIsGasBalanceLoading] = useState(false)
+  const [gasBalances, setGasBalances] = useState<ChainGasBalance[]>(INITIAL_GAS_BALANCES)
 
   const navItems = [
     { path: '/', label: 'HOME' },
@@ -83,6 +154,69 @@ export function Navbar() {
       window.removeEventListener('resize', applyOffset)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      gasBalanceFetchedAtRef.current = 0
+      gasBalanceFetchedAddressRef.current = null
+      setGasBalances(INITIAL_GAS_BALANCES)
+      return
+    }
+
+    if (gasBalanceFetchedAddressRef.current !== address) {
+      gasBalanceFetchedAtRef.current = 0
+      setGasBalances(INITIAL_GAS_BALANCES)
+    }
+  }, [address, isConnected])
+
+  const loadGasBalances = useCallback(async () => {
+    if (!address) {
+      return
+    }
+
+    const now = Date.now()
+    if (
+      gasBalanceFetchedAddressRef.current === address
+      && now - gasBalanceFetchedAtRef.current < GAS_BALANCE_REFRESH_MS
+    ) {
+      return
+    }
+
+    setIsGasBalanceLoading(true)
+
+    try {
+      const [sepoliaResult, sapphireResult] = await Promise.allSettled([
+        publicClient.getBalance({ address }),
+        sapphirePublicClient.getBalance({ address }),
+      ])
+
+      setGasBalances([
+        {
+          label: 'Ethereum Sepolia',
+          symbol: 'ETH',
+          value: sepoliaResult.status === 'fulfilled' ? sepoliaResult.value : null,
+          faucetUrl: 'https://www.alchemy.com/faucets/ethereum-sepolia',
+          error: sepoliaResult.status === 'rejected' ? 'UNAVAILABLE' : undefined,
+        },
+        {
+          label: 'Oasis Sapphire Testnet',
+          symbol: 'TEST',
+          value: sapphireResult.status === 'fulfilled' ? sapphireResult.value : null,
+          faucetUrl: 'https://faucet.testnet.oasis.io/',
+          error: sapphireResult.status === 'rejected' ? 'UNAVAILABLE' : undefined,
+        },
+      ])
+
+      gasBalanceFetchedAtRef.current = now
+      gasBalanceFetchedAddressRef.current = address
+    } finally {
+      setIsGasBalanceLoading(false)
+    }
+  }, [address])
+
+  const lowBalanceChains = gasBalances.filter(
+    (item) => item.value !== null && item.value < LOW_GAS_BALANCE_WEI,
+  )
 
   return (
     <nav
@@ -154,45 +288,97 @@ export function Navbar() {
           </Button>
         )}
         
-        <Button
-          onClick={isConnected ? disconnect : connect}
-          variant="outline"
-          size="sm"
-          className={cn(
-            "font-mono text-[0.8rem]",
-            isConnected
-              ? "text-[var(--color-primary)] border-[var(--color-primary)]/60 bg-[var(--color-primary-dim)] hover:bg-[rgba(124,58,237,0.22)] hover:text-[var(--color-primary)] hover:border-[var(--color-primary)] hover:shadow-[0_0_18px_var(--color-primary-glow)]"
-              : "text-[var(--color-text)] border-white/20 hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] hover:shadow-[0_0_15px_var(--color-primary-dim)]",
-            "transition-all duration-200 ease-linear"
-          )}
-        >
-          {isConnected 
-            ? (
-              <span className="inline-flex items-center gap-2">
-                <span>[{address?.slice(0, 6)}...{address?.slice(-4)}]</span>
-                <span
-                  data-testid="navbar-chain-icon"
-                  title={chainIndicator.label}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current/40 overflow-hidden"
-                >
-                  <img
-                    src={chainIndicator.iconPath}
-                    alt={chainIndicator.label}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
+        <div className="relative group">
+          <Button
+            onClick={isConnected ? disconnect : connect}
+            onMouseEnter={() => {
+              if (!isConnected) return
+              void loadGasBalances()
+            }}
+            variant="outline"
+            size="sm"
+            className={cn(
+              'font-mono text-[0.8rem]',
+              isConnected
+                ? 'text-[var(--color-primary)] border-[var(--color-primary)]/60 bg-[var(--color-primary-dim)] hover:bg-[rgba(124,58,237,0.22)] hover:text-[var(--color-primary)] hover:border-[var(--color-primary)] hover:shadow-[0_0_18px_var(--color-primary-glow)]'
+                : 'text-[var(--color-text)] border-white/20 hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] hover:shadow-[0_0_15px_var(--color-primary-dim)]',
+              'transition-all duration-200 ease-linear',
+            )}
+          >
+            {isConnected
+              ? (
+                <span className="inline-flex items-center gap-2">
+                  <span>[{address?.slice(0, 6)}...{address?.slice(-4)}]</span>
+                  <span
+                    data-testid="navbar-chain-icon"
+                    title={chainIndicator.label}
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current/40 overflow-hidden"
+                  >
+                    <img
+                      src={chainIndicator.iconPath}
+                      alt={chainIndicator.label}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </span>
                 </span>
-              </span>
-            )
-            : (
-              <>
-                <span className="sm:hidden">[CONN]</span>
-                <span className="hidden sm:inline">[ CONNECT ]</span>
-              </>
-            )
-          }
-        </Button>
+              )
+              : (
+                <>
+                  <span className="sm:hidden">[CONN]</span>
+                  <span className="hidden sm:inline">[ CONNECT ]</span>
+                </>
+              )}
+          </Button>
+
+          {isConnected ? (
+            <div className="pointer-events-none invisible absolute right-0 top-full z-50 w-[280px] rounded-sm border border-neutral-800 bg-[var(--color-bg-panel)]/95 p-3 opacity-0 shadow-[0_0_24px_rgba(124,58,237,0.22)] backdrop-blur-md transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:visible group-focus-within:opacity-100">
+              <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-dim)] mb-2">
+                Gas Balances
+              </p>
+
+              <div className="space-y-1.5">
+                {gasBalances.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-[var(--color-text-dim)]">{item.label}</span>
+                    <span className="text-[var(--color-text)]">
+                      {item.error ? item.error : `${formatGasBalance(item.value)} ${item.symbol}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {isGasBalanceLoading ? (
+                <p className="mt-2 text-[10px] font-mono text-[var(--color-text-dim)]">Refreshing balances...</p>
+              ) : null}
+
+              {lowBalanceChains.length > 0 ? (
+                <div className="mt-2 rounded-sm border border-[var(--color-warning)]/40 bg-[rgba(245,158,11,0.08)] px-2 py-1.5">
+                  <p className="text-[10px] font-mono text-[var(--color-warning)] mb-1">
+                    Low gas detected, top up via faucet:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {lowBalanceChains.map((item) => (
+                      <a
+                        key={item.label}
+                        href={item.faucetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-mono text-[var(--color-secondary)] underline decoration-dotted hover:text-[var(--color-primary)]"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                        }}
+                      >
+                        {item.label} Faucet
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
     </nav>
   )

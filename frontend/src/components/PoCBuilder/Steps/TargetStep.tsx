@@ -16,6 +16,13 @@ import {
 import { Input } from '../../ui/input'
 import { Button } from '../../ui/button'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../ui/select'
+import {
   chainOptions,
   targetConfigSchema,
 } from '../../../lib/validations/poc'
@@ -39,6 +46,7 @@ interface TargetStepProps {
   selectedProjectId?: bigint | null
   onSelectProject?: (projectId: bigint) => void
   showStepNavigation?: boolean
+  projectSelectionOnly?: boolean
 }
 
 export const TargetStep: React.FC<TargetStepProps> = React.memo(({ 
@@ -49,6 +57,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   selectedProjectId = null,
   onSelectProject,
   showStepNavigation = true,
+  projectSelectionOnly = false,
 }) => {
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
   const chainValue = chainOptions.includes(config.chain as typeof chainOptions[number])
@@ -93,16 +102,18 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   }, [schedule])
 
   const handleAbiChange = useCallback((value: string) => {
+    if (projectSelectionOnly) {
+      return
+    }
     form.setValue('abiJson', value, { shouldValidate: true })
     schedule('abiJson', value)
-  }, [form, schedule])
+  }, [form, projectSelectionOnly, schedule])
 
-  const handleProjectSelect = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleProjectSelect = useCallback((value: string) => {
     if (!onSelectProject) {
       return
     }
 
-    const value = event.target.value
     if (!value) {
       return
     }
@@ -133,18 +144,25 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
               Explorer Project (On-chain)
             </FormLabel>
             <FormControl>
-              <select
+              <Select
                 value={selectedProjectId?.toString() ?? ''}
-                onChange={handleProjectSelect}
-                className="flex h-10 w-full rounded-md border border-[var(--color-text-dim)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] font-mono focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] cursor-pointer"
+                onValueChange={handleProjectSelect}
               >
-                <option value="">[ SELECT_PROJECT_FROM_EXPLORER ]</option>
-                {availableProjects.map((project) => (
-                  <option key={project.id.toString()} value={project.id.toString()}>
-                    #{project.id.toString()} · {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)} · {inferProjectChainLabel(project)} · BLOCK {project.forkBlock.toString()}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
+                  <SelectValue placeholder="[ SELECT_PROJECT_FROM_EXPLORER ]" />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
+                  {availableProjects.map((project) => (
+                    <SelectItem
+                      key={project.id.toString()}
+                      value={project.id.toString()}
+                      className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent"
+                    >
+                      #{project.id.toString()} · {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)} · {inferProjectChainLabel(project)} · BLOCK {project.forkBlock.toString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormControl>
           </FormItem>
 
@@ -160,8 +178,9 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                     <Input
                       {...field}
                       placeholder="0x..."
-                      onChange={handleFieldChange('targetContract', field.onChange)}
+                      onChange={projectSelectionOnly ? undefined : handleFieldChange('targetContract', field.onChange)}
                       onBlur={() => flush('targetContract')}
+                      disabled={projectSelectionOnly}
                       className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
                     />
                 </FormControl>
@@ -180,17 +199,25 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                     Chain
                   </FormLabel>
                   <FormControl>
-                    <select 
-                      value={field.value} 
-                      onChange={handleFieldChange('chain', field.onChange)}
-                      onBlur={() => flush('chain')}
-                      className="flex h-10 w-full rounded-md border border-[var(--color-text-dim)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] font-mono focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] cursor-pointer"
+                    <Select
+                      value={field.value}
+                      disabled={projectSelectionOnly}
+                      onValueChange={(value) => {
+                        if (projectSelectionOnly) return
+                        field.onChange(value)
+                        schedule('chain', value)
+                      }}
                     >
-                      <option value="Mainnet">Ethereum Mainnet</option>
-                      <option value="Sepolia">Sepolia Testnet</option>
-                      <option value="Optimism">Optimism</option>
-                      <option value="Arbitrum">Arbitrum</option>
-                    </select>
+                    <SelectTrigger className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
+                        <SelectItem value="Mainnet" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Ethereum Mainnet</SelectItem>
+                        <SelectItem value="Sepolia" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Sepolia Testnet</SelectItem>
+                        <SelectItem value="Optimism" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Optimism</SelectItem>
+                        <SelectItem value="Arbitrum" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Arbitrum</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </FormControl>
                   <FormMessage className="text-[var(--color-error)] text-xs" />
                 </FormItem>
@@ -210,8 +237,9 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                       {...field}
                       type="text"
                       placeholder="e.g. 18500000"
-                      onChange={handleFieldChange('forkBlock', field.onChange)}
+                      onChange={projectSelectionOnly ? undefined : handleFieldChange('forkBlock', field.onChange)}
                       onBlur={() => flush('forkBlock')}
+                      disabled={projectSelectionOnly}
                       className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
                     />
                   </FormControl>
@@ -221,30 +249,33 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
             />
           </div>
 
-          <FormField
-            control={form.control}
-            name="abiJson"
-            render={({ field, fieldState }) => (
-              <FormItem>
-                <FormLabel className="text-[var(--color-text-dim)] text-sm font-medium">
-                  Contract ABI (JSON)
-                </FormLabel>
-                <FormControl>
-                  <div className="abi-upload-area">
-                    <CodeEditor
-                      value={field.value}
-                      onChange={handleAbiChange}
-                      language="json"
-                      height={220}
-                      placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
-                      error={fieldState.error?.message}
-                    />
-                  </div>
-                </FormControl>
-                <FormMessage className="text-[var(--color-error)] text-xs" />
-              </FormItem>
-            )}
-          />
+          {!projectSelectionOnly ? (
+            <FormField
+              control={form.control}
+              name="abiJson"
+              render={({ field, fieldState }) => (
+                <FormItem>
+                  <FormLabel className="text-[var(--color-text-dim)] text-sm font-medium">
+                    Contract ABI (JSON)
+                  </FormLabel>
+                  <FormControl>
+                    <div className="abi-upload-area">
+                      <CodeEditor
+                        value={field.value}
+                        onChange={handleAbiChange}
+                        language="json"
+                        height={220}
+                        readOnly={projectSelectionOnly}
+                        placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
+                        error={fieldState.error?.message}
+                      />
+                    </div>
+                  </FormControl>
+                  <FormMessage className="text-[var(--color-error)] text-xs" />
+                </FormItem>
+              )}
+            />
+          ) : null}
 
           {showStepNavigation ? (
             <div className="mt-4 text-right">

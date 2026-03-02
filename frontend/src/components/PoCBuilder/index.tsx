@@ -94,6 +94,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
   availableProjects = [],
   onProjectContextChange,
 }) => {
+  const projectSelectionOnly = true
   const { 
     activeStep, 
     setActiveStep,
@@ -308,6 +309,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
               selectedProjectId={selectedOnChainProject?.id ?? null}
               onSelectProject={handleOnChainProjectSelect}
               showStepNavigation={false}
+              projectSelectionOnly={projectSelectionOnly}
             />
           </StepSurface>
 

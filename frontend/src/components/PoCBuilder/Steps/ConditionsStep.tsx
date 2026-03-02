@@ -14,9 +14,10 @@ interface ConditionsStepProps {
   onNext: () => void
   onBack: () => void
   showStepNavigation?: boolean
+  readOnly?: boolean
 }
 
-export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ conditions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true }) => {
+export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ conditions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true, readOnly = false }) => {
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.conditions} />
@@ -29,12 +30,14 @@ export const ConditionsStep: React.FC<ConditionsStepProps> = React.memo(({ condi
             index={index}
             onRemove={onRemove} 
             onUpdate={onUpdate} 
+            readOnly={readOnly}
           />
         ))}
       </div>
       
       <Button
         onClick={onAdd}
+        disabled={readOnly}
         variant="outline"
         className={cn(
           "w-full mb-8 py-3 border-dashed border-2",
@@ -88,9 +91,10 @@ interface ConditionItemProps {
   index: number
   onRemove: (id: string) => void
   onUpdate: (id: string, field: keyof Condition, value: string) => void
+  readOnly: boolean
 }
 
-const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, index, onRemove, onUpdate }) => {
+const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, index, onRemove, onUpdate, readOnly }) => {
   type EditableConditionField = 'type' | 'value' | 'target' | 'slot'
 
   const [draft, setDraft] = useState({
@@ -114,9 +118,12 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
   })
 
   const handleChange = useCallback((field: EditableConditionField, value: string) => {
+    if (readOnly) {
+      return
+    }
     setDraft((prev) => ({ ...prev, [field]: value }))
     schedule(field, value)
-  }, [schedule])
+  }, [readOnly, schedule])
 
   const handleRemove = useCallback(() => {
     flushAll()
@@ -145,6 +152,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
           </span>
           <Button
             onClick={handleRemove}
+            disabled={readOnly}
             variant="ghost"
             size="sm"
             aria-label="Remove condition"
@@ -167,13 +175,15 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
             value={draft.type} 
             onChange={e => handleChange('type', e.target.value)}
             onBlur={() => flush('type')}
+            disabled={readOnly}
             className={cn(
-              "h-10 px-3 rounded-sm",
-              "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
-              "text-[var(--color-text)] font-mono text-sm",
+              "h-9 px-3 rounded-sm",
+              "bg-neutral-900/80 border border-neutral-800",
+              "text-[var(--color-text)] font-mono text-xs",
+              "hover:border-[var(--color-primary-dim)]",
               "focus:border-[var(--color-primary)] focus:outline-none",
               "focus:ring-1 focus:ring-[var(--color-primary-dim)]",
-              "transition-all duration-200",
+              "transition-colors",
               "cursor-pointer"
             )}
           >
@@ -186,6 +196,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
             value={draft.value} 
             onChange={e => handleChange('value', e.target.value)}
             onBlur={() => flush('value')}
+            disabled={readOnly}
             className={cn(
               "h-10 px-3 rounded-sm",
               "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -204,6 +215,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
             value={draft.target} 
             onChange={e => handleChange('target', e.target.value)}
             onBlur={() => flush('target')}
+            disabled={readOnly}
             className={cn(
               "w-full h-10 px-3 rounded-sm",
               "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -223,6 +235,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
               value={draft.target} 
               onChange={e => handleChange('target', e.target.value)}
               onBlur={() => flush('target')}
+              disabled={readOnly}
               className={cn(
                 "h-10 px-3 rounded-sm",
                 "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",
@@ -238,6 +251,7 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
               value={draft.slot} 
               onChange={e => handleChange('slot', e.target.value)}
               onBlur={() => flush('slot')}
+              disabled={readOnly}
               className={cn(
                 "h-10 px-3 rounded-sm",
                 "bg-[var(--color-bg)] border border-[var(--color-text-dim)]",

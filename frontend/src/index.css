@@ -669,7 +669,6 @@ input:focus, select:focus, textarea:focus {
 }
 
 .step-content input,
-.step-content select,
 .step-content textarea {
   font-family: var(--font-mono);
   font-size: 0.85rem;
@@ -682,7 +681,6 @@ input:focus, select:focus, textarea:focus {
 }
 
 .step-content input:focus,
-.step-content select:focus,
 .step-content textarea:focus {
   outline: none;
   border-color: var(--color-primary);

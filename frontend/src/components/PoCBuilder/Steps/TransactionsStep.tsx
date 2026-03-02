@@ -15,9 +15,10 @@ interface TransactionsStepProps {
   onNext: () => void
   onBack: () => void
   showStepNavigation?: boolean
+  readOnly?: boolean
 }
 
-export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ transactions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true }) => {
+export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ transactions, onAdd, onRemove, onUpdate, onNext, onBack, showStepNavigation = true, readOnly = false }) => {
   return (
     <div className="step-content">
       <StepGuidance {...STEP_GUIDES.transactions} />
@@ -30,12 +31,14 @@ export const TransactionsStep: React.FC<TransactionsStepProps> = React.memo(({ t
             index={index}
             onRemove={onRemove} 
             onUpdate={onUpdate} 
+            readOnly={readOnly}
           />
         ))}
       </div>
 
       <Button
         onClick={onAdd}
+        disabled={readOnly}
         variant="outline"
         className={cn(
           "w-full mb-8 py-3 border-dashed border-2",
@@ -89,9 +92,10 @@ interface TransactionItemProps {
   index: number
   onRemove: (id: string) => void
   onUpdate: (id: string, field: keyof Transaction, value: string) => void
+  readOnly: boolean
 }
 
-const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transaction, index, onRemove, onUpdate }) => {
+const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transaction, index, onRemove, onUpdate, readOnly }) => {
   const [expanded, setExpanded] = useState(false)
 
   type EditableTransactionField = 'to' | 'value' | 'data'
@@ -114,9 +118,12 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
   })
 
   const handleChange = useCallback((field: EditableTransactionField, value: string) => {
+    if (readOnly) {
+      return
+    }
     setDraft((prev) => ({ ...prev, [field]: value }))
     schedule(field, value)
-  }, [schedule])
+  }, [readOnly, schedule])
 
   const handleDataChange = useCallback((value: string) => {
     handleChange('data', value)
@@ -165,6 +172,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
               e.stopPropagation()
               handleRemove()
             }}
+            disabled={readOnly}
             variant="ghost"
             size="sm"
             aria-label="Remove transaction"
@@ -200,6 +208,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
                 value={draft.to} 
                 onChange={e => handleChange('to', e.target.value)}
                 onBlur={() => flush('to')}
+                disabled={readOnly}
                 placeholder="0x..."
                 className={cn(
                   "w-full h-10 px-3 rounded-sm",
@@ -223,6 +232,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
                 value={draft.value} 
                 onChange={e => handleChange('value', e.target.value)}
                 onBlur={() => flush('value')}
+                disabled={readOnly}
                 placeholder="0"
                 className={cn(
                   "w-full h-10 px-3 rounded-sm",
@@ -243,6 +253,7 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
             onChange={handleDataChange}
             language="json"
             height={120}
+            readOnly={readOnly}
             placeholder="0x..."
           />
         </CardContent>
