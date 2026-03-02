@@ -32,7 +32,6 @@ Thumbs.db
 contracts/cache/
 contracts/out/
 contracts/broadcast/
-contracts/lib/
 
 # Demo data (crawled audit data, POC extractions)
 demo-data/
