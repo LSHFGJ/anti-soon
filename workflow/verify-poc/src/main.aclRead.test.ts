@@ -37,11 +37,13 @@ describe("verify-poc ACL read caller enforcement", () => {
 
     const params = buildAuthorizedReadCallParams(contract, callData, authorizedCaller)
 
-    expect(params[0]).toEqual({
-      to: contract,
-      data: callData,
-      from: authorizedCaller,
-    })
+    expect(JSON.stringify(params[0])).toBe(
+      JSON.stringify({
+        to: contract,
+        data: callData,
+        from: authorizedCaller,
+      })
+    )
     expect(params[1]).toBe("latest")
   })
 })

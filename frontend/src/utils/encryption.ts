@@ -1,4 +1,4 @@
-import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem'
+import { encodePacked, keccak256 } from 'viem'
 
 export function generateRandomSalt(): `0x${string}` {
   const array = new Uint8Array(32)
@@ -11,8 +11,8 @@ export function computeCommitHash(
   sender: `0x${string}`, 
   salt: `0x${string}`
 ): `0x${string}` {
-  const encoded = encodeAbiParameters(
-    parseAbiParameters('bytes32, address, bytes32'),
+  const encoded = encodePacked(
+    ['bytes32', 'address', 'bytes32'],
     [cipherHash, sender, salt]
   )
   return keccak256(encoded)

@@ -1,0 +1,164 @@
+name: Sapphire Sepolia Sync Hardening Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scope_guard:
+    name: Scope Guard
+    runs-on: ubuntu-latest
+    outputs:
+      sync_critical_changed: ${{ steps.scope.outputs.sync_critical_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build changed file list
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              BASE_SHA="$(git rev-parse HEAD~1)"
+            else
+              git ls-files > "$RUNNER_TEMP/changed_files.txt"
+              cat "$RUNNER_TEMP/changed_files.txt"
+              exit 0
+            fi
+          fi
+
+          git diff --name-only "$BASE_SHA...${{ github.sha }}" > "$RUNNER_TEMP/changed_files.txt"
+          cat "$RUNNER_TEMP/changed_files.txt"
+
+      - name: Enforce sync-only scope
+        id: scope
+        shell: bash
+        run: |
+          ./.github/scripts/sync-scope-gate.sh scope \
+            --changed-files-file "$RUNNER_TEMP/changed_files.txt" \
+            --output-file "$GITHUB_OUTPUT"
+
+  frontend_sync_suite:
+    name: Frontend Sync Suite
+    runs-on: ubuntu-latest
+    needs: scope_guard
+    if: needs.scope_guard.outputs.sync_critical_changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: frontend
+        run: bun install
+
+      - name: Run frontend sync regression tests
+        shell: bash
+        working-directory: frontend
+        run: |
+          bun test src/__tests__/useCommitReveal-state.spec.ts --test-name-pattern "blocks commit when Sapphire readback validation fails"
+          bun test src/__tests__/usePoCSubmission-queue.spec.ts --test-name-pattern "blocks submission when Sapphire readback validation fails"
+
+  contracts_sync_suite:
+    name: Contracts Sync Suite
+    runs-on: ubuntu-latest
+    needs: scope_guard
+    if: needs.scope_guard.outputs.sync_critical_changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run contracts sync regression tests
+        shell: bash
+        working-directory: contracts
+        run: |
+          forge test --match-test test_commitPoC_emitsSyncAnchorEvent
+          forge test --match-test test_getSubmissionSyncState_returnsMetadataAndTimestamps
+          forge test --match-test test_revealPoC_revertsOnTamperedSaltBinding
+
+  workflow_sync_suite:
+    name: Workflow Sync Suite
+    runs-on: ubuntu-latest
+    needs: scope_guard
+    if: needs.scope_guard.outputs.sync_critical_changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install workflow dependencies
+        shell: bash
+        working-directory: workflow/verify-poc
+        run: bun install
+
+      - name: Run workflow sync regression tests
+        shell: bash
+        working-directory: workflow/verify-poc
+        run: |
+          bun test src/idempotencyStore.test.ts --test-name-pattern "idempotency survives restart"
+          bun test src/e2eSyncFailureMatrix.test.ts --test-name-pattern "reordered duplicate PoCRevealed replay queue still writes once"
+
+  replay_failure_matrix:
+    name: Replay Failure Matrix
+    runs-on: ubuntu-latest
+    needs: scope_guard
+    if: needs.scope_guard.outputs.sync_critical_changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install workflow dependencies
+        shell: bash
+        working-directory: workflow/verify-poc
+        run: bun install
+
+      - name: Run replay/failure-matrix regression suite
+        shell: bash
+        working-directory: workflow/verify-poc
+        run: bun test src/e2eSyncFailureMatrix.test.ts --test-name-pattern "reordered duplicate PoCRevealed replay queue still writes once"
+
+  sync_regression_gate:
+    name: Sync Regression Gate
+    runs-on: ubuntu-latest
+    needs:
+      - scope_guard
+      - frontend_sync_suite
+      - contracts_sync_suite
+      - workflow_sync_suite
+      - replay_failure_matrix
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require replay/failure-matrix for sync-critical changes
+        shell: bash
+        run: |
+          ./.github/scripts/sync-scope-gate.sh suite \
+            --sync-critical "${{ needs.scope_guard.outputs.sync_critical_changed }}" \
+            --frontend-suite-result "${{ needs.frontend_sync_suite.result }}" \
+            --contracts-suite-result "${{ needs.contracts_sync_suite.result }}" \
+            --workflow-suite-result "${{ needs.workflow_sync_suite.result }}" \
+            --replay-suite-result "${{ needs.replay_failure_matrix.result }}"

@@ -1,4 +1,11 @@
-import { encodeFunctionData, keccak256, parseAbi, toBytes } from 'viem'
+import {
+  decodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
+  parseAbi,
+  parseAbiParameters,
+  toBytes,
+} from 'viem'
 import { wrapEthereumProvider } from '@oasisprotocol/sapphire-paratime'
 import { normalizeEthereumAddress } from './address'
 import { extractErrorMessage } from './errorMessage'
@@ -35,10 +42,18 @@ type RelayerUploadResponse = {
 
 const OASIS_STORAGE_ABI = parseAbi([
   'function write(string slotId, string payload)',
+  'function read(string slotId) view returns (string payload)',
 ])
 
 type Eip1193Provider = {
   request: (args: { method: string; params?: object | readonly unknown[] }) => Promise<unknown>
+}
+
+type ParsedCipherURI = {
+  chain: string
+  contract: `0x${string}`
+  slotId: string
+  envelopeHash: `0x${string}`
 }
 
 function normalizePointer(pointer: OasisPointer): OasisPointer {
@@ -107,6 +122,131 @@ function getOasisStorageContract(): string | undefined {
 
 function isBytes32Hex(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{64}$/.test(value)
+}
+
+function parseCipherURI(cipherURI: string): ParsedCipherURI {
+  const prefix = 'oasis://'
+  if (!cipherURI.startsWith(prefix)) {
+    throw new Error('Sapphire readback validation failed: cipherURI must use oasis:// scheme')
+  }
+
+  const hashIndex = cipherURI.indexOf('#')
+  if (hashIndex === -1 || hashIndex === cipherURI.length - 1) {
+    throw new Error('Sapphire readback validation failed: cipherURI must include envelope hash fragment')
+  }
+
+  const location = cipherURI.slice(prefix.length, hashIndex)
+  const envelopeHash = cipherURI.slice(hashIndex + 1)
+  if (!isBytes32Hex(envelopeHash)) {
+    throw new Error('Sapphire readback validation failed: cipherURI fragment must be bytes32 hex')
+  }
+
+  const firstSlash = location.indexOf('/')
+  const secondSlash = location.indexOf('/', firstSlash + 1)
+  if (firstSlash <= 0 || secondSlash <= firstSlash + 1 || secondSlash === location.length - 1) {
+    throw new Error('Sapphire readback validation failed: cipherURI pointer is malformed')
+  }
+
+  const chain = location.slice(0, firstSlash)
+  const contractRaw = location.slice(firstSlash + 1, secondSlash)
+  const slotEncoded = location.slice(secondSlash + 1)
+  const contract = normalizeEthereumAddress(contractRaw)
+
+  if (!contract) {
+    throw new Error('Sapphire readback validation failed: cipherURI contract address is invalid')
+  }
+
+  let slotId: string
+  try {
+    slotId = decodeURIComponent(slotEncoded)
+  } catch {
+    throw new Error('Sapphire readback validation failed: cipherURI slot is not URI-decodable')
+  }
+
+  if (!slotId) {
+    throw new Error('Sapphire readback validation failed: cipherURI slot must not be empty')
+  }
+
+  return { chain, contract, slotId, envelopeHash }
+}
+
+async function validateSapphireReadback(args: {
+  provider: Eip1193Provider
+  fallbackAuditor: `0x${string}`
+  cipherURI: string
+  expectedContract?: `0x${string}`
+  expectedSlotId?: string
+  expectedEnvelopeHash?: `0x${string}`
+}): Promise<void> {
+  const parsed = parseCipherURI(args.cipherURI)
+
+  if (
+    args.expectedContract &&
+    parsed.contract.toLowerCase() !== args.expectedContract.toLowerCase()
+  ) {
+    throw new Error('Sapphire readback validation failed: cipherURI contract mismatch')
+  }
+
+  if (args.expectedSlotId && parsed.slotId !== args.expectedSlotId) {
+    throw new Error('Sapphire readback validation failed: cipherURI slot mismatch')
+  }
+
+  if (
+    args.expectedEnvelopeHash &&
+    parsed.envelopeHash.toLowerCase() !== args.expectedEnvelopeHash.toLowerCase()
+  ) {
+    throw new Error('Sapphire readback validation failed: cipherURI envelope hash mismatch')
+  }
+
+  await ensureChain(args.provider, SAPPHIRE_CHAIN_ID_HEX)
+  const from = await resolveProviderAddress(args.provider, args.fallbackAuditor)
+  const readData = encodeFunctionData({
+    abi: OASIS_STORAGE_ABI,
+    functionName: 'read',
+    args: [parsed.slotId],
+  })
+
+  const rawResult = await args.provider.request({
+    method: 'eth_call',
+    params: [{ from, to: parsed.contract, data: readData }, 'latest'],
+  })
+
+  if (typeof rawResult !== 'string' || !rawResult.startsWith('0x')) {
+    throw new Error('Sapphire readback validation failed: read call returned non-hex payload')
+  }
+
+  const [payloadJson] = decodeAbiParameters(parseAbiParameters('string'), rawResult as `0x${string}`)
+  let payload: unknown
+  try {
+    payload = JSON.parse(payloadJson)
+  } catch {
+    throw new Error('Sapphire readback validation failed: storage payload is not valid JSON')
+  }
+
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new Error('Sapphire readback validation failed: storage payload has invalid shape')
+  }
+
+  const payloadRecord = payload as {
+    envelopeHash?: unknown
+    pointer?: { slotId?: unknown; contract?: unknown }
+  }
+
+  if (payloadRecord.envelopeHash !== parsed.envelopeHash) {
+    throw new Error('Sapphire readback validation failed: envelope hash does not match cipherURI')
+  }
+
+  if (payloadRecord.pointer?.slotId !== parsed.slotId) {
+    throw new Error('Sapphire readback validation failed: slot id does not match cipherURI')
+  }
+
+  if (typeof payloadRecord.pointer?.contract !== 'string') {
+    throw new Error('Sapphire readback validation failed: payload pointer contract is missing')
+  }
+
+  if (payloadRecord.pointer.contract.toLowerCase() !== parsed.contract.toLowerCase()) {
+    throw new Error('Sapphire readback validation failed: payload pointer contract mismatch')
+  }
 }
 
 async function uploadViaRelayerApi(args: {
@@ -254,12 +394,28 @@ export async function uploadEncryptedPoC({
 
   const relayerApiUrl = getOasisUploadApiUrl()
   if (relayerApiUrl) {
-    return uploadViaRelayerApi({
+    const provider = readProvider(ethereumProvider)
+    const relayerResult = await uploadViaRelayerApi({
       apiUrl: relayerApiUrl,
       poc,
       projectId,
       auditor: normalizedAuditor,
     })
+
+    try {
+      await validateSapphireReadback({
+        provider,
+        fallbackAuditor: normalizedAuditor,
+        cipherURI: relayerResult.cipherURI,
+      })
+    } finally {
+      try {
+        await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX)
+      } catch {
+      }
+    }
+
+    return relayerResult
   }
 
   const configuredStorageContract = getOasisStorageContract()
@@ -340,11 +496,28 @@ export async function uploadEncryptedPoC({
     throw err
   }
 
+  const cipherURI = `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${envelopeHash}`
+
   await waitForReceipt(provider, txHash)
-  await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX)
+
+  try {
+    await validateSapphireReadback({
+      provider,
+      fallbackAuditor: providerAddress,
+      cipherURI,
+      expectedContract: storageContract,
+      expectedSlotId: pointer.slotId,
+      expectedEnvelopeHash: envelopeHash,
+    })
+  } finally {
+    try {
+      await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX)
+    } catch {
+    }
+  }
 
   return {
-    cipherURI: `oasis://${pointer.chain}/${uriContract}/${encodeURIComponent(pointer.slotId)}#${envelopeHash}`,
+    cipherURI,
     oasisTxHash: txHash,
   }
 }

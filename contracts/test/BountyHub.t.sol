@@ -154,6 +154,30 @@ contract BountyHubTest is Test {
         hub.commitPoC(0, commitHash, cipherURI);
     }
 
+    function test_commitPoC_emitsSyncAnchorEvent() public {
+        _registerProjectViaV2Defaults(1 ether, 0.5 ether);
+
+        bytes32 salt = keccak256("salt-sync-anchor");
+        string memory cipherURI = "ipfs://oasis/sync-anchor";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+        bytes32 metadataHash = keccak256(bytes(cipherURI));
+        uint256 expectedSubmissionId = hub.nextSubmissionId();
+        uint256 expectedCommitTimestamp = block.timestamp;
+
+        vm.expectEmit(true, true, true, true);
+        emit BountyHub.PoCSyncAnchor(
+            expectedSubmissionId,
+            0,
+            auditor,
+            commitHash,
+            metadataHash,
+            expectedCommitTimestamp
+        );
+
+        vm.prank(auditor);
+        hub.commitPoC(0, commitHash, cipherURI);
+    }
+
     function test_revealPoC() public {
         _registerProjectViaV2Defaults(1 ether, 0.5 ether);
         bytes32 salt = keccak256("salt");
@@ -165,6 +189,50 @@ contract BountyHubTest is Test {
 
         vm.prank(auditor);
         hub.revealPoC(0, salt);
+    }
+
+    function test_revealPoC_revertsOnTamperedSaltBinding() public {
+        _registerProjectViaV2Defaults(1 ether, 0.5 ether);
+
+        bytes32 salt = keccak256("salt-binding");
+        bytes32 tamperedSalt = keccak256("salt-binding-tampered");
+        string memory cipherURI = "ipfs://oasis/reveal-binding";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        vm.expectRevert("Invalid reveal");
+        vm.prank(auditor);
+        hub.revealPoC(submissionId, tamperedSalt);
+    }
+
+    function test_getSubmissionSyncState_returnsMetadataAndTimestamps() public {
+        _registerProjectViaV2Defaults(1 ether, 0.5 ether);
+
+        bytes32 salt = keccak256("salt-sync-state");
+        string memory cipherURI = "ipfs://oasis/sync-state";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+        bytes32 expectedMetadataHash = keccak256(bytes(cipherURI));
+
+        vm.prank(auditor);
+        uint256 submissionId = hub.commitPoC(0, commitHash, cipherURI);
+
+        (uint256 commitTimestampBeforeReveal, uint256 revealTimestampBeforeReveal, bytes32 metadataHashBeforeReveal) =
+            hub.getSubmissionSyncState(submissionId);
+        assertEq(commitTimestampBeforeReveal, block.timestamp, "Commit timestamp should be set at commit");
+        assertEq(revealTimestampBeforeReveal, 0, "Reveal timestamp should be zero before reveal");
+        assertEq(metadataHashBeforeReveal, expectedMetadataHash, "Metadata hash should match committed cipher URI");
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(auditor);
+        hub.revealPoC(submissionId, salt);
+
+        (uint256 commitTimestampAfterReveal, uint256 revealTimestampAfterReveal, bytes32 metadataHashAfterReveal) =
+            hub.getSubmissionSyncState(submissionId);
+        assertEq(commitTimestampAfterReveal, commitTimestampBeforeReveal, "Commit timestamp should remain unchanged");
+        assertGt(revealTimestampAfterReveal, commitTimestampAfterReveal, "Reveal timestamp should be after commit");
+        assertEq(metadataHashAfterReveal, expectedMetadataHash, "Metadata hash should remain stable after reveal");
     }
 
     function test_revealPoC_legacyKeyedInterfaceRejected() public {
@@ -298,6 +366,31 @@ contract BountyHubTest is Test {
         vm.expectRevert("Duplicate commit");
         vm.prank(otherUser);
         hub.commitPoC(0, commitHash, cipherURI);
+    }
+
+    function test_commit_hash_parity_vectors() public pure {
+        bytes32 cipherHash = 0x1111111111111111111111111111111111111111111111111111111111111111;
+        address parityAuditor = address(0x1234567890AbcdEF1234567890aBcdef12345678);
+
+        bytes32[3] memory salts = [
+            bytes32(0),
+            bytes32(uint256(1)),
+            bytes32(type(uint256).max)
+        ];
+        bytes32[3] memory expected = [
+            bytes32(0xdef33f6b6ce0e9a580d69ef6197b369e9f0c730a7e236f18cb10f81b50553ff8),
+            bytes32(0xf641fd3cce8357e710a05823a932fbd74560a92138e93d551f7deec51075bbf8),
+            bytes32(0x48b50f8460cbfe9c9fb6779ae1ad17ce3b925412f902b158a54d5d22f23662f4)
+        ];
+
+        assertEq(salts[0], bytes32(0), "vector 0 should cover zero salt");
+        assertTrue(salts[1] != bytes32(0), "vector 1 should cover non-zero salt");
+        assertTrue(salts[2] != bytes32(0), "vector 2 should cover non-zero salt");
+
+        for (uint256 i = 0; i < salts.length; i++) {
+            bytes32 computed = keccak256(abi.encodePacked(cipherHash, parityAuditor, salts[i]));
+            assertEq(computed, expected[i], "parity vector hash mismatch");
+        }
     }
 
     function test_commitPoCBySig_relayerCanCommitForAuditor() public {

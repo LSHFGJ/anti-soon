@@ -1,12 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs"
+import { dirname } from "path"
 import {
   assertVerifyPocIdempotencyMappingStable,
   claimVerifyPocIdempotencySlot,
   deriveVerifyPocSourceEventKey,
   markVerifyPocIdempotencyCompleted,
   markVerifyPocIdempotencyQuarantined,
-  type VerifyPocIdempotencyClaimOptions,
   type VerifyPocIdempotencyDecision,
   type VerifyPocIdempotencyInput,
   type VerifyPocIdempotencyMappingState,
@@ -243,14 +242,9 @@ export function assertDurableVerifyPocIdempotencyMappingStable(
 export function claimDurableVerifyPocIdempotencySlot(
   store: VerifyPocIdempotencyStore,
   syncId: string,
-  options?: VerifyPocIdempotencyClaimOptions,
   nowMs: number = Date.now(),
 ): VerifyPocIdempotencyDecision {
-  const decision = claimVerifyPocIdempotencySlot(
-    store.syncStatusBySyncId,
-    syncId,
-    options,
-  )
+  const decision = claimVerifyPocIdempotencySlot(store.syncStatusBySyncId, syncId)
   if (decision.shouldProcess) {
     store.syncStatusUpdatedAtMsBySyncId.set(syncId, nowMs)
     persistVerifyPocIdempotencyStore(store)
