@@ -167,7 +167,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           />
           
           <div className="flex items-center justify-between w-full text-[10px] text-[var(--color-text-dim)] font-mono">
-            <span>FORK: #{project.forkBlock.toString()}</span>
+            <span>ON-CHAIN</span>
             <motion.span
               className="flex items-center gap-1"
               whileHover={{ color: 'var(--color-primary)' }}

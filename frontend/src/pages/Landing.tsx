@@ -35,54 +35,53 @@ const AnimatedSection = ({
 )
 
 const ProjectCard = ({ project, index }: { project: Project; index: number }) => (
-  <motion.div
-    variants={staggerChild}
-    className="landing-project-card"
-    whileHover={{ 
-      borderColor: 'var(--color-primary-dim)',
-      boxShadow: '0 10px 30px -10px var(--color-primary-dim)',
-      y: -6
-    }}
-    transition={{ duration: 0.2, ease: 'linear' }}
-  >
-    <div className="landing-project-card-highlight" />
-    
+  <Link to={`/project/${project.id.toString()}`} className="block no-underline">
     <motion.div
-      className={`landing-project-card-status ${project.active ? 'active' : 'reporting'}`}
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: 0.2 + index * 0.1 }}
+      variants={staggerChild}
+      className="landing-project-card"
+      whileHover={{
+        borderColor: 'var(--color-primary-dim)',
+        boxShadow: '0 10px 30px -10px var(--color-primary-dim)',
+        y: -6,
+      }}
+      transition={{ duration: 0.2, ease: 'linear' }}
     >
-      {project.active ? 'ACTIVE' : 'INACTIVE'}
-    </motion.div>
-    
-    <h3 className="landing-project-card-title">
-      {`PROJECT_#${project.id.toString()}`}
-    </h3>
-    
-    <p className="landing-project-card-desc">
-      {`Target ${project.targetContract.slice(0, 6)}...${project.targetContract.slice(-4)} on ${project.mode === 0 ? 'UNIQUE' : 'MULTI'} mode.`}
-    </p>
-    
-    <div className="landing-project-card-footer">
-      <span className="text-[var(--color-text-dim)]">BOUNTY</span>
-      <motion.span 
-        className="landing-project-card-bounty"
-        whileHover={{
-          textShadow: '0 0 20px var(--color-primary-glow)'
-        }}
-      >
-        {`${formatEther(project.bountyPool)} ETH`}
-      </motion.span>
-    </div>
+      <div className="landing-project-card-highlight" />
 
-    <div className="landing-project-card-findings">
-      <span className="severity-badge low">LIVE</span>
-      <span className="landing-project-card-findings-text">
-        Fork @{project.forkBlock.toString()}
-      </span>
-    </div>
-  </motion.div>
+      <motion.div
+        className={`landing-project-card-status ${project.active ? 'active' : 'reporting'}`}
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 0.2 + index * 0.1 }}
+      >
+        {project.active ? 'ACTIVE' : 'INACTIVE'}
+      </motion.div>
+
+      <h3 className="landing-project-card-title">
+        {`PROJECT_#${project.id.toString()}`}
+      </h3>
+
+      <p className="landing-project-card-desc">
+        {`Target ${project.targetContract.slice(0, 6)}...${project.targetContract.slice(-4)} on ${project.mode === 0 ? 'UNIQUE' : 'MULTI'} mode.`}
+      </p>
+
+      <div className="landing-project-card-footer">
+        <span className="text-[var(--color-text-dim)]">BOUNTY</span>
+        <motion.span
+          className="landing-project-card-bounty"
+          whileHover={{
+            textShadow: '0 0 20px var(--color-primary-glow)',
+          }}
+        >
+          {`${formatEther(project.bountyPool)} ETH`}
+        </motion.span>
+      </div>
+
+      <div className="landing-project-card-findings">
+        <span className="severity-badge low">LIVE</span>
+      </div>
+    </motion.div>
+  </Link>
 )
 
 const StatSection = ({ isLoading }: { isLoading: boolean }) => (
@@ -125,9 +124,9 @@ const StatSection = ({ isLoading }: { isLoading: boolean }) => (
               delay={0.2}
             />
             <AnimatedStatCard
-              label="Avg Response"
+              label="Average Time"
               value="<10s"
-              subValue="Verification Time"
+              subValue="From submission to payout"
               color="var(--color-secondary)"
               delay={0.3}
             />
@@ -264,6 +263,48 @@ const CTASection = () => (
             <span className="opacity-70">]</span>
           </Link>
         </motion.div>
+
+        <motion.div 
+          variants={staggerChild}
+          className="mt-16 pt-8 border-t border-[var(--color-primary-dim)]/30 flex flex-col items-center justify-center gap-6"
+        >
+          <span className="text-xs font-mono text-[var(--color-text-dim)] uppercase tracking-widest">
+            Powered by
+          </span>
+          <div className="flex flex-wrap items-center justify-center gap-10 opacity-90 transition-opacity duration-300">
+            <a
+              href="https://chain.link/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Chainlink"
+              className="inline-flex h-8 w-[168px] items-center justify-center hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logo/chainlink-official.svg"
+                alt="Chainlink"
+                className="h-full w-full object-contain"
+                loading="lazy"
+                decoding="async"
+              />
+            </a>
+
+            <a
+              href="https://tenderly.co/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Tenderly"
+              className="inline-flex h-8 w-[168px] items-center justify-center hover:opacity-100 transition-opacity"
+            >
+              <img
+                src="/logo/tenderly-official.svg"
+                alt="Tenderly"
+                className="h-full w-full object-contain"
+                loading="lazy"
+                decoding="async"
+              />
+            </a>
+          </div>
+        </motion.div>
       </motion.div>
     </div>
   </section>
@@ -295,7 +336,7 @@ export function Landing() {
       
       <CTASection />
       
-      <div className="h-12" />
+      <div className="h-0" />
     </motion.main>
   )
 }

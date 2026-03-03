@@ -22,6 +22,7 @@ import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
 import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
 import { publicClient } from '../lib/publicClient'
 import { buildPreviewSubmission, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
+import { explorerAddressUrl } from '@/lib/explorerLinks'
 
 type SubmissionTuple = readonly [
   auditor: Address,
@@ -208,9 +209,14 @@ export function Dashboard() {
           title="DASHBOARD"
           subtitle="> Your audit performance and submission history"
           suffix={(
-            <span className="text-[var(--color-text-dim)] text-xs font-mono">
+            <a
+              href={address ? explorerAddressUrl(address) : undefined}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[var(--color-text-dim)] text-xs font-mono hover:text-[var(--color-primary)] hover:underline"
+            >
               [{address?.slice(0, 6)}...{address?.slice(-4)}]
-            </span>
+            </a>
           )}
         />
 

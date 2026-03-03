@@ -851,10 +851,6 @@ export function CreateProject() {
                 <span className="text-[var(--color-text-dim)]">TARGET: </span>
                 <span className="text-[var(--color-text)]">{formData.targetContract || '—'}</span>
               </div>
-              <div>
-                <span className="text-[var(--color-text-dim)]">FORK_BLOCK: </span>
-                <span>{formData.forkBlock || '0 (latest)'}</span>
-              </div>
               <div className="mt-2">
                 <span className="text-[var(--color-text-dim)]">REPO_URL: </span>
                 <span className="text-[var(--color-text)]">{repoUrl || '—'}</span>

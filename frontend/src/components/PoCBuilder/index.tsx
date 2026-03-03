@@ -95,6 +95,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
   onProjectContextChange,
 }) => {
   const projectSelectionOnly = true
+  const [projectContextHighlightNonce, setProjectContextHighlightNonce] = useState(0)
   const { 
     activeStep, 
     setActiveStep,
@@ -136,6 +137,11 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
     loadTemplate(buildTemplateFromProject(selected))
     setActiveStep((prev) => (prev === 1 ? 1 : prev))
   }, [availableProjects, loadTemplate, onProjectContextChange, setActiveStep])
+
+  const handleRetryProjectContext = useCallback(() => {
+    setActiveStep(1)
+    setProjectContextHighlightNonce((prev) => prev + 1)
+  }, [setActiveStep])
 
   useEffect(() => {
     if (!selectedOnChainProject) {
@@ -299,17 +305,19 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
       </div>
 
       <NeonPanel className="flex-1 min-h-0" contentClassName="h-full min-h-0 p-4">
-        <div data-builder-scroll-owner="primary" className="h-full min-h-0 overflow-y-auto pr-1">
+        <div data-builder-scroll-owner="primary" className="h-full min-h-0 overflow-y-auto px-1">
           <StepSurface step={1} activeStep={activeStep}>
             <TargetStep 
               config={targetConfig} 
               onUpdate={updateTargetConfig} 
               onNext={handleNext} 
+              isActive={activeStep === 1}
               availableProjects={availableProjects}
               selectedProjectId={selectedOnChainProject?.id ?? null}
               onSelectProject={handleOnChainProjectSelect}
               showStepNavigation={false}
               projectSelectionOnly={projectSelectionOnly}
+              projectContextHighlightNonce={projectContextHighlightNonce}
             />
           </StepSurface>
 
@@ -351,6 +359,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
             <ReviewStep
               pocJson={pocJson}
               isConnected={isConnected}
+              isActive={activeStep === 5}
               isSubmitting={isSubmitting}
               submissionHash={commitTxHash || revealTxHash || ''}
               error={error || null}
@@ -358,6 +367,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
               onSubmit={handleSubmit}
               onBack={handleBack}
               onLoadExample={handleLoadExample}
+              onRetryProjectContext={handleRetryProjectContext}
               projectId={submissionProjectId}
               useV2={true}
               showBackButton={true}

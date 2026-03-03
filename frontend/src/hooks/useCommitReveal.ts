@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
 import { normalizeEthereumAddress } from "../lib/address";
-import { extractErrorMessage } from "../lib/errorMessage";
 import {
 	buildRevealRetryState,
 	clearCommitRevealRecoveryContext,
@@ -14,11 +13,9 @@ import {
 	type RevealRetryState,
 	ZERO_HEX_32,
 } from "../lib/commitRevealRecovery";
+import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
-import {
-	computeCommitHash,
-	generateRandomSalt,
-} from "../utils/encryption";
+import { computeCommitHash, generateRandomSalt } from "../utils/encryption";
 import { useWallet } from "./useWallet";
 
 export const SUBMISSION_LIFECYCLE_PHASES = [
@@ -36,6 +33,7 @@ export type SubmissionLifecyclePhase =
 
 interface CommitState {
 	phase: SubmissionLifecyclePhase;
+	hydratedFromRecovery?: boolean;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
 	cipherURI?: string;
@@ -52,6 +50,10 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 	const { address, walletClient, publicClient, isConnected } = useWallet({
 		autoSwitchToSepolia: false,
 	});
+	const recoveryWalletAddress =
+		normalizeEthereumAddress(address) ??
+		normalizeEthereumAddress(walletClient?.account?.address) ??
+		null;
 
 	const setFailed = useCallback((message: string) => {
 		setState((s) => ({
@@ -80,6 +82,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				return {
 					...current,
 					phase,
+					hydratedFromRecovery: true,
 					salt: recovered.salt,
 					cipherURI: recovered.cipherURI,
 					commitHash: recovered.commitHash,
@@ -95,14 +98,20 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 	);
 
 	useEffect(() => {
-		const recovered = loadCommitRevealRecoveryContext(projectId);
+		if (projectId === null || !recoveryWalletAddress) return;
+
+		const recovered = loadCommitRevealRecoveryContext(
+			projectId,
+			recoveryWalletAddress,
+			CHAIN.id,
+		);
 		if (!recovered) return;
 
-		if (!recovered.submissionId || !publicClient) {
-			applyRecoveredCommittedState(
-				recovered,
-				recovered.submissionId ? "committed" : "committing",
-			);
+		if (!publicClient) {
+			return;
+		}
+
+		if (!recovered.submissionId) {
 			return;
 		}
 
@@ -129,7 +138,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 									error:
 										"Recovery context is stale: submission snapshot could not be decoded. Reset and commit again.",
 									revealRetry: undefined,
-							  }
+								}
 							: current,
 					);
 					return;
@@ -137,7 +146,8 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 				const sameProject = snapshot.projectId === recovered.projectId;
 				const sameCommitHash =
-					normalizeHex(snapshot.commitHash) === normalizeHex(recovered.commitHash);
+					normalizeHex(snapshot.commitHash) ===
+					normalizeHex(recovered.commitHash);
 
 				if (!sameProject || !sameCommitHash) {
 					clearCommitRevealRecoveryContext();
@@ -149,7 +159,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 									error:
 										"Recovery context does not match on-chain submission identity. Reset and recommit before reveal.",
 									revealRetry: undefined,
-							  }
+								}
 							: current,
 					);
 					return;
@@ -171,16 +181,13 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 									error:
 										"Recovery context salt does not match on-chain submission. Reset and recommit before reveal.",
 									revealRetry: undefined,
-							  }
+								}
 							: current,
 					);
 					return;
 				}
 
-				if (
-					snapshot.revealTimestamp > 0n ||
-					onChainSalt === recoveredSalt
-				) {
+				if (snapshot.revealTimestamp > 0n || onChainSalt === recoveredSalt) {
 					clearCommitRevealRecoveryContext();
 					applyRecoveredCommittedState(recovered, "revealed");
 					return;
@@ -189,7 +196,24 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				applyRecoveredCommittedState(recovered, "committed");
 			} catch {
 				if (cancelled) return;
-				applyRecoveredCommittedState(recovered, "committed");
+				setState((current) =>
+					current.phase === "idle"
+						? {
+								...current,
+								phase: "failed",
+								hydratedFromRecovery: true,
+								submissionId: recovered.submissionId,
+								salt: recovered.salt,
+								cipherURI: recovered.cipherURI,
+								commitHash: recovered.commitHash,
+								oasisTxHash: recovered.oasisTxHash,
+								commitTxHash: recovered.commitTxHash,
+								error:
+									"Unable to verify recovered submission state from chain RPC. Reconnect wallet/network and retry reveal or reset.",
+								revealRetry: undefined,
+							}
+						: current,
+				);
 			}
 		};
 
@@ -198,13 +222,22 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		return () => {
 			cancelled = true;
 		};
-	}, [projectId, publicClient, applyRecoveredCommittedState]);
+	}, [
+		projectId,
+		recoveryWalletAddress,
+		publicClient,
+		applyRecoveredCommittedState,
+	]);
 
-	const resolveWalletAddress = useCallback(async (): Promise<`0x${string}` | null> => {
+	const resolveWalletAddress = useCallback(async (): Promise<
+		`0x${string}` | null
+	> => {
 		const fromHook = normalizeEthereumAddress(address);
 		if (fromHook) return fromHook;
 
-		const fromClientAccount = normalizeEthereumAddress(walletClient?.account?.address);
+		const fromClientAccount = normalizeEthereumAddress(
+			walletClient?.account?.address,
+		);
 		if (fromClientAccount) return fromClientAccount;
 
 		if (walletClient && "getAddresses" in walletClient) {
@@ -236,11 +269,16 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		}
 
 		try {
-			const recovered = loadCommitRevealRecoveryContext(projectId);
+			const recovered = loadCommitRevealRecoveryContext(
+				projectId,
+				walletAddress,
+				CHAIN.id,
+			);
 			if (recovered?.submissionId) {
 				setState((s) => ({
 					...s,
 					phase: "committed",
+					hydratedFromRecovery: true,
 					submissionId: recovered.submissionId,
 					salt: recovered.salt,
 					cipherURI: recovered.cipherURI,
@@ -256,6 +294,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			setState((s) => ({
 				...s,
 				phase: "encrypting",
+				hydratedFromRecovery: false,
 				error: undefined,
 				revealRetry: undefined,
 			}));
@@ -296,6 +335,8 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 			persistCommitRevealRecoveryContext({
 				projectId,
+				auditor: walletAddress,
+				chainId: CHAIN.id,
 				salt,
 				cipherURI: finalCipherURI,
 				commitHash: finalCommitHash,
@@ -305,6 +346,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			setState((s) => ({
 				...s,
 				phase: "committing",
+				hydratedFromRecovery: false,
 				salt,
 				cipherURI: finalCipherURI,
 				commitHash: finalCommitHash,
@@ -345,6 +387,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}
 
 			if (!submissionId) {
+				clearCommitRevealRecoveryContext();
 				setFailed(
 					`Commit confirmed but PoCCommitted event was missing in tx logs (${txHash}). Open the tx in explorer and retry from submission detail.`,
 				);
@@ -353,6 +396,8 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 			persistCommitRevealRecoveryContext({
 				projectId,
+				auditor: walletAddress,
+				chainId: CHAIN.id,
 				salt,
 				cipherURI: finalCipherURI,
 				commitHash: finalCommitHash,
@@ -364,6 +409,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			setState((s) => ({
 				...s,
 				phase: "committed",
+				hydratedFromRecovery: false,
 				submissionId,
 				commitTxHash: txHash,
 				revealRetry: undefined,
@@ -371,7 +417,9 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 		} catch (err: unknown) {
 			console.error("Commit error:", err);
 			const message = extractErrorMessage(err);
-			const normalizedMessage = message.includes("must provide an Ethereum address")
+			const normalizedMessage = message.includes(
+				"must provide an Ethereum address",
+			)
 				? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
 				: message;
 			setFailed(`Commit failed: ${normalizedMessage}. Reset and try again.`);
@@ -401,15 +449,23 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			return;
 		}
 
+		const submissionId = state.submissionId;
+		const recoveredSaltValue = state.salt;
+
 		try {
-			setState((s) => ({ ...s, phase: "revealing", error: undefined }));
+			setState((s) => ({
+				...s,
+				phase: "revealing",
+				hydratedFromRecovery: false,
+				error: undefined,
+			}));
 
 			const submission = await publicClient.readContract({
 				account: walletAddress,
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "submissions",
-				args: [state.submissionId],
+				args: [submissionId],
 			});
 
 			const snapshot = parseSubmissionOnChainSnapshot(submission);
@@ -440,9 +496,12 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 			}
 
 			const onChainSalt = normalizeHex(snapshot.salt);
-			const recoveredSalt = normalizeHex(state.salt);
+			const recoveredSalt = normalizeHex(recoveredSaltValue);
 
-			if (onChainSalt !== normalizeHex(ZERO_HEX_32) && onChainSalt !== recoveredSalt) {
+			if (
+				onChainSalt !== normalizeHex(ZERO_HEX_32) &&
+				onChainSalt !== recoveredSalt
+			) {
 				clearCommitRevealRecoveryContext();
 				setFailed(
 					"Reveal failed: submissionId/salt pair mismatch detected on-chain. Reset and recommit.",
@@ -454,6 +513,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				setState((s) => ({
 					...s,
 					phase: "revealed",
+					hydratedFromRecovery: false,
 					error: undefined,
 					revealRetry: undefined,
 				}));
@@ -466,7 +526,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "canReveal",
-				args: [state.submissionId],
+				args: [submissionId],
 			})) as boolean;
 
 			if (!canReveal) {
@@ -475,7 +535,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 					phase: "failed",
 					error:
 						"Reveal is currently blocked by timing or UNIQUE-candidate rules. Retry after recheckIntervalMs.",
-					revealRetry: buildRevealRetryState(state.submissionId),
+					revealRetry: buildRevealRetryState(submissionId),
 				}));
 				return;
 			}
@@ -485,7 +545,7 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 				address: BOUNTY_HUB_ADDRESS,
 				abi: BOUNTY_HUB_V2_ABI,
 				functionName: "revealPoC",
-				args: [state.submissionId, state.salt],
+				args: [submissionId, recoveredSaltValue],
 			});
 
 			const txHash = await walletClient.writeContract(request);
@@ -494,12 +554,18 @@ export function useCommitReveal(projectId: bigint | null, pocJson: string) {
 
 			await publicClient.waitForTransactionReceipt({ hash: txHash });
 
-			setState((s) => ({ ...s, phase: "revealed" }));
+			setState((s) => ({
+				...s,
+				phase: "revealed",
+				hydratedFromRecovery: false,
+			}));
 			clearCommitRevealRecoveryContext();
 		} catch (err: unknown) {
 			console.error("Reveal error:", err);
 			const message = extractErrorMessage(err);
-			const normalizedMessage = message.includes("must provide an Ethereum address")
+			const normalizedMessage = message.includes(
+				"must provide an Ethereum address",
+			)
 				? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
 				: message;
 			setFailed(`Reveal failed: ${normalizedMessage}. Reset and retry reveal.`);

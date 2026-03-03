@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { TargetConfig } from '../../../types/poc'
@@ -28,6 +28,7 @@ import {
 } from '../../../lib/validations/poc'
 import type { TargetConfigFormData } from '../../../lib/validations/poc'
 import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
+import { cn } from '../../../lib/utils'
 
 function inferProjectChainLabel(project: Project): string {
   const rpcUrl = project.vnetRpcUrl.toLowerCase()
@@ -47,6 +48,8 @@ interface TargetStepProps {
   onSelectProject?: (projectId: bigint) => void
   showStepNavigation?: boolean
   projectSelectionOnly?: boolean
+  projectContextHighlightNonce?: number
+  isActive?: boolean
 }
 
 export const TargetStep: React.FC<TargetStepProps> = React.memo(({ 
@@ -58,7 +61,12 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   onSelectProject,
   showStepNavigation = true,
   projectSelectionOnly = false,
+  projectContextHighlightNonce = 0,
+  isActive = true,
 }) => {
+  const projectTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const pendingProjectContextHighlightRef = useRef(false)
+  const [isProjectContextHighlighted, setIsProjectContextHighlighted] = useState(false)
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
   const chainValue = chainOptions.includes(config.chain as typeof chainOptions[number])
     ? (config.chain as typeof chainOptions[number])
@@ -89,6 +97,36 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
     config.targetContract,
     form,
   ])
+
+  useEffect(() => {
+    if (projectContextHighlightNonce <= 0) {
+      return
+    }
+
+    pendingProjectContextHighlightRef.current = true
+  }, [projectContextHighlightNonce])
+
+  useEffect(() => {
+    if (!isActive || !pendingProjectContextHighlightRef.current) {
+      return
+    }
+
+    pendingProjectContextHighlightRef.current = false
+
+    setIsProjectContextHighlighted(true)
+    window.requestAnimationFrame(() => {
+      projectTriggerRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      projectTriggerRef.current?.focus()
+    })
+
+    const timer = window.setTimeout(() => {
+      setIsProjectContextHighlighted(false)
+    }, 2600)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [isActive])
 
   const handleFieldChange = useCallback((
     field: keyof TargetConfig, 
@@ -148,7 +186,24 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                 value={selectedProjectId?.toString() ?? ''}
                 onValueChange={handleProjectSelect}
               >
-                <SelectTrigger className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
+                <SelectTrigger
+                  ref={projectTriggerRef}
+                  data-testid="target-project-select-trigger"
+                  data-highlighted={isProjectContextHighlighted ? 'true' : 'false'}
+                  style={
+                    isProjectContextHighlighted
+                      ? {
+                          borderColor: 'var(--color-warning)',
+                          boxShadow: 'inset 0 0 0 2px rgba(245,158,11,0.55)',
+                          backgroundColor: 'rgba(245,158,11,0.08)',
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    'h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none',
+                    isProjectContextHighlighted && 'animate-pulse',
+                  )}
+                >
                   <SelectValue placeholder="[ SELECT_PROJECT_FROM_EXPLORER ]" />
                 </SelectTrigger>
                 <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
@@ -158,7 +213,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                       value={project.id.toString()}
                       className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent"
                     >
-                      #{project.id.toString()} · {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)} · {inferProjectChainLabel(project)} · BLOCK {project.forkBlock.toString()}
+                      #{project.id.toString()} · {project.targetContract.slice(0, 6)}...{project.targetContract.slice(-4)} · {inferProjectChainLabel(project)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -224,29 +279,6 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="forkBlock"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-[var(--color-text)] text-sm font-medium">
-                    Fork Block Number
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="text"
-                      placeholder="e.g. 18500000"
-                      onChange={projectSelectionOnly ? undefined : handleFieldChange('forkBlock', field.onChange)}
-                      onBlur={() => flush('forkBlock')}
-                      disabled={projectSelectionOnly}
-                      className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
-                    />
-                  </FormControl>
-                  <FormMessage className="text-[var(--color-error)] text-xs" />
-                </FormItem>
-              )}
-            />
           </div>
 
           {!projectSelectionOnly ? (

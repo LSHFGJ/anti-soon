@@ -14,9 +14,7 @@ import { Dashboard } from './pages/Dashboard'
 const Builder = lazy(() => import('./pages/Builder'))
 
 const BuilderRouteFallback = () => (
-  <div className="container py-8 px-4 text-[var(--color-text-dim)]">
-    Loading builder...
-  </div>
+  <div className="container py-8 px-4 text-[var(--color-text-dim)]" />
 )
 
 function AppShell() {
@@ -56,9 +54,9 @@ function AppShell() {
           <Route path="/submission/:id" element={<SubmissionDetail />} />
         </Routes>
       </main>
-      <footer className="flex-shrink-0 py-3 text-center text-[var(--color-text-dim)] text-xs font-mono border-t border-[rgba(153,153,153,0.2)]">
-        ANTI-SOON &copy; 2026 {'//'} DECENTRALIZED_VERIFICATION_NETWORK
-      </footer>
+            <footer className="flex-shrink-0 py-3 text-center text-[var(--color-text-dim)] text-xs font-mono border-t border-[rgba(153,153,153,0.2)]">
+              AntiSoon &copy; 2026 · MIT License · Convergence
+            </footer>
       <ToastProvider />
     </div>
   )

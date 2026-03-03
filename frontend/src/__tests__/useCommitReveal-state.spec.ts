@@ -39,12 +39,12 @@ function deferred<T>() {
 const POC_COMMITTED_EVENT_TOPIC = keccak256(
 	toBytes("PoCCommitted(uint256,uint256,address,bytes32)"),
 );
-const MOCK_AUDITOR_ADDRESS =
-	"0x1111111111111111111111111111111111111111";
+const MOCK_AUDITOR_ADDRESS = "0x1111111111111111111111111111111111111111";
 const MOCK_COMMIT_HASH =
 	"0x1111111111111111111111111111111111111111111111111111111111111111";
-const COMMIT_REVEAL_RECOVERY_KEY = "anti-soon:commit-reveal-recovery:v1";
-const MOCK_SALT = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const COMMIT_REVEAL_RECOVERY_KEY = "anti-soon:commit-reveal-recovery:v2";
+const MOCK_SALT =
+	"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const ZERO_HEX_32 =
 	"0x0000000000000000000000000000000000000000000000000000000000000000";
 const MOCK_COMPUTED_COMMIT_HASH =
@@ -185,9 +185,12 @@ describe("commit/reveal lifecycle state model", () => {
 				writeContract: vi.fn().mockResolvedValue("0xcommit"),
 			},
 			publicClient: {
-				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt:
-					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -213,9 +216,12 @@ describe("commit/reveal lifecycle state model", () => {
 				writeContract: vi.fn().mockResolvedValue("0xcommit"),
 			},
 			publicClient: {
-				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt:
-					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -228,8 +234,15 @@ describe("commit/reveal lifecycle state model", () => {
 
 		expect(result.current.state.phase).toBe("committed");
 		expect(mockUploadEncryptedPoC).toHaveBeenCalledTimes(1);
-		const payload = mockUploadEncryptedPoC.mock.calls[0]?.[0] as Record<string, unknown>;
-		expect(Object.keys(payload).sort()).toEqual(["auditor", "poc", "projectId"]);
+		const payload = mockUploadEncryptedPoC.mock.calls[0]?.[0] as Record<
+			string,
+			unknown
+		>;
+		expect(Object.keys(payload).sort()).toEqual([
+			"auditor",
+			"poc",
+			"projectId",
+		]);
 		expect(payload).not.toHaveProperty("ciphertext");
 		expect(payload).not.toHaveProperty("iv");
 	});
@@ -250,9 +263,12 @@ describe("commit/reveal lifecycle state model", () => {
 					.mockResolvedValue(["0x1111111111111111111111111111111111111111"]),
 			},
 			publicClient: {
-				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
-				waitForTransactionReceipt:
-					vi.fn().mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog()] }),
 			},
 			isConnected: true,
 		});
@@ -294,6 +310,37 @@ describe("commit/reveal lifecycle state model", () => {
 		expect(result.current.state.error).not.toContain("unknown error");
 	});
 
+	it("prefers nested revert details when provider wraps commit error as Internal JSON-RPC error", async () => {
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient: {},
+			publicClient: {},
+			isConnected: true,
+		});
+		mockUploadEncryptedPoC.mockRejectedValue({
+			shortMessage: "Internal JSON-RPC error.",
+			data: {
+				originalError: {
+					message: "execution reverted: Not authorized",
+				},
+			},
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toContain(
+			"execution reverted: Not authorized",
+		);
+		expect(result.current.state.error).not.toContain(
+			"Internal JSON-RPC error.",
+		);
+	});
+
 	it("normalizes invalid-address commit errors to actionable wallet guidance", async () => {
 		mockUseWallet.mockReturnValue({
 			address: "0x1111111111111111111111111111111111111111",
@@ -324,7 +371,9 @@ describe("commit/reveal lifecycle state model", () => {
 				writeContract: vi.fn().mockResolvedValue("0xcommit"),
 			},
 			publicClient: {
-				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
 				waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
 			},
 			isConnected: true,
@@ -337,7 +386,9 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		expect(result.current.state.phase).toBe("failed");
-		expect(result.current.state.error).toContain("PoCCommitted event was missing");
+		expect(result.current.state.error).toContain(
+			"PoCCommitted event was missing",
+		);
 	});
 
 	it("uses deterministic commit transition ordering and supports reset recovery", async () => {
@@ -377,14 +428,12 @@ describe("commit/reveal lifecycle state model", () => {
 		expect(result.current.state.phase).toBe("committing");
 
 		await act(async () => {
-			uploadDeferred.resolve(
-				{
-					cipherURI:
-						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
-					oasisTxHash:
-						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				},
-			);
+			uploadDeferred.resolve({
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+				oasisTxHash:
+					"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			});
 			await Promise.resolve();
 		});
 
@@ -396,7 +445,11 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		expect(mockComputeCommitHash).toHaveBeenCalledWith(
-			keccak256(toBytes("oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc")),
+			keccak256(
+				toBytes(
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xabc",
+				),
+			),
 			"0x1111111111111111111111111111111111111111",
 			MOCK_SALT,
 		);
@@ -433,15 +486,17 @@ describe("commit/reveal lifecycle state model", () => {
 			waitForTransactionReceipt: vi
 				.fn()
 				.mockResolvedValue({ logs: [buildPoCCommittedLog(99n)] }),
-			readContract: vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
-				if (functionName === "submissions") {
-					return buildSubmissionTuple();
-				}
-				if (functionName === "canReveal") {
+			readContract: vi
+				.fn()
+				.mockImplementation(({ functionName }: { functionName: string }) => {
+					if (functionName === "submissions") {
+						return buildSubmissionTuple();
+					}
+					if (functionName === "canReveal") {
+						return true;
+					}
 					return true;
-				}
-				return true;
-			}),
+				}),
 		};
 
 		mockUseWallet.mockReturnValue({
@@ -457,7 +512,9 @@ describe("commit/reveal lifecycle state model", () => {
 		});
 
 		expect(first.result.current.state.phase).toBe("committed");
-		const persistedAfterCommit = window.localStorage.getItem(COMMIT_REVEAL_RECOVERY_KEY);
+		const persistedAfterCommit = window.localStorage.getItem(
+			COMMIT_REVEAL_RECOVERY_KEY,
+		);
 		expect(persistedAfterCommit).toContain('"projectId":"1"');
 		expect(persistedAfterCommit).not.toContain('"poc"');
 
@@ -467,17 +524,21 @@ describe("commit/reveal lifecycle state model", () => {
 			writeContract: vi.fn().mockResolvedValue(revealTxHash),
 		};
 		const revealPublicClient = {
-			simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xreveal-req" } }),
+			simulateContract: vi
+				.fn()
+				.mockResolvedValue({ request: { to: "0xreveal-req" } }),
 			waitForTransactionReceipt: vi.fn().mockResolvedValue({ logs: [] }),
-			readContract: vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
-				if (functionName === "submissions") {
-					return buildSubmissionTuple();
-				}
-				if (functionName === "canReveal") {
+			readContract: vi
+				.fn()
+				.mockImplementation(({ functionName }: { functionName: string }) => {
+					if (functionName === "submissions") {
+						return buildSubmissionTuple();
+					}
+					if (functionName === "canReveal") {
+						return true;
+					}
 					return true;
-				}
-				return true;
-			}),
+				}),
 		};
 
 		mockUseWallet.mockReturnValue({
@@ -509,8 +570,8 @@ describe("commit/reveal lifecycle state model", () => {
 			JSON.stringify({
 				version: 1,
 				projectId: "9",
-				salt:
-					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				salt: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				cipherURI:
 					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0x1111111111111111111111111111111111111111111111111111111111111111",
 				commitHash:
@@ -526,10 +587,215 @@ describe("commit/reveal lifecycle state model", () => {
 				writeContract: vi.fn().mockResolvedValue("0xcommit"),
 			},
 			publicClient: {
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog(12n)] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(window.localStorage.getItem(COMMIT_REVEAL_RECOVERY_KEY)).toBeNull();
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects recovery context when auditor wallet does not match", async () => {
+		window.localStorage.setItem(
+			COMMIT_REVEAL_RECOVERY_KEY,
+			JSON.stringify({
+				version: 1,
+				projectId: "1",
+				auditor: "0x2222222222222222222222222222222222222222",
+				salt:
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0x1111111111111111111111111111111111111111111111111111111111111111",
+				commitHash:
+					"0x2222222222222222222222222222222222222222222222222222222222222222",
+				oasisTxHash:
+					"0x3333333333333333333333333333333333333333333333333333333333333333",
+				submissionId: "77",
+			}),
+		);
+
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
 				simulateContract: vi.fn().mockResolvedValue({ request: { to: "0xabc" } }),
 				waitForTransactionReceipt: vi
 					.fn()
 					.mockResolvedValue({ logs: [buildPoCCommittedLog(12n)] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(window.localStorage.getItem(COMMIT_REVEAL_RECOVERY_KEY)).toBeNull();
+		expect(result.current.state.phase).toBe("idle");
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects recovery context when persisted chainId does not match Sepolia flow", async () => {
+		window.localStorage.setItem(
+			COMMIT_REVEAL_RECOVERY_KEY,
+			JSON.stringify({
+				version: 1,
+				projectId: "1",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				chainId: 23295,
+				salt:
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0x1111111111111111111111111111111111111111111111111111111111111111",
+				commitHash:
+					"0x2222222222222222222222222222222222222222222222222222222222222222",
+				oasisTxHash:
+					"0x3333333333333333333333333333333333333333333333333333333333333333",
+				submissionId: "88",
+			}),
+		);
+
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog(18n)] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(window.localStorage.getItem(COMMIT_REVEAL_RECOVERY_KEY)).toBeNull();
+		expect(result.current.state.phase).toBe("idle");
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not auto-hydrate committing phase from partial recovery without submission id", async () => {
+		window.localStorage.setItem(
+			COMMIT_REVEAL_RECOVERY_KEY,
+			JSON.stringify({
+				version: 1,
+				projectId: "1",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				salt:
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0x1111111111111111111111111111111111111111111111111111111111111111",
+				commitHash:
+					"0x2222222222222222222222222222222222222222222222222222222222222222",
+				oasisTxHash:
+					"0x3333333333333333333333333333333333333333333333333333333333333333",
+			}),
+		);
+
+		const readContract = vi.fn();
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				readContract,
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog(22n)] }),
+			},
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => useCommitReveal(1n, '{"poc":"json"}'));
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(result.current.state.phase).toBe("idle");
+		expect(readContract).not.toHaveBeenCalled();
+
+		await act(async () => {
+			await result.current.commit();
+		});
+
+		expect(result.current.state.phase).toBe("committed");
+		expect(mockUploadEncryptedPoC).not.toHaveBeenCalled();
+	});
+
+	it("rejects expired recovery context and proceeds with fresh commit", async () => {
+		window.localStorage.setItem(
+			COMMIT_REVEAL_RECOVERY_KEY,
+			JSON.stringify({
+				version: 1,
+				projectId: "1",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				salt:
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0x1111111111111111111111111111111111111111111111111111111111111111",
+				commitHash:
+					"0x2222222222222222222222222222222222222222222222222222222222222222",
+				oasisTxHash:
+					"0x3333333333333333333333333333333333333333333333333333333333333333",
+				expiresAt: Date.now() - 1000,
+			}),
+		);
+
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn().mockResolvedValue("0xcommit"),
+			},
+			publicClient: {
+				simulateContract: vi
+					.fn()
+					.mockResolvedValue({ request: { to: "0xabc" } }),
+				waitForTransactionReceipt: vi
+					.fn()
+					.mockResolvedValue({ logs: [buildPoCCommittedLog(31n)] }),
 			},
 			isConnected: true,
 		});
@@ -555,8 +821,8 @@ describe("commit/reveal lifecycle state model", () => {
 			JSON.stringify({
 				version: 1,
 				projectId: "1",
-				salt:
-					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				salt: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				cipherURI:
 					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				commitHash:
@@ -568,18 +834,20 @@ describe("commit/reveal lifecycle state model", () => {
 		);
 
 		const publicClient = {
-			readContract: vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
-				if (functionName === "submissions") {
-					return buildSubmissionTuple({
-						commitHash:
-							"0x2222222222222222222222222222222222222222222222222222222222222222",
-					});
-				}
-				if (functionName === "canReveal") {
-					return false;
-				}
-				return true;
-			}),
+			readContract: vi
+				.fn()
+				.mockImplementation(({ functionName }: { functionName: string }) => {
+					if (functionName === "submissions") {
+						return buildSubmissionTuple({
+							commitHash:
+								"0x2222222222222222222222222222222222222222222222222222222222222222",
+						});
+					}
+					if (functionName === "canReveal") {
+						return false;
+					}
+					return true;
+				}),
 			simulateContract: vi.fn(),
 			waitForTransactionReceipt: vi.fn(),
 		};
@@ -619,8 +887,8 @@ describe("commit/reveal lifecycle state model", () => {
 			JSON.stringify({
 				version: 1,
 				projectId: "1",
-				salt:
-					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				auditor: MOCK_AUDITOR_ADDRESS,
+				salt: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				cipherURI:
 					"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				commitHash:
@@ -632,17 +900,18 @@ describe("commit/reveal lifecycle state model", () => {
 		);
 
 		const publicClient = {
-			readContract: vi.fn().mockImplementation(({ functionName }: { functionName: string }) => {
-				if (functionName === "submissions") {
-					return buildSubmissionTuple({
-						commitHash:
-							"0x2222222222222222222222222222222222222222222222222222222222222222",
-						salt:
-							"0x4444444444444444444444444444444444444444444444444444444444444444",
-					});
-				}
-				return true;
-			}),
+			readContract: vi
+				.fn()
+				.mockImplementation(({ functionName }: { functionName: string }) => {
+					if (functionName === "submissions") {
+						return buildSubmissionTuple({
+							commitHash:
+								"0x2222222222222222222222222222222222222222222222222222222222222222",
+							salt: "0x4444444444444444444444444444444444444444444444444444444444444444",
+						});
+					}
+					return true;
+				}),
 			simulateContract: vi.fn(),
 			waitForTransactionReceipt: vi.fn(),
 		};
@@ -661,9 +930,10 @@ describe("commit/reveal lifecycle state model", () => {
 			expect(result.current.state.phase).toBe("failed");
 		});
 
-		expect(result.current.state.error).toContain("salt does not match on-chain submission");
+		expect(result.current.state.error).toContain(
+			"salt does not match on-chain submission",
+		);
 		expect(window.localStorage.getItem(COMMIT_REVEAL_RECOVERY_KEY)).toBeNull();
 		expect(publicClient.simulateContract).not.toHaveBeenCalled();
 	});
-
 });

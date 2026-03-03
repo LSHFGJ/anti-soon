@@ -99,11 +99,6 @@ export const STEP_GUIDES = {
         example: 'Ethereum Mainnet, Sepolia Testnet'
       },
       { 
-        field: 'forkBlock', 
-        description: 'The block number to fork from. Use the block before the exploit occurred for accurate reproduction.',
-        example: '18500000'
-      },
-      { 
         field: 'abiJson', 
         description: 'The contract ABI in JSON format. Required to encode function calls.',
         example: '[{"name":"transfer","inputs":[{"type":"address"},{"type":"uint256"}]}]'

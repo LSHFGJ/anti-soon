@@ -239,7 +239,7 @@ export function Navbar() {
         </span>
       </Link>
 
-      <div className="hidden md:flex navbar-links md:order-2">
+      <div className="hidden md:flex navbar-links md:order-2 md:ml-5">
         {navItems.map((item) => (
           <Link
             key={item.path}
@@ -254,7 +254,7 @@ export function Navbar() {
         ))}
       </div>
 
-      <div className="order-3 w-full flex md:hidden gap-1 overflow-x-auto px-1 flex-nowrap items-center pb-1">
+      <div className="order-3 w-full flex md:hidden gap-1 overflow-x-auto pl-5 pr-1 flex-nowrap items-center pb-1">
         {navItems.map((item) => (
           <Link
             key={item.path}

@@ -1,9 +1,8 @@
 import { useCallback, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
 import { normalizeEthereumAddress } from "../lib/address";
-import { extractErrorMessage } from "../lib/errorMessage";
 import {
 	buildRevealRetryState,
 	clearCommitRevealRecoveryContext,
@@ -14,11 +13,9 @@ import {
 	type RevealRetryState,
 	ZERO_HEX_32,
 } from "../lib/commitRevealRecovery";
+import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
-import {
-	computeCommitHash,
-	generateRandomSalt,
-} from "../utils/encryption";
+import { computeCommitHash, generateRandomSalt } from "../utils/encryption";
 import { useWallet } from "./useWallet";
 
 export const SUBMISSION_LIFECYCLE_PHASES = [
@@ -69,11 +66,15 @@ export const usePoCSubmission = () => {
 		}));
 	}, []);
 
-	const resolveWalletAddress = useCallback(async (): Promise<`0x${string}` | null> => {
+	const resolveWalletAddress = useCallback(async (): Promise<
+		`0x${string}` | null
+	> => {
 		const fromHook = normalizeEthereumAddress(address);
 		if (fromHook) return fromHook;
 
-		const fromClientAccount = normalizeEthereumAddress(walletClient?.account?.address);
+		const fromClientAccount = normalizeEthereumAddress(
+			walletClient?.account?.address,
+		);
 		if (fromClientAccount) return fromClientAccount;
 
 		if (walletClient && "getAddresses" in walletClient) {
@@ -112,7 +113,11 @@ export const usePoCSubmission = () => {
 					warning: undefined,
 				}));
 
-				const recovered = loadCommitRevealRecoveryContext(projectId);
+				const recovered = loadCommitRevealRecoveryContext(
+					projectId,
+					walletAddress,
+					CHAIN.id,
+				);
 				const salt = recovered?.salt ?? generateRandomSalt();
 				let cipherURI = recovered?.cipherURI;
 				let commitHash = recovered?.commitHash;
@@ -147,6 +152,8 @@ export const usePoCSubmission = () => {
 
 				persistCommitRevealRecoveryContext({
 					projectId,
+					auditor: walletAddress,
+					chainId: CHAIN.id,
 					salt,
 					cipherURI,
 					commitHash,
@@ -199,6 +206,7 @@ export const usePoCSubmission = () => {
 					}
 
 					if (!submissionId) {
+						clearCommitRevealRecoveryContext();
 						setFailed(
 							`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
 						);
@@ -207,6 +215,8 @@ export const usePoCSubmission = () => {
 
 					persistCommitRevealRecoveryContext({
 						projectId,
+						auditor: walletAddress,
+						chainId: CHAIN.id,
 						salt,
 						cipherURI,
 						commitHash,
@@ -255,7 +265,10 @@ export const usePoCSubmission = () => {
 				const onChainSalt = normalizeHex(snapshot.salt);
 				const recoveredSalt = normalizeHex(salt);
 
-				if (onChainSalt !== normalizeHex(ZERO_HEX_32) && onChainSalt !== recoveredSalt) {
+				if (
+					onChainSalt !== normalizeHex(ZERO_HEX_32) &&
+					onChainSalt !== recoveredSalt
+				) {
 					clearCommitRevealRecoveryContext();
 					setFailed(
 						"Submission failed: submissionId/salt pair mismatch detected on-chain. Reset and recommit.",
@@ -323,10 +336,14 @@ export const usePoCSubmission = () => {
 			} catch (err: unknown) {
 				console.error("Submission error:", err);
 				const message = extractErrorMessage(err);
-				const normalizedMessage = message.includes("must provide an Ethereum address")
+				const normalizedMessage = message.includes(
+					"must provide an Ethereum address",
+				)
 					? `Wallet returned an invalid address (wallet=${walletAddress}, bountyHub=${BOUNTY_HUB_ADDRESS}). Reconnect wallet and retry`
 					: message;
-				setFailed(`Submission failed: ${normalizedMessage}. Reset and try again.`);
+				setFailed(
+					`Submission failed: ${normalizedMessage}. Reset and try again.`,
+				);
 				return undefined;
 			}
 		},

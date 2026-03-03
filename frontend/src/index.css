@@ -1297,7 +1297,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .landing-cta-section {
-  padding: 6rem 0;
+  padding: 6rem 0 2.75rem;
   background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-primary-dim) 50%, var(--color-bg) 100%);
   border-top: 1px solid rgba(124, 58, 237, 0.1);
   border-bottom: 1px solid rgba(124, 58, 237, 0.1);

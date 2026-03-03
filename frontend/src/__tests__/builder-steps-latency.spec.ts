@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { TargetStep } from '../components/PoCBuilder/Steps/TargetStep'
 import { ConditionsStep } from '../components/PoCBuilder/Steps/ConditionsStep'
@@ -81,6 +81,11 @@ describe('PoC builder step latency boundaries', () => {
         targetContract: '0x7777777777777777777777777777777777777777',
         forkBlock: 22000000n,
       }),
+      createMockProject({
+        id: 8n,
+        targetContract: '0x8888888888888888888888888888888888888888',
+        forkBlock: 23000000n,
+      }),
     ]
 
     const initialConfig = {
@@ -101,15 +106,19 @@ describe('PoC builder step latency boundaries', () => {
       }),
     )
 
-    const selects = container.querySelectorAll('select')
-    const projectSelect = selects.item(0) as HTMLSelectElement
-    expect(projectSelect.value).toBe('7')
+    const projectSelect = screen.getAllByRole('combobox').at(0) as HTMLButtonElement
+    expect(projectSelect).toHaveTextContent('#7')
 
     act(() => {
-      fireEvent.change(projectSelect, { target: { value: '7' } })
+      fireEvent.keyDown(projectSelect, { key: 'ArrowDown' })
     })
 
-    expect(onSelectProject).toHaveBeenCalledWith(7n)
+    act(() => {
+      const listbox = screen.getByRole('listbox')
+      fireEvent.click(within(listbox).getByText(/#8 ·/))
+    })
+
+    expect(onSelectProject).toHaveBeenCalledWith(8n)
 
     rerender(
       React.createElement(TargetStep, {
@@ -128,10 +137,89 @@ describe('PoC builder step latency boundaries', () => {
     )
 
     const targetInput = container.querySelector('input[placeholder="0x..."]') as HTMLInputElement
-    const chainSelect = container.querySelectorAll('select').item(1) as HTMLSelectElement
+    const chainSelect = screen.getAllByRole('combobox').at(1) as HTMLButtonElement
 
     expect(targetInput.value).toBe('0x7777777777777777777777777777777777777777')
-    expect(chainSelect.value).toBe('Mainnet')
+    expect(chainSelect).toHaveTextContent('Ethereum Mainnet')
+  })
+
+  it('highlights explorer project selector when retry context requests refocus', () => {
+    const availableProjects = [
+      createMockProject({
+        id: 7n,
+        targetContract: '0x7777777777777777777777777777777777777777',
+        forkBlock: 22000000n,
+      }),
+    ]
+
+    render(
+      React.createElement(TargetStep, {
+        config: {
+          targetContract: '0x7777777777777777777777777777777777777777',
+          chain: 'Sepolia',
+          forkBlock: '',
+          abiJson: '[]',
+        },
+        onUpdate: vi.fn(),
+        availableProjects,
+        selectedProjectId: 7n,
+        projectSelectionOnly: true,
+        projectContextHighlightNonce: 1,
+      }),
+    )
+
+    const trigger = screen.getByTestId('target-project-select-trigger')
+    expect(trigger).toHaveAttribute('data-highlighted', 'true')
+  })
+
+  it('defers retry-context highlight until target step becomes active', () => {
+    const availableProjects = [
+      createMockProject({
+        id: 7n,
+        targetContract: '0x7777777777777777777777777777777777777777',
+        forkBlock: 22000000n,
+      }),
+    ]
+
+    const { rerender } = render(
+      React.createElement(TargetStep, {
+        config: {
+          targetContract: '0x7777777777777777777777777777777777777777',
+          chain: 'Sepolia',
+          forkBlock: '',
+          abiJson: '[]',
+        },
+        onUpdate: vi.fn(),
+        availableProjects,
+        selectedProjectId: 7n,
+        projectSelectionOnly: true,
+        projectContextHighlightNonce: 1,
+        isActive: false,
+      }),
+    )
+
+    const triggerBefore = screen.getByTestId('target-project-select-trigger')
+    expect(triggerBefore).toHaveAttribute('data-highlighted', 'false')
+
+    rerender(
+      React.createElement(TargetStep, {
+        config: {
+          targetContract: '0x7777777777777777777777777777777777777777',
+          chain: 'Sepolia',
+          forkBlock: '',
+          abiJson: '[]',
+        },
+        onUpdate: vi.fn(),
+        availableProjects,
+        selectedProjectId: 7n,
+        projectSelectionOnly: true,
+        projectContextHighlightNonce: 1,
+        isActive: true,
+      }),
+    )
+
+    const triggerAfter = screen.getByTestId('target-project-select-trigger')
+    expect(triggerAfter).toHaveAttribute('data-highlighted', 'true')
   })
 
   it('keeps conditions, transactions, and impact edits deterministic under burst input', () => {

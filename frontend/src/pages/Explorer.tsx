@@ -210,11 +210,6 @@ export function Explorer() {
                           </span>
                         </div>
 
-                        <div className="flex justify-between">
-                          <span className="text-[var(--color-text-dim)]">FORK_BLOCK</span>
-                          <span className="text-[var(--color-text)]">{project.forkBlock.toString()}</span>
-                        </div>
-
                         <div className="flex justify-between pt-2 border-t border-white/5">
                           <span className="text-[var(--color-text-dim)]">STATUS</span>
                           <Badge variant={deadlineStatus} className="text-[0.65rem] px-2 py-0.5">

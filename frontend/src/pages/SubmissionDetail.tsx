@@ -10,6 +10,7 @@ import { useWallet } from '../hooks/useWallet'
 import { publicClient } from '../lib/publicClient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { explorerAddressUrl, explorerSearchUrl } from '@/lib/explorerLinks'
 import {
   buildPreviewProject,
   buildPreviewSubmission,
@@ -316,8 +317,32 @@ export function SubmissionDetail() {
                 POC_METADATA
               </h2>
               <div className="space-y-4">
-                <MetaRow label="COMMIT_HASH" value={submission.commitHash} valueClassName="text-[var(--color-secondary)] break-all" />
-                <MetaRow label="AUDITOR" value={submission.auditor} />
+                <MetaRow
+                  label="COMMIT_HASH"
+                  value={
+                    <a
+                      href={explorerSearchUrl(submission.commitHash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[var(--color-secondary)] break-all hover:underline"
+                    >
+                      {submission.commitHash}
+                    </a>
+                  }
+                />
+                <MetaRow
+                  label="AUDITOR"
+                  value={
+                    <a
+                      href={explorerAddressUrl(submission.auditor)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all hover:underline"
+                    >
+                      {submission.auditor}
+                    </a>
+                  }
+                />
                 <MetaRow
                   label="PROJECT_ID"
                   value={<Link to="/explorer" className="text-[var(--color-primary)] hover:underline">#{submission.projectId.toString()}</Link>}
@@ -325,7 +350,16 @@ export function SubmissionDetail() {
                 {project && (
                   <MetaRow
                     label="TARGET_CONTRACT"
-                    value={project.targetContract}
+                    value={
+                      <a
+                        href={explorerAddressUrl(project.targetContract)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="break-all hover:underline"
+                      >
+                        {project.targetContract}
+                      </a>
+                    }
                     valueClassName="text-[var(--color-secondary)] text-xs"
                   />
                 )}
@@ -423,7 +457,14 @@ export function SubmissionDetail() {
                       <div className="flex justify-between">
                         <span className="text-[var(--color-text-dim)]">CHALLENGER</span>
                         <span className="text-[var(--color-error)]">
-                          {submission.challenger.slice(0, 8)}...{submission.challenger.slice(-6)}
+                          <a
+                            href={explorerAddressUrl(submission.challenger)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:underline"
+                          >
+                            {submission.challenger.slice(0, 8)}...{submission.challenger.slice(-6)}
+                          </a>
                         </span>
                       </div>
                       <div className="flex justify-between">
