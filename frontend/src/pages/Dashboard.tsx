@@ -42,9 +42,22 @@ type SubmissionTuple = readonly [
   challengeBond: bigint
 ]
 
+export interface ExtendedSubmission extends Submission {
+  grouping?: {
+    cohort: string
+    groupId: string
+    groupRank: number
+    groupSize: number
+  }
+  jury?: {
+    action: string
+    rationale?: string
+  }
+}
+
 export function Dashboard() {
   const { address, isConnected, isConnecting, connect } = useWallet({ autoSwitchToSepolia: false })
-  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [submissions, setSubmissions] = useState<ExtendedSubmission[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -343,14 +356,28 @@ export function Dashboard() {
                           </Link>
                         </TableCell>
                         <TableCell>
-                          <SeverityBadge severity={sub.severity} />
+                          <div className="flex flex-col gap-1 items-start">
+                            <SeverityBadge severity={sub.severity} />
+                            {sub.grouping && (
+                              <span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
+                                [{sub.grouping.cohort}-{sub.grouping.groupRank}/{sub.grouping.groupSize}]
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          <span 
-                            className={`dashboard-status-badge ${getStatusClass(sub.status)}`}
-                          >
-                            {STATUS_LABELS[sub.status]}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span 
+                              className={`dashboard-status-badge ${getStatusClass(sub.status)}`}
+                            >
+                              {STATUS_LABELS[sub.status]}
+                            </span>
+                            {sub.jury && (
+                              <span className="text-[0.65rem] text-[var(--color-secondary)] tracking-wider mt-1" title={sub.jury.rationale}>
+                                ⚖️ {sub.jury.action.replace('_RESULT', '').replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className={sub.payoutAmount > 0n ? 'text-[var(--color-primary)] font-bold' : 'text-[var(--color-text-dim)] font-normal'}>
                           {sub.payoutAmount > 0n ? `${formatEther(sub.payoutAmount)} ETH` : '-'}

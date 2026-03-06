@@ -44,10 +44,23 @@ const SUBMISSION_STATUS_FINALIZED = 4
 const SUBMISSION_STATUS_INVALID = 5
 const MIN_CHALLENGE_BOND_WEI = 10_000_000_000_000_000n
 
+export interface ExtendedSubmission extends Submission {
+  grouping?: {
+    cohort: string
+    groupId: string
+    groupRank: number
+    groupSize: number
+  }
+  jury?: {
+    action: string
+    rationale?: string
+  }
+}
+
 export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
   const { address, walletClient, isConnected } = useWallet({ autoSwitchToSepolia: false })
-  const [submission, setSubmission] = useState<Submission | null>(null)
+  const [submission, setSubmission] = useState<ExtendedSubmission | null>(null)
   const [project, setProject] = useState<Project | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -438,6 +451,29 @@ export function SubmissionDetail() {
                         </span>
                       }
                     />
+
+                    {submission.grouping && (
+                      <div className="pt-4 border-t border-[var(--color-bg-light)]">
+                        <h3 className="text-xs font-mono text-[var(--color-secondary)] mb-3 tracking-wider">GROUPING_METADATA</h3>
+                        <div className="space-y-3">
+                          <MetaRow label="COHORT" value={submission.grouping.cohort} inline />
+                          <MetaRow label="GROUP_ID" value={submission.grouping.groupId} inline valueClassName="text-[0.65rem] break-all text-[var(--color-text-dim)]" />
+                          <MetaRow label="RANK_IN_GROUP" value={`${submission.grouping.groupRank} of ${submission.grouping.groupSize}`} inline />
+                        </div>
+                      </div>
+                    )}
+
+                    {submission.jury && (
+                      <div className="pt-4 border-t border-[var(--color-bg-light)]">
+                        <h3 className="text-xs font-mono text-[var(--color-secondary)] mb-3 tracking-wider">JURY_OUTPUT</h3>
+                        <div className="space-y-3">
+                          <MetaRow label="ACTION" value={submission.jury.action} inline />
+                          {submission.jury.rationale && (
+                            <MetaRow label="RATIONALE" value={submission.jury.rationale} valueClassName="whitespace-normal mt-1 block text-[var(--color-text-dim)]" />
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
             </NeonPanel>

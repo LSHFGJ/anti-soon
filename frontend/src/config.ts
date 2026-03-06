@@ -294,6 +294,30 @@ export const BOUNTY_HUB_V2_ABI = [
 		outputs: [{ name: "", type: "bytes32" }],
 	},
 	{
+		name: "getSubmissionJuryMetadata",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_submissionId", type: "uint256" }],
+		outputs: [
+			{ name: "hasJury", type: "bool" },
+			{ name: "action", type: "string" },
+			{ name: "rationale", type: "string" },
+		],
+	},
+	{
+		name: "getSubmissionGroupingMetadata",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_submissionId", type: "uint256" }],
+		outputs: [
+			{ name: "hasGrouping", type: "bool" },
+			{ name: "cohort", type: "string" },
+			{ name: "groupId", type: "string" },
+			{ name: "groupRank", type: "uint256" },
+			{ name: "groupSize", type: "uint256" },
+		],
+	},
+	{
 		name: "uniqueRevealStateByProject",
 		type: "function",
 		stateMutability: "view",
