@@ -7,4 +7,5 @@ staging-settings:
   workflows:
     - workflow: workflow/verify-poc/workflow.yaml
     - workflow: workflow/vnet-init/workflow.yaml
+    - workflow: workflow/auto-reveal-relayer/workflow.yaml
     - workflow: workflow/jury-orchestrator/workflow.yaml

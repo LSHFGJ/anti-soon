@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import {
+  SYNC_REASON_RETRYABLE_RPC,
   SYNC_REASON_BINDING_MISMATCH,
   SYNC_REASON_ORPHAN_QUARANTINED,
   SYNC_REASON_ORPHAN_RECOVERED,
@@ -7,6 +8,7 @@ import {
   buildVerifyPocLatencyBuckets,
   buildVerifyPocSyncMetricEvent,
   classifyVerifyPocSyncReasonCode,
+  decideVerifyPocStrictGate,
   reconciliationActionToSyncReasonCode,
 } from "../main"
 import { RpcReadRetryExhaustedError } from "./rpcReadRetry"
@@ -88,5 +90,52 @@ describe("verify-poc sync metrics", () => {
     })
 
     expect(event.reason_code).toBe(SYNC_REASON_RETRY_EXHAUSTED)
+  })
+
+  it("keeps retry reason code branches out of strict gate report writes", () => {
+    expect(
+      JSON.stringify(
+        decideVerifyPocStrictGate({
+          reasonCode: SYNC_REASON_RETRYABLE_RPC,
+        }),
+      ),
+    ).toBe(
+      JSON.stringify({
+        outcome: "RETRY_SYNC",
+        reasonCode: SYNC_REASON_RETRYABLE_RPC,
+      }),
+    )
+
+    expect(
+      JSON.stringify(
+        decideVerifyPocStrictGate({
+          reasonCode: SYNC_REASON_RETRY_EXHAUSTED,
+        }),
+      ),
+    ).toBe(
+      JSON.stringify({
+        outcome: "RETRY_SYNC",
+        reasonCode: SYNC_REASON_RETRY_EXHAUSTED,
+      }),
+    )
+
+    expect(
+      JSON.stringify(
+        decideVerifyPocStrictGate({
+          reasonCode: SYNC_REASON_BINDING_MISMATCH,
+        }),
+      ),
+    ).toBe(
+      JSON.stringify({
+        outcome: "WRITE_REPORT",
+        reasonCode: SYNC_REASON_BINDING_MISMATCH,
+      }),
+    )
+
+    expect(JSON.stringify(decideVerifyPocStrictGate({}))).toBe(
+      JSON.stringify({
+        outcome: "WRITE_REPORT",
+      }),
+    )
   })
 })

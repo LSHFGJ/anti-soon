@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
@@ -33,6 +33,7 @@ export type SubmissionLifecyclePhase =
 
 interface SubmissionState {
 	phase: SubmissionLifecyclePhase;
+	hydratedFromRecovery?: boolean;
 	submissionId?: bigint;
 	salt?: `0x${string}`;
 	cipherURI?: string;
@@ -51,11 +52,16 @@ interface SubmitPoCResult {
 	revealTxHash?: `0x${string}`;
 }
 
-export const usePoCSubmission = () => {
+export const usePoCSubmission = (projectId?: bigint | null) => {
 	const [state, setState] = useState<SubmissionState>({ phase: "idle" });
 	const { address, walletClient, publicClient, isConnected } = useWallet({
 		autoSwitchToSepolia: false,
 	});
+
+	const recoveryWalletAddress =
+		normalizeEthereumAddress(address) ??
+		normalizeEthereumAddress(walletClient?.account?.address) ??
+		null;
 
 	const setFailed = useCallback((message: string) => {
 		setState((s) => ({
@@ -65,6 +71,171 @@ export const usePoCSubmission = () => {
 			revealRetry: undefined,
 		}));
 	}, []);
+
+	const applyRecoveredCommittedState = useCallback(
+		(
+			recovered: {
+				salt: `0x${string}`;
+				cipherURI: string;
+				commitHash: `0x${string}`;
+				oasisTxHash: `0x${string}`;
+				commitTxHash?: `0x${string}`;
+				submissionId?: bigint;
+			},
+			phase: "committed" | "committing" | "revealed",
+		) => {
+			setState((current) => {
+				if (current.phase !== "idle") return current;
+
+				return {
+					...current,
+					phase,
+					hydratedFromRecovery: true,
+					salt: recovered.salt,
+					cipherURI: recovered.cipherURI,
+					commitHash: recovered.commitHash,
+					oasisTxHash: recovered.oasisTxHash,
+					commitTxHash: recovered.commitTxHash,
+					submissionId: recovered.submissionId,
+					error: undefined,
+					revealRetry: undefined,
+				};
+			});
+		},
+		[],
+	);
+
+	useEffect(() => {
+		if (projectId == null || !recoveryWalletAddress) return;
+
+		const recovered = loadCommitRevealRecoveryContext(
+			projectId,
+			recoveryWalletAddress,
+			CHAIN.id,
+		);
+		if (!recovered) return;
+
+		if (!publicClient) {
+			return;
+		}
+
+		if (!recovered.submissionId) {
+			return;
+		}
+
+		let cancelled = false;
+		const restoreFromChain = async () => {
+			try {
+				const submission = await publicClient.readContract({
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "submissions",
+					args: [recovered.submissionId as bigint],
+				});
+
+				if (cancelled) return;
+
+				const snapshot = parseSubmissionOnChainSnapshot(submission);
+				if (!snapshot) {
+					clearCommitRevealRecoveryContext();
+					setState((current) =>
+						current.phase === "idle"
+							? {
+									...current,
+									phase: "failed",
+									error:
+										"Recovery context is stale: submission snapshot could not be decoded. Reset and commit again.",
+									revealRetry: undefined,
+								}
+							: current,
+					);
+					return;
+				}
+
+				const sameProject = snapshot.projectId === recovered.projectId;
+				const sameCommitHash =
+					normalizeHex(snapshot.commitHash) ===
+					normalizeHex(recovered.commitHash);
+
+				if (!sameProject || !sameCommitHash) {
+					clearCommitRevealRecoveryContext();
+					setState((current) =>
+						current.phase === "idle"
+							? {
+									...current,
+									phase: "failed",
+									error:
+										"Recovery context does not match on-chain submission identity. Reset and recommit before reveal.",
+									revealRetry: undefined,
+								}
+							: current,
+					);
+					return;
+				}
+
+				const onChainSalt = normalizeHex(snapshot.salt);
+				const recoveredSalt = normalizeHex(recovered.salt);
+
+				if (
+					onChainSalt !== normalizeHex(ZERO_HEX_32) &&
+					onChainSalt !== recoveredSalt
+				) {
+					clearCommitRevealRecoveryContext();
+					setState((current) =>
+						current.phase === "idle"
+							? {
+									...current,
+									phase: "failed",
+									error:
+										"Recovery context salt does not match on-chain submission. Reset and recommit before reveal.",
+									revealRetry: undefined,
+								}
+							: current,
+					);
+					return;
+				}
+
+				if (snapshot.revealTimestamp > 0n || onChainSalt === recoveredSalt) {
+					clearCommitRevealRecoveryContext();
+					applyRecoveredCommittedState(recovered, "revealed");
+					return;
+				}
+
+				applyRecoveredCommittedState(recovered, "committed");
+			} catch {
+				if (cancelled) return;
+				setState((current) =>
+					current.phase === "idle"
+						? {
+								...current,
+								phase: "failed",
+								hydratedFromRecovery: true,
+								submissionId: recovered.submissionId,
+								salt: recovered.salt,
+								cipherURI: recovered.cipherURI,
+								commitHash: recovered.commitHash,
+								oasisTxHash: recovered.oasisTxHash,
+								commitTxHash: recovered.commitTxHash,
+								error:
+									"Unable to verify recovered submission state from chain RPC. Reconnect wallet/network and retry reveal or reset.",
+								revealRetry: undefined,
+							}
+						: current,
+				);
+			}
+		};
+
+		void restoreFromChain();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		projectId,
+		recoveryWalletAddress,
+		publicClient,
+		applyRecoveredCommittedState,
+	]);
 
 	const resolveWalletAddress = useCallback(async (): Promise<
 		`0x${string}` | null

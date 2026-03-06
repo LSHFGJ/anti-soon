@@ -38,17 +38,16 @@ import {
   type VerifyPocIdempotencyStore,
 } from "./src/idempotencyStore"
 import {
+  MULTI_GROUPING_VERSION,
+  type MultiGroupingCohort,
+} from "./src/multiGrouping"
+import {
   parseOasisReferenceUri,
   type OasisReference,
 } from "./src/oasisAttestation"
 import {
   validateOasisRpcPayload,
 } from "./src/oasisRpcRead"
-import {
-  decodeSubmissionReadResult,
-  encodeSubmissionReadCall,
-  type ChainSubmissionRecord,
-} from "./src/submissionReader"
 import {
   reconcileVerifyPocOrphans,
   type VerifyPocReconciliationAction,
@@ -61,6 +60,11 @@ import {
   runRpcReadWithRetry,
   type RpcReadRetryPolicy,
 } from "./src/rpcReadRetry"
+import {
+  decodeSubmissionReadResult,
+  encodeSubmissionReadCall,
+  type ChainSubmissionRecord,
+} from "./src/submissionReader"
 
 // ═══════════════════ Config ═══════════════════
 
@@ -122,6 +126,18 @@ export type VerifyPocSyncReasonCode =
   | typeof SYNC_REASON_BINDING_MISMATCH
   | typeof SYNC_REASON_ORPHAN_RECOVERED
   | typeof SYNC_REASON_ORPHAN_QUARANTINED
+
+export type VerifyPocStrictGateDecision =
+  | {
+      outcome: "WRITE_REPORT"
+      reasonCode?: VerifyPocSyncReasonCode
+    }
+  | {
+      outcome: "RETRY_SYNC"
+      reasonCode:
+        | typeof SYNC_REASON_RETRYABLE_RPC
+        | typeof SYNC_REASON_RETRY_EXHAUSTED
+    }
 
 export type VerifyPocLatencyBuckets = {
   write_to_commit_ms: number | null
@@ -192,6 +208,33 @@ export function reconciliationActionToSyncReasonCode(
     : SYNC_REASON_ORPHAN_QUARANTINED
 }
 
+export function isRetryableVerifyPocSyncReasonCode(
+  reasonCode?: VerifyPocSyncReasonCode,
+): reasonCode is
+  | typeof SYNC_REASON_RETRYABLE_RPC
+  | typeof SYNC_REASON_RETRY_EXHAUSTED {
+  return (
+    reasonCode === SYNC_REASON_RETRYABLE_RPC ||
+    reasonCode === SYNC_REASON_RETRY_EXHAUSTED
+  )
+}
+
+export function decideVerifyPocStrictGate(args: {
+  reasonCode?: VerifyPocSyncReasonCode
+}): VerifyPocStrictGateDecision {
+  if (isRetryableVerifyPocSyncReasonCode(args.reasonCode)) {
+    return {
+      outcome: "RETRY_SYNC",
+      reasonCode: args.reasonCode,
+    }
+  }
+
+  return {
+    outcome: "WRITE_REPORT",
+    reasonCode: args.reasonCode,
+  }
+}
+
 export function classifyVerifyPocSyncReasonCode(
   error: unknown,
 ): VerifyPocSyncReasonCode {
@@ -201,6 +244,14 @@ export function classifyVerifyPocSyncReasonCode(
 
   const message = error instanceof Error ? error.message : String(error)
   const normalized = message.toLowerCase()
+
+  if (normalized.includes(SYNC_REASON_RETRY_EXHAUSTED.toLowerCase())) {
+    return SYNC_REASON_RETRY_EXHAUSTED
+  }
+
+  if (normalized.includes(SYNC_REASON_RETRYABLE_RPC.toLowerCase())) {
+    return SYNC_REASON_RETRYABLE_RPC
+  }
 
   if (normalized.includes("rpc_read_retry_exhausted")) {
     return SYNC_REASON_RETRY_EXHAUSTED
@@ -292,6 +343,473 @@ const BountyResultParamsV2 = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei"
 )
 
+const VerifyPocTypedContractReportParams = parseAbiParameters(
+  "uint256 submissionId, bool isValid, uint256 drainAmountWei, bool hasJury, string juryAction, string juryRationale, bool hasGrouping, string groupingCohort, string groupId, uint256 groupRank, uint256 groupSize",
+)
+
+const TypedReportEnvelopeParams = parseAbiParameters(
+  "bytes4 magic, uint8 reportType, bytes payload",
+)
+
+const VERIFY_POC_REPORT_ENVELOPE_MAGIC = "ASRP" as const
+const VERIFY_POC_REPORT_ENVELOPE_MAGIC_HEX = "0x41535250" as const
+const VERIFY_POC_TYPED_REPORT_V1 = "verified-report/v1" as const
+const VERIFY_POC_TYPED_REPORT_V2 = "verified-report/v2" as const
+const VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE =
+  "jury-recommendation/v1" as const
+const VERIFY_POC_LEGACY_REPORT_TYPE = "legacy-verify-poc/v0" as const
+const VERIFY_POC_CONTRACT_TYPED_REPORT_TYPE = 3
+const VERIFY_POC_TYPED_REPORT_V1_KEYS = [
+  "magic",
+  "reportType",
+  "payload",
+] as const
+const VERIFY_POC_TYPED_REPORT_V2_KEYS = [
+  "magic",
+  "reportType",
+  "payload",
+  "jury",
+  "testimony",
+  "grouping",
+] as const
+const VERIFY_POC_TYPED_REPORT_PAYLOAD_KEYS = [
+  "submissionId",
+  "projectId",
+  "isValid",
+  "drainAmountWei",
+  "observedCalldata",
+] as const
+const VERIFY_POC_JURY_METADATA_KEYS = [
+  "recommendationReportType",
+  "action",
+  "rationale",
+] as const
+const VERIFY_POC_TESTIMONY_METADATA_KEYS = [
+  "recommendationReportType",
+  "testimony",
+] as const
+const VERIFY_POC_GROUPING_METADATA_KEYS = [
+  "groupingVersion",
+  "cohort",
+  "groupId",
+  "clusterKey",
+  "groupRank",
+  "cohortRank",
+  "memberRank",
+  "groupSize",
+  "representativeSubmissionId",
+] as const
+
+export type VerifyPocTypedReportPayload = {
+  submissionId: bigint
+  projectId: bigint
+  isValid: boolean
+  drainAmountWei: bigint
+  observedCalldata: string[]
+}
+
+export type VerifyPocJuryMetadata = {
+  recommendationReportType: typeof VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE
+  action: "UPHOLD_AI_RESULT" | "OVERTURN_AI_RESULT" | "NEEDS_OWNER_REVIEW"
+  rationale: string
+}
+
+export type VerifyPocTestimonyMetadata = {
+  recommendationReportType: typeof VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE
+  testimony: string
+}
+
+export type VerifyPocGroupingMetadata = {
+  groupingVersion: typeof MULTI_GROUPING_VERSION
+  cohort: MultiGroupingCohort
+  groupId: string
+  clusterKey: string
+  groupRank: number
+  cohortRank: number
+  memberRank: number
+  groupSize: number
+  representativeSubmissionId: bigint
+}
+
+export type VerifyPocTypedReportEnvelopeV1 = {
+  magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
+  reportType: typeof VERIFY_POC_TYPED_REPORT_V1
+  payload: VerifyPocTypedReportPayload
+}
+
+export type VerifyPocTypedReportEnvelopeV2 = {
+  magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
+  reportType: typeof VERIFY_POC_TYPED_REPORT_V2
+  payload: VerifyPocTypedReportPayload
+  jury?: VerifyPocJuryMetadata
+  testimony?: VerifyPocTestimonyMetadata
+  grouping?: VerifyPocGroupingMetadata
+}
+
+export type VerifyPocTypedReportEnvelope =
+  | VerifyPocTypedReportEnvelopeV1
+  | VerifyPocTypedReportEnvelopeV2
+
+export type VerifyPocLegacyDecodedReport = {
+  reportType: typeof VERIFY_POC_LEGACY_REPORT_TYPE
+  payload: {
+    submissionId: bigint
+    isValid: boolean
+    drainAmountWei: bigint
+  }
+}
+
+export type VerifyPocDecodedReportEnvelope =
+  | VerifyPocLegacyDecodedReport
+  | VerifyPocTypedReportEnvelope
+
+function requireReportObject(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`)
+  }
+
+  return value as Record<string, unknown>
+}
+
+function assertReportKeysExact(
+  source: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  label: string,
+): void {
+  const allowed = new Set<string>(allowedKeys)
+  const unexpectedKeys = Object.keys(source).filter((key) => !allowed.has(key))
+
+  if (unexpectedKeys.length > 0) {
+    throw new Error(
+      `${label} contains unsupported key(s): ${unexpectedKeys.join(", ")}`,
+    )
+  }
+}
+
+function requireReportString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${fieldName} must be a non-empty string`)
+  }
+
+  return value.trim()
+}
+
+function requireReportBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${fieldName} must be a boolean`)
+  }
+
+  return value
+}
+
+function requireReportBigIntLike(value: unknown, fieldName: string): bigint {
+  if (typeof value === "bigint") {
+    if (value < 0n) {
+      throw new Error(`${fieldName} must be a non-negative integer`)
+    }
+
+    return value
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${fieldName} must be a non-negative integer`)
+    }
+
+    return BigInt(value)
+  }
+
+  const normalized = requireReportString(value, fieldName)
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a non-negative integer`)
+  }
+
+  return BigInt(normalized)
+}
+
+function requireReportPositiveSafeInteger(
+  value: unknown,
+  fieldName: string,
+): number {
+  const parsed = requireReportBigIntLike(value, fieldName)
+  if (parsed === 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${fieldName} must be a positive safe integer`)
+  }
+
+  return Number(parsed)
+}
+
+function requireReportStringArray(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`)
+  }
+
+  return value.map((entry, index) =>
+    requireReportString(entry, `${fieldName}[${index}]`),
+  )
+}
+
+function requireVerifyPocJuryAction(
+  value: unknown,
+  fieldName: string,
+): VerifyPocJuryMetadata["action"] {
+  const action = requireReportString(value, fieldName)
+  if (
+    action !== "UPHOLD_AI_RESULT" &&
+    action !== "OVERTURN_AI_RESULT" &&
+    action !== "NEEDS_OWNER_REVIEW"
+  ) {
+    throw new Error(`${fieldName} must be a supported jury recommendation action`)
+  }
+
+  return action
+}
+
+function requireVerifyPocGroupingCohort(
+  value: unknown,
+  fieldName: string,
+): MultiGroupingCohort {
+  const cohort = requireReportString(value, fieldName).toUpperCase()
+  if (cohort !== "HIGH" && cohort !== "MEDIUM" && cohort !== "OTHER") {
+    throw new Error(`${fieldName} must be a supported MULTI grouping cohort`)
+  }
+
+  return cohort
+}
+
+function parseVerifyPocTypedPayload(value: unknown): VerifyPocTypedReportPayload {
+  const source = requireReportObject(value, "verify-poc report payload")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_TYPED_REPORT_PAYLOAD_KEYS,
+    "verify-poc report payload",
+  )
+
+  return {
+    submissionId: requireReportBigIntLike(
+      source.submissionId,
+      "verifyPoc.payload.submissionId",
+    ),
+    projectId: requireReportBigIntLike(
+      source.projectId,
+      "verifyPoc.payload.projectId",
+    ),
+    isValid: requireReportBoolean(source.isValid, "verifyPoc.payload.isValid"),
+    drainAmountWei: requireReportBigIntLike(
+      source.drainAmountWei,
+      "verifyPoc.payload.drainAmountWei",
+    ),
+    observedCalldata: requireReportStringArray(
+      source.observedCalldata,
+      "verifyPoc.payload.observedCalldata",
+    ),
+  }
+}
+
+function parseVerifyPocJuryMetadata(value: unknown): VerifyPocJuryMetadata {
+  const source = requireReportObject(value, "verify-poc jury metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_JURY_METADATA_KEYS,
+    "verify-poc jury metadata",
+  )
+
+  const recommendationReportType = requireReportString(
+    source.recommendationReportType,
+    "verifyPoc.jury.recommendationReportType",
+  )
+  if (recommendationReportType !== VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE) {
+    throw new Error(
+      `verifyPoc.jury.recommendationReportType must be ${VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE}`,
+    )
+  }
+
+  return {
+    recommendationReportType: VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE,
+    action: requireVerifyPocJuryAction(source.action, "verifyPoc.jury.action"),
+    rationale: requireReportString(
+      source.rationale,
+      "verifyPoc.jury.rationale",
+    ),
+  }
+}
+
+function parseVerifyPocTestimonyMetadata(
+  value: unknown,
+): VerifyPocTestimonyMetadata {
+  const source = requireReportObject(value, "verify-poc testimony metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_TESTIMONY_METADATA_KEYS,
+    "verify-poc testimony metadata",
+  )
+
+  const recommendationReportType = requireReportString(
+    source.recommendationReportType,
+    "verifyPoc.testimony.recommendationReportType",
+  )
+  if (recommendationReportType !== VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE) {
+    throw new Error(
+      `verifyPoc.testimony.recommendationReportType must be ${VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE}`,
+    )
+  }
+
+  return {
+    recommendationReportType: VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE,
+    testimony: requireReportString(
+      source.testimony,
+      "verifyPoc.testimony.testimony",
+    ),
+  }
+}
+
+function parseVerifyPocGroupingMetadata(
+  value: unknown,
+): VerifyPocGroupingMetadata {
+  const source = requireReportObject(value, "verify-poc grouping metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_GROUPING_METADATA_KEYS,
+    "verify-poc grouping metadata",
+  )
+
+  const groupingVersion = requireReportString(
+    source.groupingVersion,
+    "verifyPoc.grouping.groupingVersion",
+  )
+  if (groupingVersion !== MULTI_GROUPING_VERSION) {
+    throw new Error(
+      `verifyPoc.grouping.groupingVersion must be ${MULTI_GROUPING_VERSION}`,
+    )
+  }
+
+  return {
+    groupingVersion: MULTI_GROUPING_VERSION,
+    cohort: requireVerifyPocGroupingCohort(
+      source.cohort,
+      "verifyPoc.grouping.cohort",
+    ),
+    groupId: requireReportString(source.groupId, "verifyPoc.grouping.groupId"),
+    clusterKey: requireReportString(
+      source.clusterKey,
+      "verifyPoc.grouping.clusterKey",
+    ),
+    groupRank: requireReportPositiveSafeInteger(
+      source.groupRank,
+      "verifyPoc.grouping.groupRank",
+    ),
+    cohortRank: requireReportPositiveSafeInteger(
+      source.cohortRank,
+      "verifyPoc.grouping.cohortRank",
+    ),
+    memberRank: requireReportPositiveSafeInteger(
+      source.memberRank,
+      "verifyPoc.grouping.memberRank",
+    ),
+    groupSize: requireReportPositiveSafeInteger(
+      source.groupSize,
+      "verifyPoc.grouping.groupSize",
+    ),
+    representativeSubmissionId: requireReportBigIntLike(
+      source.representativeSubmissionId,
+      "verifyPoc.grouping.representativeSubmissionId",
+    ),
+  }
+}
+
+function parseVerifyPocTypedReportEnvelopeObject(
+  value: unknown,
+): VerifyPocTypedReportEnvelope {
+  const source = requireReportObject(value, "verify-poc report envelope")
+  const magic = requireReportString(source.magic, "verifyPoc.magic")
+  if (magic !== VERIFY_POC_REPORT_ENVELOPE_MAGIC) {
+    throw new Error(
+      `verifyPoc.magic must be ${VERIFY_POC_REPORT_ENVELOPE_MAGIC}`,
+    )
+  }
+
+  const reportType = requireReportString(source.reportType, "verifyPoc.reportType")
+  if (reportType === VERIFY_POC_TYPED_REPORT_V1) {
+    assertReportKeysExact(
+      source,
+      VERIFY_POC_TYPED_REPORT_V1_KEYS,
+      "verify-poc report envelope",
+    )
+
+    return {
+      magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+      reportType: VERIFY_POC_TYPED_REPORT_V1,
+      payload: parseVerifyPocTypedPayload(source.payload),
+    }
+  }
+
+  if (reportType === VERIFY_POC_TYPED_REPORT_V2) {
+    assertReportKeysExact(
+      source,
+      VERIFY_POC_TYPED_REPORT_V2_KEYS,
+      "verify-poc report envelope",
+    )
+
+    return {
+      magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+      reportType: VERIFY_POC_TYPED_REPORT_V2,
+      payload: parseVerifyPocTypedPayload(source.payload),
+      jury:
+        source.jury === undefined
+          ? undefined
+          : parseVerifyPocJuryMetadata(source.jury),
+      testimony:
+        source.testimony === undefined
+          ? undefined
+          : parseVerifyPocTestimonyMetadata(source.testimony),
+      grouping:
+        source.grouping === undefined
+          ? undefined
+          : parseVerifyPocGroupingMetadata(source.grouping),
+    }
+  }
+
+  throw new Error(
+    `verifyPoc.reportType must be ${VERIFY_POC_TYPED_REPORT_V1} or ${VERIFY_POC_TYPED_REPORT_V2}`,
+  )
+}
+
+export function encodeVerifyPocTypedReportEnvelope(
+  envelope: VerifyPocTypedReportEnvelope,
+): string {
+  const normalized = parseVerifyPocTypedReportEnvelopeObject(envelope)
+
+  return JSON.stringify(normalized, (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value,
+  )
+}
+
+export function decodeVerifyPocReportEnvelope(
+  report: string | VerifyPocTypedReportEnvelope,
+): VerifyPocDecodedReportEnvelope {
+  if (typeof report === "string" && report.startsWith("0x")) {
+    const [submissionId, isValid, drainAmountWei] = decodeAbiParameters(
+      BountyResultParamsV2,
+      report as `0x${string}`,
+    )
+
+    return {
+      reportType: VERIFY_POC_LEGACY_REPORT_TYPE,
+      payload: {
+        submissionId,
+        isValid,
+        drainAmountWei,
+      },
+    }
+  }
+
+  const source = typeof report === "string" ? JSON.parse(report) : report
+  return parseVerifyPocTypedReportEnvelopeObject(source)
+}
+
 export function encodeVerifyPocLegacyReport(
   submissionId: bigint,
   isValid: boolean,
@@ -301,6 +819,45 @@ export function encodeVerifyPocLegacyReport(
     submissionId,
     isValid,
     drainAmountWei,
+  ])
+}
+
+export function encodeVerifyPocContractReport(
+  report: VerifyPocDecodedReportEnvelope,
+): `0x${string}` {
+  if (report.reportType === VERIFY_POC_LEGACY_REPORT_TYPE) {
+    return encodeVerifyPocLegacyReport(
+      report.payload.submissionId,
+      report.payload.isValid,
+      report.payload.drainAmountWei,
+    )
+  }
+
+  const jury =
+    report.reportType === VERIFY_POC_TYPED_REPORT_V2 ? report.jury : undefined
+  const grouping =
+    report.reportType === VERIFY_POC_TYPED_REPORT_V2
+      ? report.grouping
+      : undefined
+
+  const payload = encodeAbiParameters(VerifyPocTypedContractReportParams, [
+    report.payload.submissionId,
+    report.payload.isValid,
+    report.payload.drainAmountWei,
+    jury !== undefined,
+    jury?.action ?? "",
+    jury?.rationale ?? "",
+    grouping !== undefined,
+    grouping?.cohort ?? "",
+    grouping?.groupId ?? "",
+    BigInt(grouping?.groupRank ?? 0),
+    BigInt(grouping?.groupSize ?? 0),
+  ])
+
+  return encodeAbiParameters(TypedReportEnvelopeParams, [
+    VERIFY_POC_REPORT_ENVELOPE_MAGIC_HEX,
+    VERIFY_POC_CONTRACT_TYPED_REPORT_TYPE,
+    payload,
   ])
 }
 
@@ -1227,6 +1784,18 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       }),
     )
 
+    const strictGateDecision = decideVerifyPocStrictGate({
+      reasonCode: verifyResult.reasonCode,
+    })
+    if (strictGateDecision.outcome === "RETRY_SYNC") {
+      runtime.log(
+        `Strict gate deferred report write. syncId=${syncId}, reasonCode=${strictGateDecision.reasonCode}`,
+      )
+      throw new Error(
+        `VERIFY_POC_STRICT_GATE_RETRY:${strictGateDecision.reasonCode}`,
+      )
+    }
+
     const network = getNetwork({
       chainFamily: "evm",
       chainSelectorName: runtime.config.chainSelectorName,
@@ -1239,11 +1808,17 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
     const evmClient = new EVMClient(network.chainSelector.selector)
 
-    const reportData = encodeVerifyPocLegacyReport(
-      submissionId,
-      verifyResult.isValid,
-      verifyResult.drainAmountWei,
-    )
+    const reportData = encodeVerifyPocContractReport({
+      magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+      reportType: VERIFY_POC_TYPED_REPORT_V2,
+      payload: {
+        submissionId,
+        projectId,
+        isValid: verifyResult.isValid,
+        drainAmountWei: verifyResult.drainAmountWei,
+        observedCalldata: [],
+      },
+    })
 
     const report = runtime
       .report({

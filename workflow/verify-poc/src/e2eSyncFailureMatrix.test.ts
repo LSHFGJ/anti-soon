@@ -3,6 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  SYNC_REASON_RETRYABLE_RPC,
+  SYNC_REASON_RETRY_EXHAUSTED,
+  decideVerifyPocStrictGate,
+  type VerifyPocSyncReasonCode,
+} from "../main"
+import {
   deriveVerifyPocScopedIdempotencyKey,
   deriveVerifyPocSyncId,
   transitionVerifyPocSyncState,
@@ -23,6 +29,7 @@ type SyncFailureStage =
   | "sepolia_commit"
   | "reveal"
   | "workflow_read"
+  | "strict_gate"
   | "report_write"
 
 type StageOutcome = "written" | "failed" | "idempotency_skip"
@@ -150,6 +157,7 @@ function processRevealedEvent(
   syncStateById: Map<string, VerifyPocSyncState>,
   counters: SyncCounters,
   failAt?: SyncFailureStage,
+  verificationReasonCode?: VerifyPocSyncReasonCode,
 ): StageResult {
   const syncId = deriveVerifyPocSyncId({
     projectId: fixture.projectId,
@@ -185,6 +193,16 @@ function processRevealedEvent(
   }
 
   transitionVerifyPocSyncState(syncStateById, syncId, "WORKFLOW_VERIFIED")
+
+  const strictGateDecision = decideVerifyPocStrictGate({
+    reasonCode: verificationReasonCode,
+  })
+  if (strictGateDecision.outcome === "RETRY_SYNC") {
+    markDurableVerifyPocIdempotencyQuarantined(store, idempotencyKey)
+    transitionVerifyPocSyncState(syncStateById, syncId, "QUARANTINED")
+    counters.quarantines += 1
+    return { outcome: "failed", failedStage: "strict_gate", idempotencyKey }
+  }
 
   counters.reportWriteAttempts += 1
   if (failAt === "report_write") {
@@ -465,6 +483,60 @@ describe("verify-poc e2e sync failure matrix and replay safety", () => {
       expect(currentSyncState(syncStateById, syncId)).toBe("REPORT_WRITTEN")
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it("retryable reason code strict gate quarantines before any report write", () => {
+    const reasonCodes = [SYNC_REASON_RETRYABLE_RPC, SYNC_REASON_RETRY_EXHAUSTED]
+
+    for (const [index, reasonCode] of reasonCodes.entries()) {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), `verify-poc-e2e-strict-gate-${reasonCode.toLowerCase()}-`),
+      )
+      const storePath = join(tempDir, "idempotency.json")
+
+      try {
+        const fixture = makeFixture({
+          projectId: 9100n + BigInt(index),
+          submissionId: 7400n + BigInt(index),
+          envelopeHash: index === 0 ? hex32("7") : hex32("8"),
+          txHash: index === 0 ? hex32("9") : hex32("a"),
+        })
+        const syncId = deriveVerifyPocSyncId({
+          projectId: fixture.projectId,
+          submissionId: fixture.submissionId,
+          envelopeHash: fixture.envelopeHash,
+        })
+        const store = loadVerifyPocIdempotencyStore(storePath, 500 + index)
+        const syncStateById = new Map<string, VerifyPocSyncState>()
+        const counters = makeCounters()
+
+        const preReveal = prepareSyncToReveal(syncStateById, syncId, counters)
+        expect(preReveal.outcome).toBe("written")
+
+        const result = processRevealedEvent(
+          store,
+          fixture,
+          { txHash: fixture.txHash, logIndex: fixture.logIndex, arrivalOrder: index },
+          syncStateById,
+          counters,
+          undefined,
+          reasonCode,
+        )
+
+        expect(result.outcome).toBe("failed")
+        expect(result.failedStage).toBe("strict_gate")
+        expect(currentSyncState(syncStateById, syncId)).toBe("QUARANTINED")
+        expect(counters.workflowReads).toBe(1)
+        expect(counters.reportWriteAttempts).toBe(0)
+        expect(counters.effectiveReportWrites).toBe(0)
+        expect(counters.quarantines).toBe(1)
+        expect(store.syncStatusBySyncId.get(result.idempotencyKey || "")).toBe(
+          "quarantined",
+        )
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
     }
   })
 })

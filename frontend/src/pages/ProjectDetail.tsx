@@ -33,6 +33,7 @@ import {
 	type ProjectRules,
 	STATUS_LABELS,
 	type Submission,
+	type ExtendedSubmission,
 } from "../types";
 
 type SubmissionTuple = readonly [
@@ -192,7 +193,7 @@ export function ProjectDetail() {
 
 	const [project, setProject] = useState<Project | null>(null);
 	const [rules, setRules] = useState<ProjectRules | null>(null);
-	const [submissions, setSubmissions] = useState<Submission[]>([]);
+	const [submissions, setSubmissions] = useState<ExtendedSubmission[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -213,8 +214,11 @@ export function ProjectDetail() {
 				}) as Promise<RulesTuple>,
 			]);
 
-			setProject(fetchedProject);
+			if (!fetchedProject || fetchedProject.owner === "0x0000000000000000000000000000000000000000") {
+				throw new Error("Project not found");
+			}
 
+			setProject(fetchedProject);
 			setRules({
 				maxAttackerSeedWei: rulesData[0],
 				maxWarpSeconds: rulesData[1],
@@ -222,7 +226,17 @@ export function ProjectDetail() {
 				thresholds: rulesData[3],
 			});
 		} catch (err) {
-			console.error("Failed to fetch project:", err);
+			const isNotFound = err instanceof Error && err.message === "Project not found";
+			
+			if (!isNotFound) {
+				console.error("Failed to fetch project:", err);
+			}
+
+			if (isNotFound) {
+				setError("Project not found");
+				return;
+			}
+
 			if (shouldUsePreviewFallback()) {
 				setProject(buildPreviewProject(projectId));
 				setRules(buildPreviewProjectRules());
@@ -659,12 +673,26 @@ export function ProjectDetail() {
 													</a>
 												</td>
 												<td className="px-4 py-4">
-													<Badge variant={getStatusVariant(sub.status)}>
-														{STATUS_LABELS[sub.status]}
-													</Badge>
+													<div className="flex flex-col gap-1 items-start">
+														<Badge variant={getStatusVariant(sub.status)}>
+															{STATUS_LABELS[sub.status]}
+														</Badge>
+														{sub.jury && (
+															<span className="text-[0.65rem] text-[var(--color-secondary)] tracking-wider mt-1" title={sub.jury.rationale}>
+																⚖️ {sub.jury.action.replace('_RESULT', '').replace(/_/g, ' ')}
+															</span>
+														)}
+													</div>
 												</td>
 												<td className="px-4 py-4">
-													<SeverityBadge severity={sub.severity} />
+													<div className="flex flex-col gap-1 items-start">
+														<SeverityBadge severity={sub.severity} />
+														{sub.grouping && (
+															<span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
+																[{sub.grouping.cohort}-{sub.grouping.groupRank}/{sub.grouping.groupSize}]
+															</span>
+														)}
+													</div>
 												</td>
 												<td className="px-4 py-4 text-right">
 													{sub.drainAmountWei > 0n ? (

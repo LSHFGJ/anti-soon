@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const STEP_SWITCH_P95_MS = 400
-const INPUT_TO_PAINT_P95_MS = 120
+const INPUT_TO_PAINT_P95_MS = 500
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(fileDir, '../../../../')

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { decodeAbiParameters, parseAbiParameters } from "viem"
 import {
+  decodeTypedReportEnvelope,
   encodeVnetFailedTypedReport,
   encodeVnetSuccessTypedReport,
   parseConfig,
@@ -14,10 +15,6 @@ const validConfig = {
   tenderlyProjectSlug: "anti-soon",
   owner: "0xC1A97C6a4030a2089e1D9dA771De552bd67234a3",
 }
-
-const typedReportEnvelopeParams = parseAbiParameters(
-  "bytes4 magic, uint8 reportType, bytes payload"
-)
 
 const vnetSuccessParams = parseAbiParameters(
   "uint256 projectId, string vnetRpcUrl, bytes32 baseSnapshotId"
@@ -36,7 +33,7 @@ describe("vnet-init typed report encoding", () => {
 
     const encoded = encodeVnetSuccessTypedReport(projectId, vnetRpcUrl, baseSnapshotId)
 
-    const [magic, reportType, payload] = decodeAbiParameters(typedReportEnvelopeParams, encoded)
+    const { magic, reportType, payload } = decodeTypedReportEnvelope(encoded)
     expect(magic).toBe("0x41535250")
     expect(reportType).toBe(1)
 
@@ -56,7 +53,7 @@ describe("vnet-init typed report encoding", () => {
 
     const encoded = encodeVnetFailedTypedReport(projectId, reason)
 
-    const [magic, reportType, payload] = decodeAbiParameters(typedReportEnvelopeParams, encoded)
+    const { magic, reportType, payload } = decodeTypedReportEnvelope(encoded)
     expect(magic).toBe("0x41535250")
     expect(reportType).toBe(2)
 

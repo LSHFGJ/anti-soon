@@ -112,3 +112,20 @@ export interface LeaderboardEntry {
   highCount: number
   criticalCount: number
 }
+
+export interface SubmissionGrouping {
+  cohort: string
+  groupId: string
+  groupRank: number
+  groupSize: number
+}
+
+export interface SubmissionJury {
+  action: string
+  rationale?: string
+}
+
+export interface ExtendedSubmission extends Submission {
+  grouping?: SubmissionGrouping
+  jury?: SubmissionJury
+}

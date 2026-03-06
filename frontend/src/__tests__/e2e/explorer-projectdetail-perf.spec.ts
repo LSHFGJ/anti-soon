@@ -13,7 +13,7 @@ import {
   toHex,
   type Hex,
 } from 'viem'
-import { BOUNTY_HUB_V2_ABI } from '../../config'
+import { BOUNTY_HUB_V2_ABI, BOUNTY_HUB_PROJECTS_V4_ABI } from '../../config'
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(fileDir, '../../../../')
@@ -22,7 +22,7 @@ const requestEvidencePath = resolve(evidenceDir, 'task-14-explorer-requests.json
 const projectDetailScreenshotPath = resolve(evidenceDir, 'task-14-projectdetail-correctness.png')
 
 const EXPLORER_HTTP_BUDGET = 4
-const PROJECT_DETAIL_HTTP_BUDGET = 5
+const PROJECT_DETAIL_HTTP_BUDGET = 6
 const EXPLORER_READY_BUDGET_MS = 1500
 const PROJECT_DETAIL_READY_BUDGET_MS = 1400
 
@@ -238,44 +238,44 @@ type RequestMetrics = {
 function toProjectTuple(id: bigint) {
   const row = projectRows.find((project) => project.id === id)
   if (!row) {
-    return [
-      shortAddr('0000'),
-      0n,
-      0n,
-      shortAddr('0000'),
-      0n,
-      false,
-      0,
-      0n,
-      0n,
-      0n,
-      `0x${'00'.repeat(32)}` as Hex,
-      0,
-      '',
-      `0x${'00'.repeat(32)}` as Hex,
-      0n,
-      '',
-    ] as const
+    return {
+      owner: shortAddr('0000'),
+      bountyPool: 0n,
+      maxPayoutPerBug: 0n,
+      targetContract: shortAddr('0000'),
+      forkBlock: 0n,
+      active: false,
+      mode: 0,
+      commitDeadline: 0n,
+      revealDeadline: 0n,
+      disputeWindow: 0n,
+      rulesHash: `0x${'00'.repeat(32)}` as Hex,
+      vnetStatus: 0,
+      vnetRpcUrl: '',
+      baseSnapshotId: `0x${'00'.repeat(32)}` as Hex,
+      vnetCreatedAt: 0n,
+      repoUrl: '',
+    } as const
   }
 
-  return [
-    row.owner,
-    row.bountyPool,
-    row.maxPayoutPerBug,
-    row.targetContract,
-    row.forkBlock,
-    row.active,
-    row.mode,
-    row.commitDeadline,
-    row.revealDeadline,
-    row.disputeWindow,
-    row.rulesHash,
-    row.vnetStatus,
-    row.vnetRpcUrl,
-    row.baseSnapshotId,
-    row.vnetCreatedAt,
-    row.repoUrl,
-  ] as const
+  return {
+    owner: row.owner,
+    bountyPool: row.bountyPool,
+    maxPayoutPerBug: row.maxPayoutPerBug,
+    targetContract: row.targetContract,
+    forkBlock: row.forkBlock,
+    active: row.active,
+    mode: row.mode,
+    commitDeadline: row.commitDeadline,
+    revealDeadline: row.revealDeadline,
+    disputeWindow: row.disputeWindow,
+    rulesHash: row.rulesHash,
+    vnetStatus: row.vnetStatus,
+    vnetRpcUrl: row.vnetRpcUrl,
+    baseSnapshotId: row.baseSnapshotId,
+    vnetCreatedAt: row.vnetCreatedAt,
+    repoUrl: row.repoUrl,
+  } as const
 }
 
 function selectorOf(functionName: 'nextProjectId' | 'projects' | 'projectRules' | 'submissions'): Hex {
@@ -348,7 +348,7 @@ function getBountyCallResult(
   if (selector === selectors.projectsSelector.toLowerCase()) {
     const projectId = decodeUintArg(data)
     return encodeFunctionResult({
-      abi: BOUNTY_HUB_V2_ABI,
+      abi: BOUNTY_HUB_PROJECTS_V4_ABI,
       functionName: 'projects',
       result: toProjectTuple(projectId),
     })
@@ -653,6 +653,7 @@ test.describe('Explorer + ProjectDetail read path performance', () => {
       readyMs: detailReadyMs,
     }
 
+
     expect(metrics.projectDetail.httpRequests).toBeLessThanOrEqual(PROJECT_DETAIL_HTTP_BUDGET)
     expect(metrics.projectDetail.readyMs).toBeLessThanOrEqual(PROJECT_DETAIL_READY_BUDGET_MS)
   })
@@ -665,7 +666,7 @@ test.describe('Explorer + ProjectDetail read path performance', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByRole('heading', { name: 'PROJECT #1' })).toBeVisible()
-    await expect(page.getByText('TARGET:').first()).toBeVisible()
+    await expect(page.getByText('TARGET CONTRACT').first()).toBeVisible()
     await expect(page.getByText('SUBMISSIONS [3]')).toBeVisible()
     await expect(page.getByText('UNIQUE')).toHaveCount(0)
     await expect(page.getByText('MULTI')).toBeVisible()

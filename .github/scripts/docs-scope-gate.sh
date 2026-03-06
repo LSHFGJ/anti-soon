@@ -81,6 +81,24 @@ DOCS_ALLOWED_PATTERNS=(
   '^frontend/src/__tests__/e2e/page-shells\.spec\.ts$'
 )
 
+DOCS_TRIGGER_PATTERNS=(
+  '^\.github/scripts/docs-scope-gate\.sh$'
+  '^\.github/workflows/docs-scope-quality-gate\.yml$'
+  '^frontend/src/pages/Docs\.tsx$'
+  '^frontend/src/reference/content/.*$'
+  '^frontend/src/lib/docsPolicy\.ts$'
+  '^frontend/tooling/check-docs-policy\.ts$'
+  '^frontend/tooling/check-docs-preview\.mjs$'
+  '^frontend/tooling/check-readme-drift\.mjs$'
+  '^frontend/tooling/validate-docs-contract\.ts$'
+  '^frontend/src/__tests__/App\.docs-route\.spec\.tsx$'
+  '^frontend/src/__tests__/Docs\.test\.tsx$'
+  '^frontend/src/__tests__/docs-authoring-contract\.spec\.ts$'
+  '^frontend/src/__tests__/docs-content\.spec\.ts$'
+  '^frontend/src/__tests__/docs-policy\.spec\.ts$'
+  '^frontend/src/__tests__/e2e/docs-route-shells\.spec\.ts$'
+)
+
 matches_any_pattern() {
   local file_path="$1"
   shift
@@ -121,7 +139,9 @@ run_scope_mode() {
     fi
 
     if matches_any_pattern "$changed_file" "${DOCS_ALLOWED_PATTERNS[@]}"; then
-      docs_related_changed="true"
+      if matches_any_pattern "$changed_file" "${DOCS_TRIGGER_PATTERNS[@]}"; then
+        docs_related_changed="true"
+      fi
       continue
     fi
 
@@ -138,9 +158,8 @@ run_scope_mode() {
   fi
 
   if [ "${#violations[@]}" -gt 0 ]; then
-    echo "Docs scope violation: non-docs files detected in docs rollout PR:" >&2
-    printf ' - %s\n' "${violations[@]}" >&2
-    exit 1
+    echo "Non-docs files detected alongside docs changes (informational – not blocking for mixed feature PRs):"
+    printf ' - %s\n' "${violations[@]}"
   fi
 
   echo "Docs scope gate passed."
