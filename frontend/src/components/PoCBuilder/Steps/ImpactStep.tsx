@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import type { ImpactConfig, ImpactType } from '../../../types/poc'
-import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { StepGuidance } from '../../StepGuidance'
+import { STEP_GUIDES } from '../../StepGuidance/guides'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -37,14 +38,6 @@ export const ImpactStep: React.FC<ImpactStepProps> = React.memo(({ config, onUpd
     estimatedLoss: config.estimatedLoss,
     description: config.description,
   })
-
-  useEffect(() => {
-    setDraft({
-      type: config.type,
-      estimatedLoss: config.estimatedLoss,
-      description: config.description,
-    })
-  }, [config.type, config.estimatedLoss, config.description])
 
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<'estimatedLoss' | 'description'>((field, value) => {
     onUpdate(field, value)

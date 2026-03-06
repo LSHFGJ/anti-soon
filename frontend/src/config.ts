@@ -7,6 +7,13 @@ const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
 		.env ?? {};
 
+function isEnvFlagEnabled(value: string | undefined): boolean {
+	const normalizedValue = value?.trim().toLowerCase();
+	return normalizedValue === "1" || normalizedValue === "true";
+}
+
+export const DOCS_ENABLED = isEnvFlagEnabled(ENV.VITE_ENABLE_DOCS);
+
 export const ACL_ONLY_HARD_CUTOVER_MARKER = "acl-only-v1" as const;
 export const LEGACY_KEY_MODE_MARKERS = [
 	"legacy-key-v1",

@@ -1,9 +1,10 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { Navbar } from '../components/Layout/Navbar'
 import { renderWithRouter } from '../test/utils'
 
+const mockDocsConfig = vi.hoisted(() => ({ docsEnabled: true }))
 const mockUseWallet = vi.fn()
 const mockSepoliaGetBalance = vi.fn()
 const mockSapphireGetBalance = vi.fn()
@@ -29,6 +30,17 @@ vi.mock('viem', async () => {
   }
 })
 
+vi.mock('@/config', async () => {
+  const actual = await vi.importActual<typeof import('@/config')>('@/config')
+
+  return {
+    ...actual,
+    get DOCS_ENABLED() {
+      return mockDocsConfig.docsEnabled
+    },
+  }
+})
+
 function createWalletState(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     address: '0x1111111111111111111111111111111111111111',
@@ -49,6 +61,8 @@ function createWalletState(overrides: Partial<Record<string, unknown>> = {}) {
 describe('Navbar chain indicator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockDocsConfig.docsEnabled = true
+    window.history.replaceState({}, '', '/')
     mockSepoliaGetBalance.mockResolvedValue(1_000_000_000_000_000_000n)
     mockSapphireGetBalance.mockResolvedValue(2_000_000_000_000_000_000n)
     vi.stubGlobal(
@@ -130,6 +144,26 @@ describe('Navbar chain indicator', () => {
     renderWithRouter(React.createElement(Navbar))
 
     expect(screen.queryByTestId('navbar-chain-icon')).not.toBeInTheDocument()
+  })
+
+  it('renders docs nav links that target /docs when docs are enabled', () => {
+    window.history.replaceState({}, '', '/docs')
+
+    renderWithRouter(React.createElement(Navbar))
+
+    const docsLinks = screen.getAllByRole('link', { name: '[DOCS]' })
+
+    expect(docsLinks).toHaveLength(2)
+    expect(docsLinks.every((link) => link.getAttribute('href') === '/docs')).toBe(true)
+    expect(docsLinks.every((link) => link.className.includes('active'))).toBe(true)
+  })
+
+  it('omits docs nav links when docs are disabled', () => {
+    mockDocsConfig.docsEnabled = false
+
+    renderWithRouter(React.createElement(Navbar))
+
+    expect(screen.queryByRole('link', { name: '[DOCS]' })).not.toBeInTheDocument()
   })
 
   it('loads and shows gas balances when hovering connected address', async () => {

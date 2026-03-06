@@ -111,6 +111,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
     updateTransaction,
     impactConfig, 
     updateImpactConfig,
+    templateVersion,
     generatePoCJSON,
     loadTemplate
   } = usePoCBuilder()
@@ -347,6 +348,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
 
           <StepSurface step={4} activeStep={activeStep}>
             <ImpactStep 
+              key={templateVersion}
               config={impactConfig} 
               onUpdate={updateImpactConfig} 
               onNext={handleNext}

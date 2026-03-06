@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 interface CountdownTimerProps {
   deadline: bigint
@@ -6,9 +6,7 @@ interface CountdownTimerProps {
 }
 
 export function CountdownTimer({ deadline, onComplete }: CountdownTimerProps) {
-  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft())
-
-  function calculateTimeLeft() {
+  const calculateTimeLeft = useCallback(() => {
     if (deadline === 0n) return null
     
     const now = BigInt(Math.floor(Date.now() / 1000))
@@ -23,7 +21,9 @@ export function CountdownTimer({ deadline, onComplete }: CountdownTimerProps) {
       seconds: Number(diff % 60n),
       expired: false,
     }
-  }
+  }, [deadline])
+
+  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -36,7 +36,7 @@ export function CountdownTimer({ deadline, onComplete }: CountdownTimerProps) {
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [deadline])
+  }, [calculateTimeLeft, onComplete])
 
   if (!timeLeft) return <span className="text-[var(--color-text-dim)]">N/A</span>
   

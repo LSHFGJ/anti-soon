@@ -4,7 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import type { TargetConfig } from '../../../types/poc'
 import type { Project } from '../../../types'
 import { CodeEditor } from '../../CodeEditor'
-import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { StepGuidance } from '../../StepGuidance'
+import { STEP_GUIDES } from '../../StepGuidance/guides'
 import {
   Form,
   FormControl,
@@ -107,14 +108,15 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   }, [projectContextHighlightNonce])
 
   useEffect(() => {
-    if (!isActive || !pendingProjectContextHighlightRef.current) {
+    if (projectContextHighlightNonce <= 0 || !isActive || !pendingProjectContextHighlightRef.current) {
       return
     }
 
     pendingProjectContextHighlightRef.current = false
 
     setIsProjectContextHighlighted(true)
-    window.requestAnimationFrame(() => {
+
+    const animationFrame = window.requestAnimationFrame(() => {
       projectTriggerRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
       projectTriggerRef.current?.focus()
     })
@@ -124,9 +126,10 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
     }, 2600)
 
     return () => {
+      window.cancelAnimationFrame(animationFrame)
       window.clearTimeout(timer)
     }
-  }, [isActive])
+  }, [isActive, projectContextHighlightNonce])
 
   const handleFieldChange = useCallback((
     field: keyof TargetConfig, 
