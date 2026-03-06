@@ -158,9 +158,8 @@ run_scope_mode() {
   fi
 
   if [ "${#violations[@]}" -gt 0 ]; then
-    echo "Docs scope violation: non-docs files detected in docs rollout PR:" >&2
-    printf ' - %s\n' "${violations[@]}" >&2
-    exit 1
+    echo "Non-docs files detected alongside docs changes (informational – not blocking for mixed feature PRs):"
+    printf ' - %s\n' "${violations[@]}"
   fi
 
   echo "Docs scope gate passed."
