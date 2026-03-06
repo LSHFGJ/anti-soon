@@ -40,6 +40,8 @@ done
 
 DOCS_ALLOWED_PATTERNS=(
   '^README\.md$'
+  '^\.github/scripts/docs-scope-gate\.sh$'
+  '^\.github/scripts/sync-scope-gate\.sh$'
   '^\.github/workflows/docs-scope-quality-gate\.yml$'
   '^frontend/package\.json$'
   '^frontend/playwright\.config\.ts$'
