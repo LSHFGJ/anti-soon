@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { expect, test } from '@playwright/test'
 
 type PageShellEvidence = {
   path: string
@@ -20,7 +20,7 @@ const evidenceDir = resolve(repoRoot, '.sisyphus/evidence')
 const crossPageEvidencePath = resolve(evidenceDir, 'task-4-shell-cross-page.json')
 const desktopScreenshotPath = resolve(evidenceDir, 'task-4-shell-desktop.png')
 
-const targetPages = ['/explorer', '/dashboard', '/leaderboard', '/submission/1'] as const
+const targetPages = ['/explorer', '/dashboard', '/leaderboard', '/submission/1', '/docs'] as const
 
 async function captureShellEvidence(path: string, page: import('@playwright/test').Page): Promise<PageShellEvidence> {
   await page.goto(path)
@@ -98,6 +98,11 @@ test.describe('Cross-page shell regression', () => {
     for (const path of targetPages) {
       const evidence = await captureShellEvidence(path, page)
       records.push(evidence)
+
+      if (path === '/docs') {
+        await expect(page.locator('[data-docs-route="page"]')).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Docs Overview' })).toBeVisible()
+      }
 
       if (evidence.verticalScrollableOwners === 0) {
         expect(evidence.documentHasVerticalOverflow).toBe(false)

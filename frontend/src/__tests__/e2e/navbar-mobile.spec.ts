@@ -1,13 +1,14 @@
-import { test, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { expect, test } from '@playwright/test'
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(fileDir, '../../../../')
 const evidenceDir = resolve(repoRoot, '.sisyphus/evidence')
 const mobileScreenshotPath = resolve(evidenceDir, 'task-11-navbar-mobile.png')
 const desktopScreenshotPath = resolve(evidenceDir, 'task-11-navbar-desktop.png')
+const isDocsEnabled = process.env.VITE_ENABLE_DOCS?.trim().toLowerCase() === 'true' || process.env.VITE_ENABLE_DOCS?.trim().toLowerCase() === '1'
 
 const NAV_ITEMS = [
   { path: '/', label: 'HOME' },
@@ -15,7 +16,8 @@ const NAV_ITEMS = [
   { path: '/explorer', label: 'EXPLORER' },
   { path: '/dashboard', label: 'DASHBOARD' },
   { path: '/leaderboard', label: 'LEADERBOARD' },
-] as const
+  ...(isDocsEnabled ? [{ path: '/docs', label: 'DOCS' }] as const : []),
+]
 
 test.describe('Navbar mobile discoverability', () => {
   test.describe.configure({ mode: 'serial' })
@@ -72,6 +74,11 @@ test.describe('Navbar mobile discoverability', () => {
 
       await link.click()
       await expect.poll(() => new URL(page.url()).pathname).toBe(item.path)
+
+      if (item.path === '/docs') {
+        await expect(page.locator('[data-docs-route="page"]')).toBeVisible()
+        await expect(page.getByRole('heading', { name: 'Docs Overview' })).toBeVisible()
+      }
 
       await expect
         .poll(async () => {
