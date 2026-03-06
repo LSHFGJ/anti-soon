@@ -33,6 +33,7 @@ import {
 	type ProjectRules,
 	STATUS_LABELS,
 	type Submission,
+	type ExtendedSubmission,
 } from "../types";
 
 type SubmissionTuple = readonly [
@@ -64,19 +65,6 @@ type RulesTuple = readonly [
 		lowDrainWei: bigint;
 	},
 ];
-
-export interface ExtendedSubmission extends Submission {
-  grouping?: {
-    cohort: string
-    groupId: string
-    groupRank: number
-    groupSize: number
-  }
-  jury?: {
-    action: string
-    rationale?: string
-  }
-}
 
 const SUBMISSION_LOAD_ERROR = "Failed to load submissions from blockchain";
 

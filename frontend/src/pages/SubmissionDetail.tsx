@@ -17,7 +17,7 @@ import {
   formatPreviewFallbackMessage,
   shouldUsePreviewFallback,
 } from '@/lib/previewFallback'
-import type { Submission, Project } from '../types'
+import type { Submission, Project, ExtendedSubmission } from '../types'
 
 type SubmissionTuple = readonly [
   auditor: Address,
@@ -43,19 +43,6 @@ const SUBMISSION_STATUS_DISPUTED = 3
 const SUBMISSION_STATUS_FINALIZED = 4
 const SUBMISSION_STATUS_INVALID = 5
 const MIN_CHALLENGE_BOND_WEI = 10_000_000_000_000_000n
-
-export interface ExtendedSubmission extends Submission {
-  grouping?: {
-    cohort: string
-    groupId: string
-    groupRank: number
-    groupSize: number
-  }
-  jury?: {
-    action: string
-    rationale?: string
-  }
-}
 
 export function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
