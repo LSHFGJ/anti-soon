@@ -4,18 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { setCommitRevealFlowGuardActive } from "@/lib/commitRevealRecovery";
-import { useCommitReveal } from "../../../hooks/useCommitReveal";
+import { usePoCSubmission } from "../../../hooks/usePoCSubmission";
 import { STEP_GUIDES, StepGuidance } from "../../StepGuidance";
 
-interface ReviewStepProps {
+	interface ReviewStepProps {
 	pocJson: string;
 	isConnected: boolean;
 	isActive?: boolean;
-	isSubmitting: boolean;
-	submissionHash: string;
-	error: string | null;
 	onConnect: () => void;
-	onSubmit: () => void;
 	onBack: () => void;
 	onLoadExample?: () => void;
 	onRetryProjectContext?: () => void;
@@ -36,18 +32,18 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 		projectId,
 		showBackButton = true,
 	}) => {
-		const commitReveal = useCommitReveal(projectId, pocJson);
-		const phase = commitReveal.state.phase;
-		const phaseError = commitReveal.state.error;
+		const submission = usePoCSubmission(projectId);
+		const phase = submission.state.phase;
+		const phaseError = submission.state.error;
 		const hydratedFromRecovery =
-			commitReveal.state.hydratedFromRecovery === true;
+			submission.state.hydratedFromRecovery === true;
 		const navigate = useNavigate();
 		const hasFlowContext = Boolean(
-			commitReveal.state.salt ||
-				commitReveal.state.cipherURI ||
-				commitReveal.state.commitHash ||
-				commitReveal.state.oasisTxHash ||
-				commitReveal.state.submissionId,
+			submission.state.salt ||
+				submission.state.cipherURI ||
+				submission.state.commitHash ||
+				submission.state.oasisTxHash ||
+				submission.state.submissionId,
 		);
 		const shouldWarnOnLeave = useMemo(() => {
 			if (!isActive) {
@@ -287,14 +283,13 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 		};
 
 		const renderFooterPrimaryAction = () => {
-			const { state, commit, reveal, reset } = commitReveal;
+			const { state, submitPoC, reset } = submission;
 			const missingProjectContext = projectId === null;
 			const canCommit = isConnected && !missingProjectContext;
-			const revealAvailable = Boolean(state.submissionId && state.salt);
-			const onRetry = revealAvailable ? reveal : commit;
-			const handleCommitClick = () => {
+			
+			const handleActionClick = () => {
 				if (canCommit) {
-					commit();
+					void submitPoC(projectId, pocJson);
 					return;
 				}
 
@@ -302,7 +297,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					onConnect();
 					toastWarning({
 						title: "WALLET_CONNECTION_REQUIRED",
-						description: "Connect your wallet to continue the commit flow.",
+						description: "Connect your wallet to continue the flow.",
 					});
 					return;
 				}
@@ -314,7 +309,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				return (
 					<Button
 						type="button"
-						onClick={handleCommitClick}
+						onClick={handleActionClick}
 						className="font-mono btn-cyber justify-self-end"
 					>
 						[ COMMIT ]
@@ -323,23 +318,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			}
 
 			if (state.phase === "committed") {
-				const handleRevealClick = () => {
-					if (!isConnected) {
-						onConnect();
-						toastWarning({
-							title: "WALLET_CONNECTION_REQUIRED",
-							description: "Reconnect wallet before revealing your PoC.",
-						});
-						return;
-					}
-
-					reveal();
-				};
-
 				return (
 					<Button
 						type="button"
-						onClick={handleRevealClick}
+						onClick={handleActionClick}
 						className="font-mono btn-cyber justify-self-end"
 					>
 						[ REVEAL_POC ]
@@ -348,24 +330,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			}
 
 			if (state.phase === "failed") {
-				const handleRetryClick = () => {
-					if (!isConnected) {
-						onConnect();
-						toastWarning({
-							title: "WALLET_CONNECTION_REQUIRED",
-							description: "Connect your wallet to retry this transaction.",
-						});
-						return;
-					}
-
-					if (!revealAvailable && missingProjectContext) {
-						showProjectContextToast();
-						return;
-					}
-
-					onRetry();
-				};
-
 				const handleResetClick = () => {
 					reset();
 					toastInfo({
@@ -387,7 +351,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 						</Button>
 						<Button
 							type="button"
-							onClick={handleRetryClick}
+							onClick={handleActionClick}
 							variant="outline"
 							className="font-mono btn-cyber"
 						>
