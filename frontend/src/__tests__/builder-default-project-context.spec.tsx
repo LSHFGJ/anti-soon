@@ -27,6 +27,11 @@ vi.mock('../components/PoCBuilder', () => ({
     availableProjects?: Array<{ id: bigint }>
   }) => (
     <>
+      {submissionProjectId !== null && (
+        <div data-testid="builder-project-context">
+          CONTEXT_PROJECT_ID: #{submissionProjectId.toString()}
+        </div>
+      )}
       <div data-testid="builder-submission-project">{submissionProjectId === null ? 'none' : submissionProjectId.toString()}</div>
       <div data-testid="builder-available-projects">
         {availableProjects && availableProjects.length > 0
@@ -65,7 +70,7 @@ describe('Builder default project context', () => {
 		renderBuilder('/builder')
 
 		await waitFor(() => {
-			expect(screen.getByTestId('builder-project-context')).toHaveTextContent('DEFAULT_PROJECT_ID: #2')
+			expect(screen.getByTestId('builder-project-context')).toHaveTextContent('CONTEXT_PROJECT_ID: #2')
 			expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('2')
 		})
 

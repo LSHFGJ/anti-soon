@@ -10,14 +10,14 @@ import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReviewStep } from "../components/PoCBuilder/Steps/ReviewStep";
 
-const mockUseCommitReveal = vi.fn();
+const mockUsePoCSubmission = vi.fn();
 const mockToastSuccess = vi.fn();
 const mockToastError = vi.fn();
 const mockToastWarning = vi.fn();
 const mockToastInfo = vi.fn();
 
-vi.mock("../hooks/useCommitReveal", () => ({
-	useCommitReveal: (...args: unknown[]) => mockUseCommitReveal(...args),
+vi.mock("../hooks/usePoCSubmission", () => ({
+	usePoCSubmission: (...args: unknown[]) => mockUsePoCSubmission(...args),
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -29,22 +29,16 @@ vi.mock("@/hooks/use-toast", () => ({
 	}),
 }));
 
-const baseCommitReveal = {
+const baseSubmission = {
 	state: { phase: "idle" as const },
-	commit: vi.fn(),
-	reveal: vi.fn(),
+	submitPoC: vi.fn(),
 	reset: vi.fn(),
-	isConnected: true,
 };
 
 const baseProps: React.ComponentProps<typeof ReviewStep> = {
 	pocJson: '{"target":"0x123"}',
 	isConnected: true,
-	isSubmitting: false,
-	submissionHash: "",
-	error: null,
 	onConnect: vi.fn(),
-	onSubmit: vi.fn(),
 	onBack: vi.fn(),
 	projectId: 1n,
 	useV2: true,
@@ -101,15 +95,15 @@ function renderReviewStepWithLeaveLink(
 describe("ReviewStep feedback reliability", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: { phase: "idle" },
 		});
 	});
 
 	it("renders revealed-state verification action without inline messaging", () => {
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "revealed",
 				submissionId: 9n,
@@ -132,8 +126,8 @@ describe("ReviewStep feedback reliability", () => {
 			phase: "idle",
 		};
 
-		mockUseCommitReveal.mockImplementation(() => ({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockImplementation(() => ({
+			...baseSubmission,
 			state: phaseState,
 		}));
 
@@ -153,11 +147,7 @@ describe("ReviewStep feedback reliability", () => {
 				React.createElement(ReviewStep, {
 					pocJson: '{"target":"0x123"}',
 					isConnected: true,
-					isSubmitting: false,
-					submissionHash: "",
-					error: null,
 					onConnect: vi.fn(),
-					onSubmit: vi.fn(),
 					onBack: vi.fn(),
 					projectId: 1n,
 					useV2: true,
@@ -186,11 +176,7 @@ describe("ReviewStep feedback reliability", () => {
 				React.createElement(ReviewStep, {
 					pocJson: '{"target":"0x123"}',
 					isConnected: true,
-					isSubmitting: false,
-					submissionHash: "",
-					error: null,
 					onConnect: vi.fn(),
-					onSubmit: vi.fn(),
 					onBack: vi.fn(),
 					projectId: 1n,
 					useV2: true,
@@ -205,8 +191,8 @@ describe("ReviewStep feedback reliability", () => {
 	});
 
 	it("suppresses success toasts for hydration-only recovered phases", () => {
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "committed",
 				hydratedFromRecovery: true,
@@ -223,8 +209,8 @@ describe("ReviewStep feedback reliability", () => {
 	});
 
 	it("suppresses failure toasts for hydration-only recovered failures", () => {
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "failed",
 				hydratedFromRecovery: true,
@@ -240,12 +226,12 @@ describe("ReviewStep feedback reliability", () => {
 	});
 
 	it("keeps failed-state retry and reset actions clickable without inline error banners", () => {
-		const reveal = vi.fn();
+		const submitPoC = vi.fn();
 		const reset = vi.fn();
 
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
-			reveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
+			submitPoC,
 			reset,
 			state: {
 				phase: "failed",
@@ -269,7 +255,7 @@ describe("ReviewStep feedback reliability", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "[ RETRY ]" }));
-		expect(reveal).toHaveBeenCalledTimes(1);
+		expect(submitPoC).toHaveBeenCalledTimes(1);
 
 		fireEvent.click(screen.getByRole("button", { name: "[ RESET ]" }));
 		expect(reset).toHaveBeenCalledTimes(1);
@@ -340,8 +326,8 @@ describe("ReviewStep feedback reliability", () => {
 	});
 
 	it("shows toast and native browser warning when refreshing during submission flow", () => {
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "committing",
 				salt: `0x${"1".repeat(64)}`,
@@ -373,8 +359,8 @@ describe("ReviewStep feedback reliability", () => {
 	});
 
 	it("does not arm leave guards while review step is hidden", () => {
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "committing",
 				salt: `0x${"7".repeat(64)}`,
@@ -404,8 +390,8 @@ describe("ReviewStep feedback reliability", () => {
 
 	it("shows toast and native confirm when attempting to leave route mid-flow", async () => {
 		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-		mockUseCommitReveal.mockReturnValue({
-			...baseCommitReveal,
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
 			state: {
 				phase: "committing",
 				salt: `0x${"4".repeat(64)}`,

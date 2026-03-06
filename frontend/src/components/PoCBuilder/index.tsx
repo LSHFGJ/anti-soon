@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
-import { usePoCSubmission } from '../../hooks/usePoCSubmission'
+
 import { useToast } from '../../hooks/use-toast'
 import { useWallet } from '../../hooks/useWallet'
 import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
@@ -94,7 +94,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
   availableProjects = [],
   onProjectContextChange,
 }) => {
-  const projectSelectionOnly = true
+  const projectSelectionOnly = false
   const [projectContextHighlightNonce, setProjectContextHighlightNonce] = useState(0)
   const { 
     activeStep, 
@@ -215,13 +215,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
     }
   }, [loadExampleTemplate])
 
-  const {
-    isSubmitting,
-    commitTxHash,
-    revealTxHash,
-    error,
-    submitPoC
-  } = usePoCSubmission()
+
 
   const { isConnected, connect } = useWallet({ autoSwitchToSepolia: false })
 
@@ -229,10 +223,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
 
   const handleNext = useCallback(() => setActiveStep(prev => prev + 1), [setActiveStep])
   const handleBack = useCallback(() => setActiveStep(prev => prev - 1), [setActiveStep])
-  const handleSubmit = useCallback(() => {
-    if (submissionProjectId === null) return undefined
-    return submitPoC(submissionProjectId, pocJson)
-  }, [submitPoC, submissionProjectId, pocJson])
+
   const handleStepSelect = useCallback((step: number) => setActiveStep(step), [setActiveStep])
 
   const renderStepIndicator = useCallback(() => (
@@ -294,12 +285,12 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
           </p>
         </div>
         {selectedOnChainProject ? (
-          <div className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
-            PROJECT: #{selectedOnChainProject.id.toString()}
+          <div data-testid="builder-project-context" className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
+            CONTEXT_PROJECT_ID: #{selectedOnChainProject.id.toString()}
           </div>
         ) : selectedProject ? (
-          <div className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
-            PROJECT: {selectedProject.name.toUpperCase()}
+          <div data-testid="builder-project-context" className="self-start border border-[var(--color-secondary)] px-3 py-1.5 text-[11px] text-[var(--color-secondary)] bg-[rgba(124,58,237,0.05)] whitespace-nowrap md:self-auto">
+            DEFAULT_PROJECT_ID: #{selectedProject.id}
           </div>
         ) : null}
       </div>
@@ -360,11 +351,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
               pocJson={pocJson}
               isConnected={isConnected}
               isActive={activeStep === 5}
-              isSubmitting={isSubmitting}
-              submissionHash={commitTxHash || revealTxHash || ''}
-              error={error || null}
               onConnect={connect}
-              onSubmit={handleSubmit}
               onBack={handleBack}
               onLoadExample={handleLoadExample}
               onRetryProjectContext={handleRetryProjectContext}
