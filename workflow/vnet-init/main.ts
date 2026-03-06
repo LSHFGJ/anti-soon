@@ -14,6 +14,7 @@ import {
   type EVMLog,
 } from "@chainlink/cre-sdk"
 import {
+  decodeAbiParameters,
   encodeAbiParameters,
   parseAbiParameters,
   keccak256,
@@ -88,6 +89,31 @@ const TypedReportEnvelopeParams = parseAbiParameters(
 const REPORT_ENVELOPE_MAGIC = "0x41535250" as const
 const REPORT_TYPE_VNET_SUCCESS = 1
 const REPORT_TYPE_VNET_FAILED = 2
+
+export type TypedReportEnvelope = {
+  magic: `0x${string}`
+  reportType: number
+  payload: `0x${string}`
+}
+
+export function decodeTypedReportEnvelope(
+  encoded: `0x${string}`,
+): TypedReportEnvelope {
+  const [magic, reportType, payload] = decodeAbiParameters(
+    TypedReportEnvelopeParams,
+    encoded,
+  )
+
+  if (magic !== REPORT_ENVELOPE_MAGIC) {
+    throw new Error(`Unexpected report envelope magic: ${magic}`)
+  }
+
+  return {
+    magic: REPORT_ENVELOPE_MAGIC,
+    reportType: Number(reportType),
+    payload,
+  }
+}
 
 export function encodeVnetSuccessTypedReport(
   projectId: bigint,
