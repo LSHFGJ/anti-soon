@@ -58,7 +58,9 @@ function clearPersistedWalletState() {
 			for (const key of staleKeys) {
 				storage.removeItem(key);
 			}
-		} catch {}
+		} catch {
+			// Ignore storage access failures during best-effort wallet state cleanup.
+		}
 	}
 }
 

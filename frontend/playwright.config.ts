@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Wire enabled-state docs for E2E testing
+process.env.VITE_ENABLE_DOCS = 'true';
+
 export default defineConfig({
   testDir: './src/__tests__/e2e',
   fullyParallel: false,
@@ -30,5 +33,8 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
+    env: {
+      VITE_ENABLE_DOCS: 'true'
+    }
   },
 })

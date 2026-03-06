@@ -95,19 +95,14 @@ export function createMockProjects(count: number): Project[] {
   )
 }
 
-interface WrapperProps {
-  children: React.ReactNode
-}
-
-function RouterWrapper({ children }: WrapperProps): ReactElement {
-  return <BrowserRouter>{children}</BrowserRouter>
-}
-
 export function renderWithRouter(
   ui: ReactElement,
   options?: Omit<RenderOptions, 'wrapper'>
 ) {
-  return render(ui, { wrapper: RouterWrapper, ...options })
+  return render(ui, {
+    wrapper: ({ children }: { children: React.ReactNode }) => <BrowserRouter>{children}</BrowserRouter>,
+    ...options,
+  })
 }
 
 export const mockPublicClient = {

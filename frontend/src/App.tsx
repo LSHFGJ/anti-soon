@@ -1,21 +1,31 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
-import { Web3Provider } from './providers/Web3Provider'
+import { Suspense, lazy } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Layout/Navbar'
 import { ToastProvider } from './components/ToastProvider'
-import { Landing } from './pages/Landing'
+import { DOCS_ENABLED } from './config'
+import { CreateProject } from './pages/CreateProject'
+import { Dashboard } from './pages/Dashboard'
+import { Docs } from './pages/Docs'
 import { Explorer } from './pages/Explorer'
+import { Landing } from './pages/Landing'
 import { Leaderboard } from './pages/Leaderboard'
 import { ProjectDetail } from './pages/ProjectDetail'
 import { SubmissionDetail } from './pages/SubmissionDetail'
-import { CreateProject } from './pages/CreateProject'
-import { Dashboard } from './pages/Dashboard'
+import { Web3Provider } from './providers/Web3Provider'
 
 const Builder = lazy(() => import('./pages/Builder'))
 
 const BuilderRouteFallback = () => (
   <div className="container py-8 px-4 text-[var(--color-text-dim)]" />
 )
+
+function DocsRoute() {
+  if (!DOCS_ENABLED) {
+    return <Navigate to="/" replace />
+  }
+
+  return <Docs />
+}
 
 function AppShell() {
   const location = useLocation()
@@ -46,6 +56,8 @@ function AppShell() {
               </Suspense>
             )}
           />
+          <Route path="/docs" element={<DocsRoute />} />
+          <Route path="/docs/*" element={<Navigate to="/docs" replace />} />
           <Route path="/explorer" element={<Explorer />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/create-project" element={<CreateProject />} />

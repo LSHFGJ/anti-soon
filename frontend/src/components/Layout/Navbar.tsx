@@ -5,6 +5,7 @@ import { useWallet } from '../../hooks/useWallet'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { publicClient } from '@/lib/publicClient'
+import { DOCS_ENABLED } from '@/config'
 
 const LOW_GAS_BALANCE_WEI = 10_000_000_000_000_000n
 const GAS_BALANCE_REFRESH_MS = 30_000
@@ -127,6 +128,7 @@ export function Navbar() {
     { path: '/explorer', label: 'EXPLORER' },
     { path: '/dashboard', label: 'DASHBOARD' },
     { path: '/leaderboard', label: 'LEADERBOARD' },
+    ...(DOCS_ENABLED ? [{ path: '/docs', label: 'DOCS' }] : []),
   ]
 
   const isActive = (path: string) => {

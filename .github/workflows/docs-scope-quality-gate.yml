@@ -1,0 +1,112 @@
+name: Docs Scope Quality Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scope_guard:
+    name: Docs Scope Guard
+    runs-on: ubuntu-latest
+    outputs:
+      docs_related_changed: ${{ steps.scope.outputs.docs_related_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build changed file list
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              BASE_SHA="$(git rev-parse HEAD~1)"
+            else
+              git ls-files > "$RUNNER_TEMP/changed_files.txt"
+              cat "$RUNNER_TEMP/changed_files.txt"
+              exit 0
+            fi
+          fi
+
+          git diff --name-only "$BASE_SHA...${{ github.sha }}" > "$RUNNER_TEMP/changed_files.txt"
+          cat "$RUNNER_TEMP/changed_files.txt"
+
+      - name: Detect docs-related scope
+        id: scope
+        shell: bash
+        run: |
+          ./.github/scripts/docs-scope-gate.sh scope \
+            --changed-files-file "$RUNNER_TEMP/changed_files.txt" \
+            --output-file "$GITHUB_OUTPUT"
+
+  docs_quality_suite:
+    name: Docs Quality Suite
+    runs-on: ubuntu-latest
+    needs: scope_guard
+    if: needs.scope_guard.outputs.docs_related_changed == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: frontend
+        run: bun install
+
+      - name: Install Playwright Chromium
+        shell: bash
+        working-directory: frontend
+        run: bunx playwright install --with-deps chromium
+
+      - name: Sync docs-linked contract addresses
+        shell: bash
+        working-directory: frontend
+        run: bun run contracts:sync && bun run contracts:check
+
+      - name: Validate README and docs policy invariants
+        shell: bash
+        working-directory: frontend
+        run: bun run docs:policy
+
+      - name: Validate docs authoring contract
+        shell: bash
+        working-directory: frontend
+        run: bun run docs:validate
+
+      - name: Check README drift
+        shell: bash
+        working-directory: frontend
+        run: bun run docs:readme-drift
+
+      - name: Check docs preview
+        shell: bash
+        working-directory: frontend
+        run: bun run docs:preview-check
+
+      - name: Run docs-focused unit tests
+        shell: bash
+        working-directory: frontend
+        run: bun run test:unit -- --grep "docs"
+
+      - name: Run docs-focused e2e tests
+        shell: bash
+        working-directory: frontend
+        run: bun run test:e2e -- --grep "docs|navbar-mobile|page-shells"
+
+      - name: Build frontend
+        shell: bash
+        working-directory: frontend
+        run: bun run build

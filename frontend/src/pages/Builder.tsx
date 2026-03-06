@@ -3,6 +3,7 @@ import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
 import { PageHeader } from '../components/shared/ui-primitives'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { resolveSubmissionProjectId } from './builderProjectResolution'
 import { readProjectsByIds } from '../lib/projectReads'
 import { publicClient } from '../lib/publicClient'
 import type { Project } from '../types'
@@ -12,33 +13,6 @@ type BuilderLocationState = {
 }
 
 const VNET_STATUS_ACTIVE = 2
-
-export function parseProjectId(value: string | number | bigint | null | undefined): bigint | null {
-  if (value === null || value === undefined) return null
-
-  if (typeof value === 'bigint') return value >= 0n ? value : null
-
-  try {
-    const parsed = BigInt(value)
-    return parsed >= 0n ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-export function resolveSubmissionProjectId(
-  stateProjectId: string | number | bigint | null | undefined,
-  pathProjectId: string | undefined,
-  queryProjectId: string | null | undefined,
-  queryProject: string | null | undefined,
-): bigint | null {
-  return (
-    parseProjectId(stateProjectId) ??
-    parseProjectId(pathProjectId) ??
-    parseProjectId(queryProjectId) ??
-    parseProjectId(queryProject)
-  )
-}
 
 export function Builder() {
   const location = useLocation()

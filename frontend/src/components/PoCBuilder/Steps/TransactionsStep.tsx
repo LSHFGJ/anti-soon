@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import type { Transaction } from '../../../types/poc'
 import { CodeEditor } from '../../CodeEditor'
-import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { StepGuidance } from '../../StepGuidance'
+import { STEP_GUIDES } from '../../StepGuidance/guides'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -104,14 +105,6 @@ const TransactionItem: React.FC<TransactionItemProps> = React.memo(({ transactio
     value: transaction.value,
     data: transaction.data,
   })
-
-  useEffect(() => {
-    setDraft({
-      to: transaction.to,
-      value: transaction.value,
-      data: transaction.data,
-    })
-  }, [transaction.to, transaction.value, transaction.data])
 
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<EditableTransactionField>((field, value) => {
     onUpdate(transaction.id, field, value)

@@ -373,7 +373,9 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 								submissionId = args.submissionId;
 								break;
 							}
-						} catch {}
+						} catch {
+							// Ignore unrelated or non-decodable logs while scanning for PoCCommitted.
+						}
 					}
 
 					if (!submissionId) {

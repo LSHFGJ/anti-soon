@@ -3,6 +3,61 @@ import { spawnSync } from 'node:child_process'
 import { vi } from 'vitest'
 import './src/test/setup'
 
+type ViCompat = typeof vi & {
+  hoisted?: <T>(factory: () => T) => T
+  mocked?: <T>(value: T) => T
+  stubEnv?: (key: string, value: string) => void
+  unstubAllEnvs?: () => void
+  stubGlobal?: (key: string, value: unknown) => void
+}
+
+type TestGlobals = typeof globalThis & {
+  window: Window & typeof globalThis
+  document: Document
+  navigator: Navigator
+  HTMLElement: typeof HTMLElement
+  HTMLDivElement: typeof HTMLDivElement
+  HTMLSpanElement: typeof HTMLSpanElement
+  HTMLButtonElement: typeof HTMLButtonElement
+  HTMLInputElement: typeof HTMLInputElement
+  HTMLFormElement: typeof HTMLFormElement
+  DocumentFragment: typeof DocumentFragment
+  Text: typeof Text
+  Node: typeof Node
+  Element: typeof Element
+  Event: typeof Event
+  MouseEvent: typeof MouseEvent
+  KeyboardEvent: typeof KeyboardEvent
+  CustomEvent: typeof CustomEvent
+  dispatchEvent: typeof window.dispatchEvent
+  crypto?: Crypto
+  localStorage?: Storage
+  sessionStorage?: Storage
+}
+
+function createStorageShim(): Storage {
+  const store: Record<string, string> = {}
+
+  return {
+    getItem: (key: string) => store[key] || null,
+    setItem: (key: string, value: string) => {
+      store[key] = value
+    },
+    removeItem: (key: string) => {
+      delete store[key]
+    },
+    clear: () => {
+      Object.keys(store).forEach((key) => {
+        delete store[key]
+      })
+    },
+    get length() {
+      return Object.keys(store).length
+    },
+    key: (index: number) => Object.keys(store)[index] || null,
+  }
+}
+
 if (!process.env.ANTISOON_BUN_TEST_BRIDGED) {
   const bridged = spawnSync('bun', ['run', 'test:unit'], {
     cwd: process.cwd(),
@@ -12,20 +67,21 @@ if (!process.env.ANTISOON_BUN_TEST_BRIDGED) {
   process.exit(bridged.status ?? 1)
 }
 
-const viAny = vi as any
+const viCompat = vi as ViCompat
 const envSnapshots = new Map<string, string | undefined>()
 const globalSnapshots = new Map<string, unknown>()
+const globals = globalThis as TestGlobals
 
-if (typeof viAny.hoisted !== 'function') {
-  viAny.hoisted = <T>(factory: () => T): T => factory()
+if (typeof viCompat.hoisted !== 'function') {
+  viCompat.hoisted = <T>(factory: () => T): T => factory()
 }
 
-if (typeof viAny.mocked !== 'function') {
-  viAny.mocked = <T>(value: T): T => value
+if (typeof viCompat.mocked !== 'function') {
+  viCompat.mocked = <T>(value: T): T => value
 }
 
-if (typeof viAny.stubEnv !== 'function') {
-  viAny.stubEnv = (key: string, value: string) => {
+if (typeof viCompat.stubEnv !== 'function') {
+  viCompat.stubEnv = (key: string, value: string) => {
     if (!envSnapshots.has(key)) {
       envSnapshots.set(key, process.env[key])
     }
@@ -33,8 +89,8 @@ if (typeof viAny.stubEnv !== 'function') {
   }
 }
 
-if (typeof viAny.unstubAllEnvs !== 'function') {
-  viAny.unstubAllEnvs = () => {
+if (typeof viCompat.unstubAllEnvs !== 'function') {
+  viCompat.unstubAllEnvs = () => {
     for (const [key, value] of envSnapshots.entries()) {
       if (value === undefined) {
         delete process.env[key]
@@ -46,8 +102,8 @@ if (typeof viAny.unstubAllEnvs !== 'function') {
   }
 }
 
-if (typeof viAny.stubGlobal !== 'function') {
-  viAny.stubGlobal = (key: string, value: unknown) => {
+if (typeof viCompat.stubGlobal !== 'function') {
+  viCompat.stubGlobal = (key: string, value: unknown) => {
     if (!globalSnapshots.has(key)) {
       globalSnapshots.set(key, (globalThis as Record<string, unknown>)[key])
     }
@@ -60,81 +116,45 @@ const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
 })
 const window = dom.window
 
-global.window = window as any
-global.document = window.document
-global.navigator = window.navigator
-global.HTMLElement = window.HTMLElement as any
-global.HTMLDivElement = window.HTMLDivElement as any
-global.HTMLSpanElement = window.HTMLSpanElement as any
-global.HTMLButtonElement = window.HTMLButtonElement as any
-global.HTMLInputElement = window.HTMLInputElement as any
-global.HTMLFormElement = window.HTMLFormElement as any
-global.DocumentFragment = window.DocumentFragment as any
-global.Text = window.Text as any
-global.Node = window.Node as any
-global.Element = window.Element as any
-global.Event = window.Event as any
-global.MouseEvent = window.MouseEvent as any
-global.KeyboardEvent = window.KeyboardEvent as any
-global.CustomEvent = window.CustomEvent as any
-global.HTMLElement = window.HTMLElement as any
-global.dispatchEvent = window.dispatchEvent.bind(window)
+globals.window = window as unknown as Window & typeof globalThis
+globals.document = window.document
+globals.navigator = window.navigator
+globals.HTMLElement = window.HTMLElement
+globals.HTMLDivElement = window.HTMLDivElement
+globals.HTMLSpanElement = window.HTMLSpanElement
+globals.HTMLButtonElement = window.HTMLButtonElement
+globals.HTMLInputElement = window.HTMLInputElement
+globals.HTMLFormElement = window.HTMLFormElement
+globals.DocumentFragment = window.DocumentFragment
+globals.Text = window.Text
+globals.Node = window.Node
+globals.Element = window.Element
+globals.Event = window.Event
+globals.MouseEvent = window.MouseEvent
+globals.KeyboardEvent = window.KeyboardEvent
+globals.CustomEvent = window.CustomEvent
+globals.HTMLElement = window.HTMLElement
+globals.dispatchEvent = window.dispatchEvent.bind(window)
 
-if (!global.crypto) {
-  global.crypto = {
+if (!globals.crypto) {
+  const cryptoShim: Pick<Crypto, 'getRandomValues'> = {
     getRandomValues: (arr: Uint8Array) => {
       for (let i = 0; i < arr.length; i++) {
         arr[i] = Math.floor(Math.random() * 256)
       }
       return arr
     },
-  } as any
+  }
+
+  globals.crypto = cryptoShim as Crypto
 }
 
-if (!global.localStorage) {
-  const store: Record<string, string> = {}
-
-  global.localStorage = {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value
-    },
-    removeItem: (key: string) => {
-      delete store[key]
-    },
-    clear: () => {
-      Object.keys(store).forEach((key) => {
-        delete store[key]
-      })
-    },
-    get length() {
-      return Object.keys(store).length
-    },
-    key: (index: number) => Object.keys(store)[index] || null,
-  } as any
+if (!globals.localStorage) {
+  globals.localStorage = createStorageShim()
 }
 
-if (!global.sessionStorage) {
-  const store: Record<string, string> = {}
-
-  global.sessionStorage = {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value
-    },
-    removeItem: (key: string) => {
-      delete store[key]
-    },
-    clear: () => {
-      Object.keys(store).forEach((key) => {
-        delete store[key]
-      })
-    },
-    get length() {
-      return Object.keys(store).length
-    },
-    key: (index: number) => Object.keys(store)[index] || null,
-  } as any
+if (!globals.sessionStorage) {
+  globals.sessionStorage = createStorageShim()
 }
 
 console.log('✅ happy-dom initialized for Bun test runner')

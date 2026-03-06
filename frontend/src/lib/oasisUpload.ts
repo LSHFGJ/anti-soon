@@ -147,7 +147,9 @@ function receiptProvesPoCStoredWrite(args: {
 			if (slotKey === expectedSlotKey && payloadHash === expectedPayloadHash) {
 				return true;
 			}
-		} catch {}
+		} catch {
+			// Ignore logs that do not decode as PoCStored while probing the receipt.
+		}
 	}
 
 	return false;
@@ -773,7 +775,9 @@ async function resolveProviderAddress(
 				const normalized = normalizeEthereumAddress(account);
 				if (normalized) return normalized;
 			}
-		} catch {}
+		} catch {
+			// Ignore provider account probe failures and continue to the next method.
+		}
 	}
 
 	return fallback;
@@ -901,7 +905,9 @@ export async function uploadEncryptedPoC({
 		} finally {
 			try {
 				await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX);
-			} catch {}
+			} catch {
+				// Ignore best-effort chain restore failures after relayer upload validation.
+			}
 		}
 
 		return relayerResult;
@@ -1069,6 +1075,8 @@ export async function uploadEncryptedPoC({
 	} finally {
 		try {
 			await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX);
-		} catch {}
+		} catch {
+			// Ignore best-effort chain restore failures after direct Sapphire upload.
+		}
 	}
 }

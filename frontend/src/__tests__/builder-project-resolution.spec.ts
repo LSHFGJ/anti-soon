@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSubmissionProjectId } from '../pages/Builder'
+import { resolveSubmissionProjectId } from '../pages/builderProjectResolution'
 
 describe('resolveSubmissionProjectId', () => {
   it('prefers location-state project id over path and query values', () => {
