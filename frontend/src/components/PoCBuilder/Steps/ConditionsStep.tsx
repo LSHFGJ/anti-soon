@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import type { Condition } from '../../../types/poc'
-import { StepGuidance, STEP_GUIDES } from '../../StepGuidance'
+import { StepGuidance } from '../../StepGuidance'
+import { STEP_GUIDES } from '../../StepGuidance/guides'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -103,15 +104,6 @@ const ConditionItem: React.FC<ConditionItemProps> = React.memo(({ condition, ind
     target: condition.target || '',
     slot: condition.slot || ''
   })
-
-  useEffect(() => {
-    setDraft({
-      type: condition.type,
-      value: condition.value,
-      target: condition.target || '',
-      slot: condition.slot || ''
-    })
-  }, [condition.type, condition.value, condition.target, condition.slot])
 
   const { schedule, flush, flushAll } = useDeferredFieldUpdates<EditableConditionField>((field, value) => {
     onUpdate(condition.id, field, value)

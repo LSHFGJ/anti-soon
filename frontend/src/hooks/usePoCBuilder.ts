@@ -1,8 +1,26 @@
 import { useState, useCallback } from 'react'
 import type { Condition, Transaction, ImpactType, TargetConfig, ImpactConfig, PoCData } from '../types/poc'
 
+function stripConditionId(condition: Condition): Omit<Condition, 'id'> {
+  return {
+    type: condition.type,
+    value: condition.value,
+    target: condition.target,
+    slot: condition.slot,
+  }
+}
+
+function stripTransactionId(transaction: Transaction): Omit<Transaction, 'id'> {
+  return {
+    to: transaction.to,
+    value: transaction.value,
+    data: transaction.data,
+  }
+}
+
 export const usePoCBuilder = () => {
   const [activeStep, setActiveStep] = useState(1)
+  const [templateVersion, setTemplateVersion] = useState(0)
   
   const [targetConfig, setTargetConfig] = useState<TargetConfig>({
     targetContract: '',
@@ -69,6 +87,8 @@ export const usePoCBuilder = () => {
     if (template.impact) {
         setImpactConfig(template.impact)
     }
+
+    setTemplateVersion((prev) => prev + 1)
   }, [updateTargetConfig])
 
   const generatePoCJSON = useCallback((): string => {
@@ -76,8 +96,8 @@ export const usePoCBuilder = () => {
       target: targetConfig.targetContract,
       chain: targetConfig.chain,
       forkBlock: parseInt(targetConfig.forkBlock) || 0,
-      conditions: conditions.map(({ id, ...rest }) => rest),
-      transactions: transactions.map(({ id, ...rest }) => rest),
+      conditions: conditions.map(stripConditionId),
+      transactions: transactions.map(stripTransactionId),
       impact: impactConfig,
       metadata: {
         generator: "AntiSoon v1.0",
@@ -102,6 +122,7 @@ export const usePoCBuilder = () => {
     updateTransaction,
     impactConfig,
     updateImpactConfig,
+    templateVersion,
     loadTemplate,
     generatePoCJSON
   }

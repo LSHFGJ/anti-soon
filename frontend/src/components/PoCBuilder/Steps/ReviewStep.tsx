@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { setCommitRevealFlowGuardActive } from "@/lib/commitRevealRecovery";
 import { useCommitReveal } from "../../../hooks/useCommitReveal";
-import { STEP_GUIDES, StepGuidance } from "../../StepGuidance";
+import { StepGuidance } from "../../StepGuidance";
+import { STEP_GUIDES } from '../../StepGuidance/guides'
 
 interface ReviewStepProps {
 	pocJson: string;
