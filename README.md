@@ -14,8 +14,10 @@ AntiSoon replaces the slow, opaque process of centralized audit platforms with a
 │                                                                 │
 │  ┌──────────┐     ┌────────────────────────────────────────┐    │
 │  │  Auditor  │────▶│  BountyHub.sol (Sepolia)               │    │
-│  │ (PoC Builder) │  │  registerProject() / submitPoC()       │    │
-│  └──────────┘     │  emit PoCSubmitted(...)                  │    │
+│  │ (PoC Builder) │  │  registerProject() / commitPoC()       │    │
+│  └──────────┘     │  emit PoCCommitted(...)                  │    │
+│                    │  revealPoC()                             │    │
+│                    │  emit PoCRevealed(...)                   │    │
 │                    └──────────────┬───────────────────────┘    │
 │                                   │ EVM Log Trigger            │
 │                    ┌──────────────▼───────────────────────┐    │
@@ -44,14 +46,18 @@ sequenceDiagram
     participant A as Auditor
     participant F as Frontend
     participant B as BountyHub.sol
-    participant C as CRE Workflow
+    participant R as Auto-Reveal Relayer
+    participant C as CRE Workflows
     participant T as Tenderly
     participant L as LLM (AI)
 
     A->>F: Build PoC (target, txs, impact)
-    F->>F: ABI encode + compute hash
-    F->>B: submitPoC(projectId, hash, URI)
-    B-->>C: PoCSubmitted event (EVM Log Trigger)
+    F->>F: ABI encode + encrypt + compute hash
+    F->>B: commitPoC(projectId, commitHash)
+    B-->>R: PoCCommitted event (MULTI Mode triggers Relayer)
+    R->>B: queueRevealBySig / executeQueuedReveal
+    A->>B: revealPoC() (UNIQUE Mode, direct reveal)
+    B-->>C: PoCRevealed event (EVM Log Trigger)
     C->>C: Fetch PoC JSON from IPFS/HTTP
     C->>T: Create Virtual TestNet (fork mainnet)
     C->>T: Batch RPC: setup + execute + state diff
@@ -67,7 +73,7 @@ sequenceDiagram
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Smart Contracts | Solidity + Foundry | BountyHub: registration, submission, escrow, auto-payout |
+| Smart Contracts | Solidity + Foundry | BountyHub: registration, commit/reveal, escrow, auto-payout |
 | CRE Workflow | TypeScript + @chainlink/cre-sdk | Verification orchestrator: event → simulate → analyze → settle |
 | Simulation | Tenderly Virtual TestNets | On-demand mainnet fork for PoC execution |
 | AI Analysis | OpenRouter (configurable model) | Severity classification + report generation |
@@ -81,17 +87,20 @@ sequenceDiagram
 anti-soon/
 ├── contracts/                     # Solidity (Foundry)
 │   ├── src/
-│   │   ├── BountyHub.sol          # Core: registration, submission, auto-payout
+│   │   ├── BountyHub.sol          # Core: registration, commit/reveal, auto-payout
 │   │   ├── ReceiverTemplate.sol   # Chainlink CRE receiver base
 │   │   └── IReceiver.sol          # Interface
 │   ├── test/BountyHub.t.sol       # 15 tests, all passing
 │   ├── script/Deploy.s.sol        # Sepolia deployment
 │   └── foundry.toml
-├── workflow/                      # CRE Workflow
-│   └── verify-poc/
-│       ├── main.ts                # Full pipeline: IPFS → Tenderly → LLM → EVM Write
-│       ├── config.staging.json    # Network + API configuration
-│       └── workflow.yaml
+├── workflow/                      # CRE Workflows
+│   ├── verify-poc/                # Full pipeline triggered by PoCRevealed
+│   │   ├── main.ts                # Full pipeline: IPFS → Tenderly → LLM → EVM Write
+│   │   ├── config.staging.json    # Network + API configuration
+│   │   └── workflow.yaml
+│   ├── vnet-init/                 # Tenderly VNet orchestration
+│   ├── auto-reveal-relayer/       # Delayed reveal orchestration triggered by PoCCommitted
+│   └── jury-orchestrator/         # Dispute and adjudication orchestration
 ├── frontend/                      # PoC Builder UI
 │   └── src/
 │       ├── components/
@@ -133,9 +142,9 @@ The verification pipeline operates within CRE's **5 HTTP request budget**:
 
 | Mechanism | Implementation | Effect |
 |-----------|---------------|--------|
-| Gas cost | On-chain submission | Economic barrier against bots |
+| Gas cost | On-chain commits | Economic barrier against bots |
 | Cooldown | 10 min per auditor per project | Prevent spam |
-| PoC dedup | `pocHash → bool` mapping | Reject duplicate submissions |
+| PoC dedup | `pocHash → bool` mapping | Reject duplicate commits |
 | CRE auth | Only KeystoneForwarder can write results | Prevent forged verdicts |
 | Dual validation | Execution ∧ LLM | Prevent false payouts |
 
@@ -146,7 +155,7 @@ The verification pipeline operates within CRE's **5 HTTP request budget**:
 - [Foundry](https://book.getfoundry.sh/getting-started/installation)
 - [Node.js](https://nodejs.org/) v18+
 - [CRE CLI](https://docs.chain.link/cre/getting-started/installation)
-- [Bun](https://bun.sh/) (or npm)
+- [Bun](https://bun.sh/)
 
 ### Setup
 
@@ -163,10 +172,10 @@ cp .env.example .env
 #   LLM_API_KEY_VALUE=...
 
 # Install workflow dependencies
-cd workflow/verify-poc && npm install && cd ../..
+cd workflow/verify-poc && bun install && cd ../..
 
 # Install frontend dependencies
-cd frontend && npm install && cd ..
+cd frontend && bun install && cd ..
 
 # Install and build contracts (dependencies are managed by Foundry, not committed)
 cd contracts && forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts && forge build && cd ..
@@ -182,19 +191,19 @@ cd contracts && forge test -v
 ### Run CRE Simulation
 
 ```bash
-# Submit a PoC on-chain first (see docs/), then:
+# Commit and reveal a PoC on-chain first (see docs/), then:
 cre workflow simulate workflow/verify-poc \
   --target staging-settings \
   --non-interactive \
   --trigger-index 0 \
-  --evm-tx-hash <YOUR_SUBMIT_TX_HASH> \
+  --evm-tx-hash <YOUR_REVEAL_TX_HASH> \
   --evm-event-index 0
 ```
 
 ### Run Frontend
 
 ```bash
-cd frontend && npm run dev
+cd frontend && bun run dev
 # Open http://localhost:5173
 ```
 
@@ -264,7 +273,7 @@ Run `run-once` on a schedule (cron/systemd/CI) to process queued reveals.
 │  1. Register: Sequence project → BountyHub.sol                 │
 │     └─ Bounty: 73,000 USDC escrow                               │
 │                                                                 │
-│  2. Submit: Auditor submits PoC for H-01                        │
+│  2. Commit & Reveal: Auditor commits then reveals PoC for H-01  │
 │     └─ pocURI: ipfs://QmXxx... (JSON payload)                  │
 │     └─ pocHash: 0xabc123... (integrity check)                  │
 │                                                                 │
