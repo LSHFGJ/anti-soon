@@ -22,6 +22,23 @@ async function fillVisibleAmountInputs(page: Page, value: string) {
   }
 }
 
+async function primeTargetStep(page: Page) {
+  const targetInput = page.getByPlaceholder('0x...').first()
+  await expect(targetInput).toBeVisible()
+
+  if (await targetInput.isEnabled()) {
+    await targetInput.fill(BOUNTY_HUB_ADDRESS)
+    await expect(targetInput).toHaveValue(BOUNTY_HUB_ADDRESS)
+  } else {
+    await expect(targetInput).not.toHaveValue('')
+  }
+
+  const chainSelect = page.locator('select').filter({ has: page.locator('option', { hasText: 'Sepolia Testnet' }) }).first()
+  if ((await chainSelect.count()) > 0 && await chainSelect.isEnabled()) {
+    await selectFirstMatchingOption(page, 'Sepolia Testnet')
+  }
+}
+
 async function mockWalletConnection(page: Page) {
   await page.addInitScript(() => {
     const mockAddress = '0x1234567890123456789012345678901234567890'
@@ -169,7 +186,8 @@ test.describe('Encryption Flow E2E', () => {
     await page.goto('/')
     await page.waitForLoadState('domcontentloaded')
     
-    await expect(page.locator('body')).toContainText('ANTI-SOON')
+    await expect(page.getByRole('heading', { name: 'AntiSoon' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /No more soon\./i })).toBeVisible()
     
     await page.screenshot({ 
       path: 'test-results/01-landing-page.png',
@@ -212,12 +230,7 @@ test.describe('Encryption Flow E2E', () => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
     
-    const targetInput = page.locator('input').first()
-    if (await targetInput.isVisible()) {
-      await targetInput.fill(BOUNTY_HUB_ADDRESS)
-    }
-    
-    await selectFirstMatchingOption(page, 'Sepolia Testnet')
+    await primeTargetStep(page)
     
     await page.screenshot({ 
       path: 'test-results/04-target-step-filled.png',
@@ -229,12 +242,7 @@ test.describe('Encryption Flow E2E', () => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
     
-    const targetInput = page.locator('input').first()
-    if (await targetInput.isVisible()) {
-      await targetInput.fill(BOUNTY_HUB_ADDRESS)
-    }
-    
-    await selectFirstMatchingOption(page, 'Sepolia Testnet')
+    await primeTargetStep(page)
     
     const inputs = page.locator('input')
     const forkBlockInput = inputs.nth(1)
@@ -279,12 +287,7 @@ test.describe('Encryption Flow E2E', () => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
     
-    const targetInput = page.locator('input').first()
-    if (await targetInput.isVisible()) {
-      await targetInput.fill(BOUNTY_HUB_ADDRESS)
-    }
-    
-    await selectFirstMatchingOption(page, 'Sepolia Testnet')
+    await primeTargetStep(page)
     
     const inputs = page.locator('input')
     const forkBlockInput = inputs.nth(1)
@@ -331,43 +334,10 @@ test.describe('Encryption Flow E2E', () => {
   test('should show encryption flow phases', async ({ page }) => {
     await page.goto('/builder')
     await page.waitForLoadState('domcontentloaded')
-    
-    const targetInput = page.locator('input').first()
-    if (await targetInput.isVisible()) {
-      await targetInput.fill(BOUNTY_HUB_ADDRESS)
-    }
-    
-    await selectFirstMatchingOption(page, 'Sepolia Testnet')
-    
-    const inputs = page.locator('input')
-    const forkBlockInput = inputs.nth(1)
-    if (await forkBlockInput.isVisible()) {
-      await forkBlockInput.fill('18000000')
-    }
-    
-    for (let i = 0; i < 5; i++) {
-      const nextButton = page.getByRole('button', { name: /next|continue/i })
-      if (await nextButton.isVisible()) {
-        await nextButton.click()
-        await page.waitForTimeout(500)
-        
-        if (i === 3) {
-          await page.waitForTimeout(300)
-          
-          await selectFirstMatchingOption(page, 'Funds Drained')
-          
-          await page.waitForTimeout(300)
-          
-          await fillVisibleAmountInputs(page, '1000000000000000000')
-          
-          await page.waitForTimeout(300)
-          
-        }
-      }
-    }
-    
-    await page.waitForTimeout(1000)
-    
+
+    await page.getByRole('button', { name: /(?:^|\s)REVIEW$/ }).click()
+    await expect(page.getByText('// STEP_05: REVIEW & SUBMIT')).toBeVisible()
+
     await expect(page.getByRole('button', { name: '[ COMMIT ]' })).toBeVisible()
     await expect(page.getByRole('button', { name: '[ CONNECT_WALLET ]' })).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText('1. COMMIT')

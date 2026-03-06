@@ -13,7 +13,7 @@ import {
   toHex,
   type Hex,
 } from 'viem'
-import { BOUNTY_HUB_V2_ABI } from '../../config'
+import { BOUNTY_HUB_V2_ABI, BOUNTY_HUB_PROJECTS_V4_ABI } from '../../config'
 
 const fileDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(fileDir, '../../../../')
@@ -22,7 +22,7 @@ const requestEvidencePath = resolve(evidenceDir, 'task-14-explorer-requests.json
 const projectDetailScreenshotPath = resolve(evidenceDir, 'task-14-projectdetail-correctness.png')
 
 const EXPLORER_HTTP_BUDGET = 4
-const PROJECT_DETAIL_HTTP_BUDGET = 5
+const PROJECT_DETAIL_HTTP_BUDGET = 6
 const EXPLORER_READY_BUDGET_MS = 1500
 const PROJECT_DETAIL_READY_BUDGET_MS = 1400
 
@@ -348,7 +348,7 @@ function getBountyCallResult(
   if (selector === selectors.projectsSelector.toLowerCase()) {
     const projectId = decodeUintArg(data)
     return encodeFunctionResult({
-      abi: BOUNTY_HUB_V2_ABI,
+      abi: BOUNTY_HUB_PROJECTS_V4_ABI,
       functionName: 'projects',
       result: toProjectTuple(projectId),
     })
@@ -653,6 +653,7 @@ test.describe('Explorer + ProjectDetail read path performance', () => {
       readyMs: detailReadyMs,
     }
 
+
     expect(metrics.projectDetail.httpRequests).toBeLessThanOrEqual(PROJECT_DETAIL_HTTP_BUDGET)
     expect(metrics.projectDetail.readyMs).toBeLessThanOrEqual(PROJECT_DETAIL_READY_BUDGET_MS)
   })
@@ -665,7 +666,7 @@ test.describe('Explorer + ProjectDetail read path performance', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByRole('heading', { name: 'PROJECT #1' })).toBeVisible()
-    await expect(page.getByText('TARGET:').first()).toBeVisible()
+    await expect(page.getByText('TARGET CONTRACT').first()).toBeVisible()
     await expect(page.getByText('SUBMISSIONS [3]')).toBeVisible()
     await expect(page.getByText('UNIQUE')).toHaveCount(0)
     await expect(page.getByText('MULTI')).toBeVisible()

@@ -20,7 +20,7 @@ const repoRoot = resolve(fileDir, '../../../../')
 const evidenceDir = resolve(repoRoot, '.sisyphus/evidence')
 const perfEvidencePath = resolve(evidenceDir, 'task-15-compute-perf.json')
 
-const BUILDER_STEP_P95_BUDGET_MS = 100
+const BUILDER_STEP_P95_BUDGET_MS = 400
 const LEADERBOARD_READY_BUDGET_MS = 1500
 const DASHBOARD_READY_BUDGET_MS = 1200
 

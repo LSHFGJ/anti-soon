@@ -33,7 +33,7 @@ test.describe('Landing timing and reduced-motion budget', () => {
     const navStart = Date.now()
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    const heroTitle = page.getByRole('heading', { name: /ANTI-SOON/i })
+    const heroTitle = page.getByRole('heading', { name: /No more soon\./i })
     await expect(heroTitle).toBeVisible({ timeout: 1500 })
     const heroVisibleMs = Date.now() - navStart
 
@@ -47,13 +47,13 @@ test.describe('Landing timing and reduced-motion budget', () => {
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByRole('heading', { name: /ANTI-SOON/i })).toBeVisible({ timeout: 1500 })
+    await expect(page.getByRole('heading', { name: /No more soon\./i })).toBeVisible({ timeout: 1500 })
 
     const cyberGridAnimationName = await page.locator('.cyber-grid-bg').first().evaluate((el) => {
       return window.getComputedStyle(el).animationName
     })
 
-    const heroWord = page.locator('h1 span').filter({ hasText: 'ANTI-SOON' }).first()
+    const heroWord = page.locator('h1 span').first()
     await expect(heroWord).toBeVisible()
 
     const before = await heroWord.evaluate((el) => window.getComputedStyle(el).transform)
