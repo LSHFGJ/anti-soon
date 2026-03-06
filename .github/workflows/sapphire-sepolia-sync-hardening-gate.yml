@@ -70,8 +70,7 @@ jobs:
         shell: bash
         working-directory: frontend
         run: |
-          bun test src/__tests__/useCommitReveal-state.spec.ts --test-name-pattern "blocks commit when Sapphire readback validation fails"
-          bun test src/__tests__/usePoCSubmission-queue.spec.ts --test-name-pattern "blocks submission when Sapphire readback validation fails"
+          bun test src/__tests__/usePoCSubmission-queue.spec.ts --test-name-pattern "blocks commit when Sapphire readback validation fails|blocks submission when Sapphire readback validation fails"
 
   contracts_sync_suite:
     name: Contracts Sync Suite

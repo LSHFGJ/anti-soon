@@ -17,7 +17,7 @@ import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-pri
 import { StatCard } from '../components/shared/StatCard'
 import { useWallet } from '../hooks/useWallet'
 import { STATUS_LABELS } from '../types'
-import type { Submission } from '../types'
+import type { Submission, ExtendedSubmission } from '../types'
 import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
 import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
 import { publicClient } from '../lib/publicClient'
@@ -41,19 +41,6 @@ type SubmissionTuple = readonly [
   challenger: Address,
   challengeBond: bigint
 ]
-
-export interface ExtendedSubmission extends Submission {
-  grouping?: {
-    cohort: string
-    groupId: string
-    groupRank: number
-    groupSize: number
-  }
-  jury?: {
-    action: string
-    rationale?: string
-  }
-}
 
 export function Dashboard() {
   const { address, isConnected, isConnecting, connect } = useWallet({ autoSwitchToSepolia: false })
