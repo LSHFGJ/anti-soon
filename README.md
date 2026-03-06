@@ -14,8 +14,8 @@ AntiSoon replaces the slow, opaque process of centralized audit platforms with a
 │                                                                 │
 │  ┌──────────┐     ┌────────────────────────────────────────┐    │
 │  │  Auditor  │────▶│  BountyHub.sol (Sepolia)               │    │
-│  │ (PoC Builder) │  │  registerProject() / submitPoC()       │    │
-│  └──────────┘     │  emit PoCSubmitted(...)                  │    │
+│  │ (PoC Builder) │  │  registerProject() / submitPoC() / revealPoC() │    │
+│  └──────────┘     │  emit PoCRevealed(...)                  │    │
 │                    └──────────────┬───────────────────────┘    │
 │                                   │ EVM Log Trigger            │
 │                    ┌──────────────▼───────────────────────┐    │
@@ -50,8 +50,8 @@ sequenceDiagram
 
     A->>F: Build PoC (target, txs, impact)
     F->>F: ABI encode + compute hash
-    F->>B: submitPoC(projectId, hash, URI)
-    B-->>C: PoCSubmitted event (EVM Log Trigger)
+    F->>B: submitPoC(...) / revealPoC(...)
+    B-->>C: PoCRevealed event (EVM Log Trigger)
     C->>C: Fetch PoC JSON from IPFS/HTTP
     C->>T: Create Virtual TestNet (fork mainnet)
     C->>T: Batch RPC: setup + execute + state diff
@@ -62,6 +62,41 @@ sequenceDiagram
     C->>B: EVM Write: report result
     B->>A: Auto-transfer bounty 💰
 ```
+
+## Documentation
+
+AntiSoon includes a dedicated `/docs` portal to explain the platform's architecture, verification rules, and integration details.
+
+- **Entrypoint**: Navigate to `/docs` in the running frontend or click "Docs" in the navigation bar.
+- **Content**: Discover platform overviews, CRE verification deep dives, and security policies.
+- **Authoring Workflow**: Docs are generated using an offline writing model. They are drafted, validated, and statically compiled offline, followed by a human review process before any content is published to the site. The committed runbook templates cover Checklist, Claim-to-source, Review Gate, and Evidence capture so each review can leave an auditable trail without adding markdown-only process docs. This ensures documentation remains accurate, strictly verified, and secure.
+
+### Docs Rollout: release readiness & canary checklist
+
+Before flipping the `VITE_ENABLE_DOCS` feature flag in production, ensure the following readiness checks are met:
+
+1. **Contract Sync Precheck**: Run `cd frontend && bun run contracts:sync && bun run contracts:check` so the docs build and preview use the latest BountyHub address before any rollout validation.
+2. **Docs Policy Gate Pass**: Run `cd frontend && bun run docs:policy` to confirm all content adheres to our security and tone constraints.
+3. **Offline Validation Pass**: Ensure `cd frontend && bun run docs:validate` succeeds to confirm the static docs content structure is valid.
+4. **Preview Check**: Execute `cd frontend && bun run docs:preview-check` against the compiled staging build to verify rendering.
+5. **README Drift Check**: Run `cd frontend && bun run docs:readme-drift` to confirm synchronization between the README guidelines and the actual `/docs` content.
+6. **canary Validation**: Enable `VITE_ENABLE_DOCS=true` on the staging or canary environment. Verify the `/docs` route works and the navigation bar shows the "Docs" link correctly.
+
+### Docs Rollout: rollback Playbook
+
+If a critical issue, inaccurate content, or layout breakage is detected in production after rollout:
+
+1. **Disable the docs feature flag**: Set `VITE_ENABLE_DOCS=false` in your production environment variables.
+2. **Re-deploy**: Trigger a clean production build and deployment. Since docs are statically toggled via the feature flag, disabling it completely hides the `/docs` entrypoints and routes.
+3. **Revert Content (Optional)**: If the issue was caused by specific docs content, revert those docs-only source file changes in source control while the flag is disabled.
+4. **Verify rollback**: Visit the production site to confirm the "Docs" link is removed from the navigation bar and visiting `/docs` directly redirects or returns a 404/Home page.
+
+
+
+
+
+
+
 
 ## Tech Stack
 
@@ -163,10 +198,10 @@ cp .env.example .env
 #   LLM_API_KEY_VALUE=...
 
 # Install workflow dependencies
-cd workflow/verify-poc && npm install && cd ../..
+cd workflow/verify-poc && bun install && cd ../..
 
 # Install frontend dependencies
-cd frontend && npm install && cd ..
+cd frontend && bun install && cd ..
 
 # Install and build contracts (dependencies are managed by Foundry, not committed)
 cd contracts && forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts && forge build && cd ..
@@ -187,14 +222,14 @@ cre workflow simulate workflow/verify-poc \
   --target staging-settings \
   --non-interactive \
   --trigger-index 0 \
-  --evm-tx-hash <YOUR_SUBMIT_TX_HASH> \
+  --evm-tx-hash <YOUR_REVEAL_TX_HASH> \
   --evm-event-index 0
 ```
 
 ### Run Frontend
 
 ```bash
-cd frontend && npm run dev
+cd frontend && bun run dev
 # Open http://localhost:5173
 ```
 
