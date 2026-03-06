@@ -1,6 +1,7 @@
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,19 +14,8 @@ const docsEnabledEnv = {
 };
 
 const previewHost = "127.0.0.1";
-const previewPort = 4173;
-const previewOrigin = `http://${previewHost}:${previewPort}`;
+const preferredPreviewPort = 4173;
 const buildCommand = ["run", "build"];
-const previewCommand = [
-  "x",
-  "vite",
-  "preview",
-  "--host",
-  previewHost,
-  "--port",
-  String(previewPort),
-  "--strictPort",
-];
 
 function runBunCommand(args, label) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -51,7 +41,42 @@ function runBunCommand(args, label) {
   });
 }
 
-async function waitForPreviewServer() {
+async function findAvailablePort(host, startPort) {
+  for (let candidatePort = startPort; candidatePort < startPort + 20; candidatePort += 1) {
+    const isAvailable = await new Promise((resolvePromise) => {
+      const probe = createServer();
+
+      probe.once("error", () => {
+        resolvePromise(false);
+      });
+
+      probe.listen(candidatePort, host, () => {
+        probe.close(() => resolvePromise(true));
+      });
+    });
+
+    if (isAvailable) {
+      return candidatePort;
+    }
+  }
+
+  throw new Error(`Could not find an available preview port starting at ${startPort}`);
+}
+
+function getPreviewCommand(previewPort) {
+  return [
+    "x",
+    "vite",
+    "preview",
+    "--host",
+    previewHost,
+    "--port",
+    String(previewPort),
+    "--strictPort",
+  ];
+}
+
+async function waitForPreviewServer(previewOrigin) {
   const deadline = Date.now() + 30_000;
 
   while (Date.now() < deadline) {
@@ -95,28 +120,41 @@ async function assertVisible(page, selector, description) {
   console.log(`docs:preview-check OK - ${description}`);
 }
 
-async function verifyDocsRoutes() {
+async function verifyDocsRoutes(previewOrigin) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
   try {
     await page.goto(`${previewOrigin}/docs`, { waitUntil: "networkidle" });
-    await assertVisible(page, '[data-docs-route="page"]', "/docs renders the docs page shell");
+    await assertVisible(page, '[data-docs-route="page"][data-docs-page="overview"]', "/docs renders the docs overview page shell");
     await page.getByRole("heading", { name: "Docs Overview" }).waitFor({ state: "visible" });
+    console.log("docs:preview-check OK - /docs resolves to the overview content page");
 
-    await page.goto(`${previewOrigin}/docs/`, { waitUntil: "networkidle" });
-    await assertVisible(page, '[data-docs-route="page"]', "/docs/ normalizes to the overview page shell");
-    await page.getByRole("heading", { name: "Docs Overview" }).waitFor({ state: "visible" });
+    await page.goto(`${previewOrigin}/docs/architecture`, { waitUntil: "networkidle" });
+    await page.waitForURL(`${previewOrigin}/docs/architecture`);
+    await assertVisible(page, '[data-docs-route="page"][data-docs-page="architecture"]', "/docs/architecture resolves to the architecture page shell");
+    await page.getByRole("heading", { name: "Architecture" }).waitFor({ state: "visible" });
 
-    await page.goto(`${previewOrigin}/docs#overview`, { waitUntil: "networkidle" });
-    await assertVisible(page, "#overview", "/docs#overview resolves to the overview anchor");
-    const overviewTop = await page
-      .locator("#overview")
+    await page.goto(`${previewOrigin}/docs/operations#incident-response`, { waitUntil: "networkidle" });
+    await page.waitForURL(`${previewOrigin}/docs/operations#incident-response`);
+    await assertVisible(page, '[data-docs-route="page"][data-docs-page="operations"]', "/docs/operations#incident-response resolves to the operations page shell");
+    await assertVisible(page, "#incident-response", "/docs/operations#incident-response resolves to the incident response anchor");
+    const incidentResponseTop = await page
+      .locator("#incident-response")
       .evaluate((element) => Math.round(element.getBoundingClientRect().top));
-    if (overviewTop >= 180) {
-      throw new Error(`/docs#overview did not scroll to the anchor deterministically (top=${overviewTop})`);
+    if (incidentResponseTop >= 180) {
+      throw new Error(
+        `/docs/operations#incident-response did not scroll to the anchor deterministically (top=${incidentResponseTop})`,
+      );
     }
-    console.log(`docs:preview-check OK - /docs#overview anchored near the viewport top (${overviewTop}px)`);
+    console.log(
+      `docs:preview-check OK - /docs/operations#incident-response anchored near the viewport top (${incidentResponseTop}px)`,
+    );
+
+    await page.goto(`${previewOrigin}/docs/getting-started`, { waitUntil: "networkidle" });
+    await page.waitForURL(`${previewOrigin}/docs/getting-started`);
+    await assertVisible(page, '[data-docs-route="page"][data-docs-page="getting-started"]', "/docs/getting-started resolves to the getting started page shell");
+    await page.getByRole("heading", { name: "Getting Started" }).waitFor({ state: "visible" });
 
     await page.goto(`${previewOrigin}/docs/unknown`, { waitUntil: "networkidle" });
     await page.waitForURL(`${previewOrigin}/docs`);
@@ -133,7 +171,13 @@ async function main() {
   console.log("docs:preview-check building docs-enabled bundle...");
   await runBunCommand(buildCommand, "docs-enabled build");
 
-  const previewServer = spawn("bun", previewCommand, {
+  const previewPort = await findAvailablePort(previewHost, preferredPreviewPort);
+  const previewOrigin = `http://${previewHost}:${previewPort}`;
+  if (previewPort !== preferredPreviewPort) {
+    console.log(`docs:preview-check INFO - port ${preferredPreviewPort} was busy, using ${previewPort} instead`);
+  }
+
+  const previewServer = spawn("bun", getPreviewCommand(previewPort), {
     cwd: frontendRoot,
     env: docsEnabledEnv,
     stdio: "inherit",
@@ -144,8 +188,8 @@ async function main() {
   });
 
   try {
-    await waitForPreviewServer();
-    await verifyDocsRoutes();
+    await waitForPreviewServer(previewOrigin);
+    await verifyDocsRoutes(previewOrigin);
   } finally {
     await stopPreviewServer(previewServer);
   }
