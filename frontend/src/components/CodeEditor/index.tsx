@@ -1,5 +1,32 @@
 import React, { lazy, Suspense, useCallback } from 'react'
 
+type MonacoEditorInstance = {
+  focus: () => void
+}
+
+type MonacoApi = {
+  languages: {
+    json: {
+      jsonDefaults: {
+        setDiagnosticsOptions: (options: {
+          validate: boolean
+          schemas: unknown[]
+          enableSchemaRequest: boolean
+        }) => void
+      }
+    }
+  }
+  editor: {
+    defineTheme: (name: string, theme: {
+      base: string
+      inherit: boolean
+      rules: Array<{ token: string; foreground: string }>
+      colors: Record<string, string>
+    }) => void
+    setTheme: (name: string) => void
+  }
+}
+
 const MonacoEditor = lazy(() => import('@monaco-editor/react'))
 
 const EDITOR_PALETTE = {
@@ -43,7 +70,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = React.memo(({
     onChange(val || '')
   }, [onChange])
 
-  const handleEditorMount = useCallback((editor: any, monaco: any) => {
+  const handleEditorMount = useCallback((editor: MonacoEditorInstance, monaco: MonacoApi) => {
     if (language === 'json') {
       monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
         validate: true,
