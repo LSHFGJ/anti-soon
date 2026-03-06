@@ -14,6 +14,13 @@ describe("docs policy contract", () => {
 			generationMode: "offline",
 		});
 
+		expect(policyModule.DOCS_LANDING_PAGE_HREF).toBe("/docs");
+		expect(typeof policyModule.collectDocsRoutePathViolations).toBe("function");
+		if (typeof policyModule.collectDocsRoutePathViolations === "function") {
+			expect(policyModule.collectDocsRoutePathViolations("/docs")).toEqual([]);
+			expect(policyModule.collectDocsRoutePathViolations("/docs/architecture")).toEqual([]);
+		}
+
 		expect(
 			policyModule.collectDocsSourceContractViolations([
 				"src/reference/content/getting-started.ts",
@@ -38,6 +45,34 @@ describe("docs policy contract", () => {
 			'Docs v1 forbids search artifacts in committed source: "src/reference/content/search-index.json"',
 			'Docs v1 forbids versioned source trees: "src/reference/content/v2/overview.ts"',
 			'Docs v1 is English-only; found localized source path: "src/reference/content/fr/overview.ts"',
+		]);
+	});
+
+	it("rejects docs routes outside the flat /docs contract", async () => {
+		const policyModule = await import("../lib/docsPolicy");
+
+		expect(
+			policyModule.collectDocsV1ScopeViolations({
+				...policyModule.DOCS_V1_SCOPE,
+				routeBasePath: "/guides",
+				routePrefixes: ["/guides"],
+			}),
+		).toEqual([
+			'Docs v1 must use a single "/docs" route base; received "/guides"',
+			"Docs v1 must expose exactly one route prefix: /docs",
+		]);
+
+		expect(typeof policyModule.collectDocsRoutePathViolations).toBe("function");
+		if (typeof policyModule.collectDocsRoutePathViolations !== "function") {
+			return;
+		}
+
+		expect(policyModule.collectDocsRoutePathViolations("/docs/reference/contracts")).toEqual([
+			'Docs v1 routes must be "/docs" or a flat child route like "/docs/<slug>"; received "/docs/reference/contracts"',
+		]);
+
+		expect(policyModule.collectDocsRoutePathViolations("/guides/architecture")).toEqual([
+			'Docs v1 routes must stay rooted at "/docs"; received "/guides/architecture"',
 		]);
 	});
 

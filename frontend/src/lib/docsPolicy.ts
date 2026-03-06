@@ -36,6 +36,8 @@ export const DOCS_V1_SCOPE = {
 	generationMode: "offline",
 } as const satisfies DocsV1Scope;
 
+export const DOCS_LANDING_PAGE_HREF = "/docs";
+
 export const DOCS_SOURCE_CONTRACT = {
 	canonicalSourceRoot: "src/reference/content",
 	canonicalManifestPath: "src/reference/content/index.ts",
@@ -61,6 +63,7 @@ export const DOCS_README_CONTRACT = {
 
 const VERSION_SEGMENT_PATTERN = /^v\d+$/i;
 const LOCALE_SEGMENT_PATTERN = /^[a-z]{2}(?:-[A-Z]{2})?$/;
+const DOCS_CHILD_ROUTE_SEGMENT_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function normalizePath(value: string): string {
 	return value.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -141,6 +144,41 @@ export function collectDocsV1ScopeViolations(
 
 export function assertDocsV1Scope(scope: DocsV1Scope): void {
 	const violations = collectDocsV1ScopeViolations(scope);
+
+	if (violations.length > 0) {
+		throw new Error(violations.join("\n"));
+	}
+}
+
+export function collectDocsRoutePathViolations(
+	path: string,
+	scope: DocsV1Scope = DOCS_V1_SCOPE,
+): string[] {
+	if (path === DOCS_LANDING_PAGE_HREF) {
+		return [];
+	}
+
+	if (!path.startsWith(`${scope.routeBasePath}/`)) {
+		return [
+			`Docs v1 routes must stay rooted at "${scope.routeBasePath}"; received "${path}"`,
+		];
+	}
+
+	const childPath = path.slice(scope.routeBasePath.length + 1);
+	if (!DOCS_CHILD_ROUTE_SEGMENT_PATTERN.test(childPath)) {
+		return [
+			`Docs v1 routes must be "${DOCS_LANDING_PAGE_HREF}" or a flat child route like "${scope.routeBasePath}/<slug>"; received "${path}"`,
+		];
+	}
+
+	return [];
+}
+
+export function assertDocsRoutePath(
+	path: string,
+	scope: DocsV1Scope = DOCS_V1_SCOPE,
+): void {
+	const violations = collectDocsRoutePathViolations(path, scope);
 
 	if (violations.length > 0) {
 		throw new Error(violations.join("\n"));

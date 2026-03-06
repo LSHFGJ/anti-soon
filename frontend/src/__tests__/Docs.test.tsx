@@ -71,6 +71,7 @@ describe('docs page rendering', () => {
     // Check first section title
     const firstSection = overviewPage.sections[0]
     expect(screen.getByText(firstSection.title)).toBeInTheDocument()
+    expect(screen.getByText(firstSection.summary)).toBeInTheDocument()
     
     // Check paragraph block rendering (assuming it exists in overview)
     const paragraphBlock = firstSection.blocks.find(b => b.type === 'paragraph')

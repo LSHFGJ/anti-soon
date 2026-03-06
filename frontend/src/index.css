@@ -229,7 +229,6 @@ input:focus, select:focus, textarea:focus {
 }
 
 .navbar-links {
-  display: flex;
   gap: 0.5rem;
 }
 
