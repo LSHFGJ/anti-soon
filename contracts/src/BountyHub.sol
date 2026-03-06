@@ -89,6 +89,22 @@ contract BountyHub is ReceiverTemplate {
         uint256 challengeBond;
     }
 
+    /// @notice Optional jury metadata stored alongside a processed submission verdict.
+    struct SubmissionJuryMetadata {
+        bool present;
+        string action;
+        string rationale;
+    }
+
+    /// @notice Optional MULTI grouping metadata stored for live readers.
+    struct SubmissionGroupingMetadata {
+        bool present;
+        string cohort;
+        string groupId;
+        uint256 groupRank;
+        uint256 groupSize;
+    }
+
     /// @notice Pre-authorized reveal payload stored for delayed execution
     struct QueuedReveal {
         address auditor;
@@ -115,6 +131,8 @@ contract BountyHub is ReceiverTemplate {
     mapping(uint256 => ProjectRules) public projectRules;
     mapping(uint256 => ContractScope[]) public projectScopes;  // V4: multi-contract support
     mapping(uint256 => UniqueRevealState) public uniqueRevealStateByProject;
+    mapping(uint256 => SubmissionJuryMetadata) internal s_submissionJuryMetadata;
+    mapping(uint256 => SubmissionGroupingMetadata) internal s_submissionGroupingMetadata;
 
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
     mapping(uint256 => bytes32) public submissionMetadataHash; // V2+: deterministic bridge linkage metadata
@@ -137,6 +155,7 @@ contract BountyHub is ReceiverTemplate {
     uint256 private constant REPORT_TYPED_ENVELOPE_MIN_LENGTH = 128;
     uint8 private constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 private constant REPORT_TYPE_VNET_FAILED = 2;
+    uint8 private constant REPORT_TYPE_VERIFY_POC_VERDICT = 3;
 
     mapping(bytes32 => bool) private s_authorizedWorkflows;
     uint256 private s_authorizedWorkflowCount;
@@ -717,6 +736,11 @@ contract BountyHub is ReceiverTemplate {
                 return;
             }
 
+            if (reportType == REPORT_TYPE_VERIFY_POC_VERDICT) {
+                _processTypedVerificationReport(payload);
+                return;
+            }
+
             revert("Unknown report type");
         }
 
@@ -803,6 +827,58 @@ contract BountyHub is ReceiverTemplate {
     function _processVerificationReport(bytes calldata report) internal {
         (uint256 submissionId, bool isValid, uint256 drainAmountWei) = 
             abi.decode(report, (uint256, bool, uint256));
+
+        _applyVerificationReport(submissionId, isValid, drainAmountWei);
+    }
+
+    function _processTypedVerificationReport(bytes memory payload) internal {
+        (
+            uint256 submissionId,
+            bool isValid,
+            uint256 drainAmountWei,
+            bool hasJury,
+            string memory juryAction,
+            string memory juryRationale,
+            bool hasGrouping,
+            string memory groupingCohort,
+            string memory groupId,
+            uint256 groupRank,
+            uint256 groupSize
+        ) = abi.decode(
+            payload,
+            (uint256, bool, uint256, bool, string, string, bool, string, string, uint256, uint256)
+        );
+
+        _applyVerificationReport(submissionId, isValid, drainAmountWei);
+
+        if (hasJury) {
+            s_submissionJuryMetadata[submissionId] = SubmissionJuryMetadata({
+                present: true,
+                action: juryAction,
+                rationale: juryRationale
+            });
+        } else {
+            delete s_submissionJuryMetadata[submissionId];
+        }
+
+        if (hasGrouping) {
+            s_submissionGroupingMetadata[submissionId] = SubmissionGroupingMetadata({
+                present: true,
+                cohort: groupingCohort,
+                groupId: groupId,
+                groupRank: groupRank,
+                groupSize: groupSize
+            });
+        } else {
+            delete s_submissionGroupingMetadata[submissionId];
+        }
+    }
+
+    function _applyVerificationReport(
+        uint256 submissionId,
+        bool isValid,
+        uint256 drainAmountWei
+    ) internal {
 
         Submission storage sub = submissions[submissionId];
         require(sub.status == SubmissionStatus.Revealed, "Not revealed");
@@ -1028,6 +1104,34 @@ contract BountyHub is ReceiverTemplate {
     {
         Submission storage sub = submissions[_submissionId];
         return (sub.commitTimestamp, sub.revealTimestamp, submissionMetadataHash[_submissionId]);
+    }
+
+    /// @notice Returns stored jury metadata for a submission.
+    function getSubmissionJuryMetadata(
+        uint256 _submissionId
+    ) external view returns (bool hasJury, string memory action, string memory rationale) {
+        SubmissionJuryMetadata storage metadata = s_submissionJuryMetadata[_submissionId];
+        return (metadata.present, metadata.action, metadata.rationale);
+    }
+
+    /// @notice Returns stored grouping metadata for a submission.
+    function getSubmissionGroupingMetadata(
+        uint256 _submissionId
+    ) external view returns (
+        bool hasGrouping,
+        string memory cohort,
+        string memory groupId,
+        uint256 groupRank,
+        uint256 groupSize
+    ) {
+        SubmissionGroupingMetadata storage metadata = s_submissionGroupingMetadata[_submissionId];
+        return (
+            metadata.present,
+            metadata.cohort,
+            metadata.groupId,
+            metadata.groupRank,
+            metadata.groupSize
+        );
     }
 
     /// @notice Check if a submission can be finalized

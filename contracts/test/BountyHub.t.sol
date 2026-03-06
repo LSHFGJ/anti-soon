@@ -14,6 +14,7 @@ contract BountyHubTest is Test {
     bytes32 constant QUEUE_REVEAL_BY_SIG_TYPEHASH = keccak256("QueueRevealBySig(address auditor,uint256 submissionId,bytes32 salt,uint256 nonce,uint256 deadline)");
     bytes4 constant REPORT_ENVELOPE_MAGIC = 0x41535250;
     uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
+    uint8 constant REPORT_TYPE_VERIFY_POC_VERDICT = 3;
     bytes32 constant WORKFLOW_VERIFY_POC_ID = keccak256("verify-poc");
     bytes32 constant WORKFLOW_VNET_INIT_ID = keccak256("vnet-init");
     bytes10 constant WORKFLOW_NAME = bytes10("verifypoc1");
@@ -352,6 +353,57 @@ contract BountyHubTest is Test {
         assertTrue(!hasCandidate, "candidate should clear after winner lock");
         assertTrue(winnerLocked, "winner must be locked");
         assertEq(winnerSubmissionId, submissionA, "winner should be first valid candidate");
+    }
+
+    function test_FirstValidCandidateWinsAfterEarlierCandidateInvalidates() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        uint256 projectId = hub.registerProjectV2{value: 2 ether}(
+            TARGET,
+            1 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            rules
+        );
+
+        bytes32 saltA = keccak256("first-valid-salt-a");
+        bytes32 saltB = keccak256("first-valid-salt-b");
+        string memory uriA = "ipfs://first-valid-a";
+        string memory uriB = "ipfs://first-valid-b";
+
+        vm.prank(auditor);
+        uint256 submissionA = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriA)), auditor, saltA)),
+            uriA
+        );
+
+        vm.prank(otherUser);
+        uint256 submissionB = hub.commitPoC(
+            projectId,
+            keccak256(abi.encodePacked(keccak256(bytes(uriB)), otherUser, saltB)),
+            uriB
+        );
+
+        vm.prank(auditor);
+        hub.revealPoC(submissionA, saltA);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionA, false, 0));
+
+        vm.prank(otherUser);
+        hub.revealPoC(submissionB, saltB);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionB, true, 1 ether));
+
+        (bool hasCandidate,, bool winnerLocked, uint256 winnerSubmissionId) = hub.uniqueRevealStateByProject(projectId);
+        assertTrue(!hasCandidate, "candidate should clear after first valid winner");
+        assertTrue(winnerLocked, "winner should lock after second candidate verifies valid");
+        assertEq(winnerSubmissionId, submissionB, "first valid candidate should become winner");
     }
 
     function test_commitHashBinding_preventsCopyClaimReuse() public {
@@ -744,6 +796,36 @@ contract BountyHubTest is Test {
         return abi.encode(REPORT_ENVELOPE_MAGIC, reportType, payload);
     }
 
+    function _buildTypedVerifyPocReport(
+        uint256 subId,
+        bool isValid,
+        uint256 drain,
+        bool hasJury,
+        string memory juryAction,
+        string memory juryRationale,
+        bool hasGrouping,
+        string memory groupingCohort,
+        string memory groupId,
+        uint256 groupRank,
+        uint256 groupSize
+    ) internal pure returns (bytes memory) {
+        bytes memory payload = abi.encode(
+            subId,
+            isValid,
+            drain,
+            hasJury,
+            juryAction,
+            juryRationale,
+            hasGrouping,
+            groupingCohort,
+            groupId,
+            groupRank,
+            groupSize
+        );
+
+        return _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, payload);
+    }
+
     function test_submitPoC_reverts_legacyDisabled_withFundedProject() public {
         _registerProjectViaV2Defaults(5 ether, 2 ether);
         vm.expectRevert("UNSUPPORTED_LEGACY_SUBMIT_POC");
@@ -852,6 +934,57 @@ contract BountyHubTest is Test {
             uint8(BountyHub.SubmissionStatus.Verified),
             "Legacy fallback disable must block legacy report processing"
         );
+
+        (bool hasJury, string memory juryAction, string memory juryRationale) = _getSubmissionJuryMetadata(subId);
+        assertTrue(!hasJury, "Legacy reports must not invent jury metadata");
+        assertEq(bytes(juryAction).length, 0, "Legacy reports must keep jury action empty");
+        assertEq(bytes(juryRationale).length, 0, "Legacy reports must keep jury rationale empty");
+
+        (bool hasGrouping, string memory groupingCohort, string memory groupId, uint256 groupRank, uint256 groupSize) =
+            _getSubmissionGroupingMetadata(subId);
+        assertTrue(!hasGrouping, "Legacy reports must not invent grouping metadata");
+        assertEq(bytes(groupingCohort).length, 0, "Legacy reports must keep grouping cohort empty");
+        assertEq(bytes(groupId).length, 0, "Legacy reports must keep group id empty");
+        assertEq(groupRank, 0, "Legacy reports must keep group rank zero");
+        assertEq(groupSize, 0, "Legacy reports must keep group size zero");
+    }
+
+    function test_processReport_typedVerifyPocMetadataStoresReadableSubmissionMetadata() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        bytes memory typedReport = _buildTypedVerifyPocReport(
+            subId,
+            true,
+            1 ether,
+            true,
+            "UPHOLD_AI_RESULT",
+            "Consensus aligned with the measured drain.",
+            true,
+            "HIGH",
+            "g-high-001",
+            1,
+            3
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport("", typedReport);
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Verified), "Typed report should preserve verification flow");
+        assertEq(sub.drainAmountWei, 1 ether, "Typed report should preserve drain amount");
+
+        (bool hasJury, string memory juryAction, string memory juryRationale) = _getSubmissionJuryMetadata(subId);
+        assertTrue(hasJury, "Typed report should store jury metadata");
+        assertEq(juryAction, "UPHOLD_AI_RESULT", "Typed report should expose jury action");
+        assertEq(juryRationale, "Consensus aligned with the measured drain.", "Typed report should expose jury rationale");
+
+        (bool hasGrouping, string memory groupingCohort, string memory groupId, uint256 groupRank, uint256 groupSize) =
+            _getSubmissionGroupingMetadata(subId);
+        assertTrue(hasGrouping, "Typed report should store grouping metadata");
+        assertEq(groupingCohort, "HIGH", "Typed report should expose grouping cohort");
+        assertEq(groupId, "g-high-001", "Typed report should expose grouping id");
+        assertEq(groupRank, 1, "Typed report should expose group rank");
+        assertEq(groupSize, 3, "Typed report should expose group size");
     }
 
     function test_processReport_severity_critical() public {
@@ -1026,6 +1159,58 @@ contract BountyHubTest is Test {
         assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Disputed), "Status should be Disputed");
     }
 
+    function test_resolveDispute_revertsUnauthorizedOwnerBypass() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", abi.encode(subId, true, 1 ether));
+
+        vm.deal(otherUser, 1 ether);
+        vm.prank(otherUser);
+        hub.challenge{value: 0.1 ether}(subId);
+
+        BountyHub.Submission memory beforeAttempt = _getSubmission(subId);
+        uint256 auditorBalBefore = auditor.balance;
+        uint256 challengerBalBefore = otherUser.balance;
+        uint256 hubBalBefore = address(hub).balance;
+
+        vm.expectRevert("Not owner");
+        vm.prank(auditor);
+        hub.resolveDispute(subId, true);
+
+        BountyHub.Submission memory afterAttempt = _getSubmission(subId);
+        assertEq(uint8(afterAttempt.status), uint8(BountyHub.SubmissionStatus.Disputed), "Unauthorized resolve must keep dispute active");
+        assertEq(afterAttempt.challengeBond, beforeAttempt.challengeBond, "Unauthorized resolve must preserve challenge bond");
+        assertEq(auditor.balance, auditorBalBefore, "Unauthorized resolve must not settle auditor funds");
+        assertEq(otherUser.balance, challengerBalBefore, "Unauthorized resolve must not refund challenger");
+        assertEq(address(hub).balance, hubBalBefore, "Unauthorized resolve must not move escrow");
+    }
+
+    function test_finalize_revertsAuthorityBypassWhileDisputedWindowOpen() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", abi.encode(subId, true, 1 ether));
+
+        vm.deal(otherUser, 1 ether);
+        vm.prank(otherUser);
+        hub.challenge{value: 0.1 ether}(subId);
+
+        BountyHub.Submission memory beforeAttempt = _getSubmission(subId);
+        uint256 auditorBalBefore = auditor.balance;
+        uint256 hubBalBefore = address(hub).balance;
+
+        vm.expectRevert("Dispute window open");
+        vm.prank(auditor);
+        hub.finalize(subId);
+
+        BountyHub.Submission memory afterAttempt = _getSubmission(subId);
+        assertEq(uint8(afterAttempt.status), uint8(BountyHub.SubmissionStatus.Disputed), "Finalize bypass must keep dispute active");
+        assertEq(afterAttempt.challengeBond, beforeAttempt.challengeBond, "Finalize bypass must preserve challenge bond");
+        assertEq(auditor.balance, auditorBalBefore, "Finalize bypass must not settle payout");
+        assertEq(address(hub).balance, hubBalBefore, "Finalize bypass must not move escrow");
+    }
+
     function test_submissionMetadataHash_disputeAndFinalizeFlowUnchanged() public {
         (uint256 pid, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
         bytes32 expectedMetadataHash = keccak256(bytes("uri"));
@@ -1105,6 +1290,30 @@ contract BountyHubTest is Test {
         (sub.auditor, sub.projectId, sub.commitHash, sub.cipherURI, sub.salt,
          sub.commitTimestamp, sub.revealTimestamp, sub.status, sub.drainAmountWei, sub.severity, 
          sub.payoutAmount, sub.disputeDeadline, sub.challenged, sub.challenger, sub.challengeBond) = hub.submissions(subId);
+    }
+
+    function _getSubmissionJuryMetadata(uint256 subId)
+        internal
+        view
+        returns (bool hasJury, string memory action, string memory rationale)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getSubmissionJuryMetadata(uint256)", subId)
+        );
+        assertTrue(ok, "jury metadata getter should exist");
+        return abi.decode(data, (bool, string, string));
+    }
+
+    function _getSubmissionGroupingMetadata(uint256 subId)
+        internal
+        view
+        returns (bool hasGrouping, string memory cohort, string memory groupId, uint256 groupRank, uint256 groupSize)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getSubmissionGroupingMetadata(uint256)", subId)
+        );
+        assertTrue(ok, "grouping metadata getter should exist");
+        return abi.decode(data, (bool, string, string, uint256, uint256));
     }
 
     function _domainSeparator() internal view returns (bytes32) {
