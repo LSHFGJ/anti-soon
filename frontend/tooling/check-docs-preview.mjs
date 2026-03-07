@@ -154,20 +154,20 @@ async function verifyDocsRoutes(previewOrigin) {
     await assertVisible(page, '[data-docs-route="page"][data-docs-page="architecture"]', "/docs/architecture resolves to the architecture page shell");
     await page.getByRole("heading", { name: "Architecture" }).waitFor({ state: "visible" });
 
-    await page.goto(`${previewOrigin}/docs/operations#incident-response`, { waitUntil: "networkidle" });
-    await page.waitForURL(`${previewOrigin}/docs/operations#incident-response`);
-    await assertVisible(page, '[data-docs-route="page"][data-docs-page="operations"]', "/docs/operations#incident-response resolves to the operations page shell");
-    await assertVisible(page, "#incident-response", "/docs/operations#incident-response resolves to the incident response anchor");
-    const incidentResponseTop = await page
-      .locator("#incident-response")
+    await page.goto(`${previewOrigin}/docs/operations#runtime-topology`, { waitUntil: "networkidle" });
+    await page.waitForURL(`${previewOrigin}/docs/operations#runtime-topology`);
+    await assertVisible(page, '[data-docs-route="page"][data-docs-page="operations"]', "/docs/operations#runtime-topology resolves to the operations page shell");
+    await assertVisible(page, "#runtime-topology", "/docs/operations#runtime-topology resolves to the runtime topology anchor");
+    const operationsAnchorTop = await page
+      .locator("#runtime-topology")
       .evaluate((element) => Math.round(element.getBoundingClientRect().top));
-    if (incidentResponseTop >= 180) {
+    if (operationsAnchorTop >= 180) {
       throw new Error(
-        `/docs/operations#incident-response did not scroll to the anchor deterministically (top=${incidentResponseTop})`,
+        `/docs/operations#runtime-topology did not scroll to the anchor deterministically (top=${operationsAnchorTop})`,
       );
     }
     console.log(
-      `docs:preview-check OK - /docs/operations#incident-response anchored near the viewport top (${incidentResponseTop}px)`,
+      `docs:preview-check OK - /docs/operations#runtime-topology anchored near the viewport top (${operationsAnchorTop}px)`,
     );
 
     await page.goto(`${previewOrigin}/docs/getting-started`, { waitUntil: "networkidle" });

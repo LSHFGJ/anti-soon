@@ -50,14 +50,14 @@ test.describe('Docs multi-page flows', () => {
   })
 
   test('page-local anchor routes land on the requested operations section', async ({ page }) => {
-    await page.goto('/docs/operations#incident-response')
+    await page.goto('/docs/operations#runtime-topology')
     await expectDocsPage(page, 'operations', 'Operations')
-    await expect.poll(() => new URL(page.url()).hash).toBe('#incident-response')
+    await expect.poll(() => new URL(page.url()).hash).toBe('#runtime-topology')
 
-    const incidentResponseSection = page.locator('#incident-response')
-    await expect(incidentResponseSection).toBeVisible()
+    const runtimeTopologySection = page.locator('#runtime-topology')
+    await expect(runtimeTopologySection).toBeVisible()
     await expect
-      .poll(async () => incidentResponseSection.evaluate((element) => Math.round(element.getBoundingClientRect().top)))
+      .poll(async () => runtimeTopologySection.evaluate((element) => Math.round(element.getBoundingClientRect().top)))
       .toBeLessThan(180)
   })
 
