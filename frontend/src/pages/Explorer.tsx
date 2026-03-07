@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { formatEther } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
-import { readContractWithRpcFallback } from '../lib/publicClient'
+import { readAllProjectIds } from '../lib/projectIndex'
 import { readProjectsByIds } from '../lib/projectReads'
 import type { Project } from '../types'
 import { Badge } from '@/components/ui/badge'
@@ -52,19 +51,13 @@ export function Explorer() {
     try {
       setIsLoading(true)
       setError(null)
-      
-      const nextId = await readContractWithRpcFallback({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'nextProjectId'
-      }) as bigint
 
-      if (nextId === 0n) {
+      const projectIds = await readAllProjectIds()
+      if (projectIds.length === 0) {
         setProjects([])
         return
       }
 
-      const projectIds = Array.from({ length: Number(nextId) }, (_, index) => BigInt(index))
       const fetchedProjects: Project[] = await readProjectsByIds(projectIds)
 
       setProjects(fetchedProjects)

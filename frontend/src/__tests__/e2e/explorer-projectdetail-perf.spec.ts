@@ -278,8 +278,12 @@ function toProjectTuple(id: bigint) {
   } as const
 }
 
-function selectorOf(functionName: 'nextProjectId' | 'projects' | 'projectRules' | 'submissions'): Hex {
-  return encodeFunctionData({ abi: BOUNTY_HUB_V2_ABI, functionName, args: functionName === 'nextProjectId' ? [] : [0n] }).slice(0, 10) as Hex
+function selectorOf(functionName: 'getProjectIds' | 'projects' | 'projectRules' | 'submissions'): Hex {
+  return encodeFunctionData({
+    abi: BOUNTY_HUB_V2_ABI,
+    functionName,
+    args: functionName === 'getProjectIds' ? [0n, 100n] : [0n],
+  }).slice(0, 10) as Hex
 }
 
 function decodeUintArg(data: Hex): bigint {
@@ -329,7 +333,7 @@ function createRouteMetrics() {
 function getBountyCallResult(
   data: Hex,
   selectors: {
-    nextProjectSelector: Hex
+    projectIdsSelector: Hex
     projectsSelector: Hex
     rulesSelector: Hex
     submissionsSelector: Hex
@@ -337,11 +341,11 @@ function getBountyCallResult(
 ): Hex | null {
   const selector = data.slice(0, 10).toLowerCase() as Hex
 
-  if (selector === selectors.nextProjectSelector.toLowerCase()) {
+  if (selector === selectors.projectIdsSelector.toLowerCase()) {
     return encodeFunctionResult({
       abi: BOUNTY_HUB_V2_ABI,
-      functionName: 'nextProjectId',
-      result: 4n,
+      functionName: 'getProjectIds',
+      result: [[3n, 2n, 1n, 0n], 0n],
     })
   }
 
@@ -417,7 +421,7 @@ async function installRpcMock(
   page: import('@playwright/test').Page,
   metrics: { httpRequests: number; rpcCalls: number; methods: Record<string, number> }
 ) {
-  const nextProjectSelector = selectorOf('nextProjectId')
+  const projectIdsSelector = selectorOf('getProjectIds')
   const projectsSelector = selectorOf('projects')
   const rulesSelector = selectorOf('projectRules')
   const submissionsSelector = selectorOf('submissions')
@@ -507,7 +511,7 @@ async function installRpcMock(
               : ('0x' as Hex)
 
             const innerResult = getBountyCallResult(callData, {
-              nextProjectSelector,
+              projectIdsSelector,
               projectsSelector,
               rulesSelector,
               submissionsSelector,
@@ -531,7 +535,7 @@ async function installRpcMock(
         }
 
         const directCallResult = getBountyCallResult(data, {
-          nextProjectSelector,
+          projectIdsSelector,
           projectsSelector,
           rulesSelector,
           submissionsSelector,

@@ -1,6 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { type Address, formatEther, parseAbiItem, type GetLogsReturnType } from "viem";
+import { type Address, formatEther } from "viem";
+import { CountdownTimer } from "../components/shared/CountdownTimer";
+import { SeverityBadge } from "../components/shared/SeverityBadge";
+import { StatCard } from "../components/shared/StatCard";
+import {
+	MetaRow,
+	NeonPanel,
+	PageHeader,
+	StatusBanner,
+} from "../components/shared/ui-primitives";
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import {
+	multicallWithRpcFallback,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
+import { readProjectById } from "../lib/projectReads";
+import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
+import {
+	STATUS_LABELS,
+	type ExtendedSubmission,
+	type Project,
+	type ProjectRules,
+	type Submission,
+} from "../types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,39 +35,6 @@ import {
 	formatPreviewFallbackMessage,
 	shouldUsePreviewFallback,
 } from "@/lib/previewFallback";
-import { CountdownTimer } from "../components/shared/CountdownTimer";
-import { SeverityBadge } from "../components/shared/SeverityBadge";
-import { StatCard } from "../components/shared/StatCard";
-import {
-	MetaRow,
-	NeonPanel,
-	PageHeader,
-	StatusBanner,
-} from "../components/shared/ui-primitives";
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
-import { 
-	discoverDeploymentBlockWithFallback,
-	getLogsWithRangeFallback,
-} from "../lib/chainLogs";
-import {
-	getBlockNumberWithRpcFallback,
-	getLogsWithRpcFallback,
-	multicallWithRpcFallback,
-	readContractWithRpcFallback,
-} from "../lib/publicClient";
-import { readProjectById } from "../lib/projectReads";
-import {
-	type Project,
-	type ProjectRules,
-	STATUS_LABELS,
-	type Submission,
-	type ExtendedSubmission,
-} from "../types";
-
-const POC_COMMITTED_EVENT = parseAbiItem(
-	"event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)",
-);
-type PoCCommittedLog = GetLogsReturnType<typeof POC_COMMITTED_EVENT, [typeof POC_COMMITTED_EVENT], true>[number];
 
 type SubmissionTuple = readonly [
 	auditor: Address,
@@ -99,7 +89,7 @@ function ThresholdCard({
 	);
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+function SectionHeader({ children }: { children: ReactNode }) {
 	return (
 		<h2 className="text-sm font-mono tracking-widest text-[var(--color-text-dim)] uppercase mb-4 pb-2 border-b border-[var(--color-bg-light)]">
 			{children}
@@ -299,34 +289,7 @@ export function ProjectDetail() {
 	const fetchSubmissions = useCallback(async () => {
 		const requestId = ++submissionsRequestIdRef.current;
 		try {
-			const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
-				fetchLogs: (range) =>
-					getLogsWithRpcFallback({
-						address: BOUNTY_HUB_ADDRESS,
-						event: POC_COMMITTED_EVENT,
-						strict: true,
-						args: { projectId },
-						...(range ?? {}),
-						toBlock: range?.toBlock ?? "latest",
-					}) as Promise<PoCCommittedLog[]>,
-				getLatestBlock: () => getBlockNumberWithRpcFallback(),
-				getStartBlock: async (latestBlock) =>
-					discoverDeploymentBlockWithFallback(
-						BOUNTY_HUB_ADDRESS,
-						latestBlock,
-					),
-			});
-
-			const submissionIds = Array.from(
-				new Set(
-					logs
-						.map((log) => log.args.submissionId)
-						.filter(
-							(submissionId): submissionId is bigint =>
-								submissionId !== undefined,
-						),
-				),
-			);
+			const submissionIds = await readAllProjectSubmissionIds(projectId);
 
 			if (submissionIds.length === 0) {
 				if (submissionsRequestIdRef.current !== requestId) {

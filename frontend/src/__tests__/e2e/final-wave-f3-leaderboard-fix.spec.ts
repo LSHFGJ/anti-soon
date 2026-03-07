@@ -4,12 +4,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   decodeFunctionData,
-  encodeAbiParameters,
-  encodeEventTopics,
   encodeFunctionData,
   encodeFunctionResult,
-  keccak256,
-  stringToHex,
   toHex,
   type Hex,
 } from 'viem'
@@ -25,7 +21,6 @@ const screenshotPath = resolve(finalQaDir, screenshotName)
 
 const payoutsPerAuditor = 5
 const auditorCount = 24
-const submissionCount = payoutsPerAuditor * auditorCount
 
 const MULTICALL3_ABI = [
   {
@@ -56,20 +51,16 @@ const MULTICALL3_ABI = [
   },
 ] as const
 
-const bountyPaidEvent = {
-  type: 'event',
-  name: 'BountyPaid',
-  inputs: [
-    { indexed: true, name: 'submissionId', type: 'uint256' },
-    { indexed: true, name: 'auditor', type: 'address' },
-    { indexed: false, name: 'amount', type: 'uint256' },
-  ],
-} as const
-
-const submissionSelector = encodeFunctionData({
+const leaderboardAuditorsSelector = encodeFunctionData({
   abi: BOUNTY_HUB_V2_ABI,
-  functionName: 'submissions',
-  args: [0n],
+  functionName: 'getLeaderboardAuditors',
+  args: [0n, 100n],
+}).slice(0, 10) as Hex
+
+const auditorStatsSelector = encodeFunctionData({
+  abi: BOUNTY_HUB_V2_ABI,
+  functionName: 'getAuditorStats',
+  args: [shortAddr(1)],
 }).slice(0, 10) as Hex
 
 const multicallSelector = encodeFunctionData({
@@ -82,63 +73,25 @@ function shortAddr(index: number): Hex {
   return (`0x${index.toString(16).padStart(40, '0')}`) as Hex
 }
 
-function buildSubmissionTuple(submissionId: bigint): readonly [Hex, bigint, Hex, string, Hex, bigint, bigint, number, bigint, number, bigint, bigint, boolean, Hex, bigint] {
-  const severity = Number(submissionId % 5n)
-  const payoutAmount = 1_000_000_000_000_000n * (submissionId % 9n + 1n)
-  const auditorIndex = Number((submissionId - 1n) % BigInt(auditorCount)) + 1
-  const auditor = shortAddr(auditorIndex)
+function buildAuditorStats(auditor: Hex): readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint] {
+  const auditorIndex = BigInt(Number.parseInt(auditor.slice(-2), 16))
+  const paidCount = BigInt(payoutsPerAuditor)
+  const totalEarned = 1_000_000_000_000_000n * (25n - auditorIndex) * paidCount
 
   return [
-    auditor,
-    1n,
-    `0x${'ab'.repeat(32)}` as Hex,
-    `oasis://mock/submission-${submissionId.toString()}`,
-    `0x${'00'.repeat(32)}` as Hex,
-    1_900_000_000n + submissionId,
-    1_900_000_500n + submissionId,
-    4,
-    payoutAmount,
-    severity,
-    payoutAmount,
+    paidCount,
+    paidCount,
     0n,
-    false,
-    shortAddr(0),
-    0n,
+    paidCount,
+    BigInt((Number(auditorIndex) % 3) + 1),
+    BigInt(Number(auditorIndex) % 2),
+    totalEarned,
+    auditorIndex - 1n,
   ]
 }
 
-function buildPayoutLogs() {
-  const logs = []
-
-  for (let i = 1; i <= submissionCount; i += 1) {
-    const submissionId = BigInt(i)
-    const auditor = shortAddr(((i - 1) % auditorCount) + 1)
-    const amount = 1_000_000_000_000_000n * BigInt((i % 7) + 1)
-
-    const topics = encodeEventTopics({
-      abi: [bountyPaidEvent],
-      eventName: 'BountyPaid',
-      args: { submissionId, auditor },
-    }) as readonly Hex[]
-
-    logs.push({
-      address: shortAddr(48879),
-      topics,
-      data: encodeAbiParameters([{ type: 'uint256' }], [amount]),
-      blockNumber: toHex(18_100_000n + submissionId),
-      transactionHash: keccak256(stringToHex(`payout-tx-${i}`)),
-      transactionIndex: toHex(i),
-      blockHash: keccak256(stringToHex(`payout-block-${i}`)),
-      logIndex: toHex(i),
-      removed: false,
-    })
-  }
-
-  return logs
-}
-
 async function installLeaderboardMock(page: import('@playwright/test').Page) {
-  const payoutLogs = buildPayoutLogs()
+  const auditors = Array.from({ length: auditorCount }, (_, index) => shortAddr(index + 1))
 
   await page.route('**/*', async (route) => {
     const request = route.request()
@@ -178,14 +131,22 @@ async function installLeaderboardMock(page: import('@playwright/test').Page) {
         return { jsonrpc: '2.0', id: call.id, result: toHex(18_100_999n) }
       }
 
-      if (call.method === 'eth_getLogs') {
-        return { jsonrpc: '2.0', id: call.id, result: payoutLogs }
-      }
-
       if (call.method === 'eth_call') {
         const params = call.params ?? []
         const requestData = ((params[0] ?? {}) as { data?: Hex }).data ?? ('0x' as Hex)
         const selector = requestData.slice(0, 10).toLowerCase()
+
+        if (selector === leaderboardAuditorsSelector.toLowerCase()) {
+          return {
+            jsonrpc: '2.0',
+            id: call.id,
+            result: encodeFunctionResult({
+              abi: BOUNTY_HUB_V2_ABI,
+              functionName: 'getLeaderboardAuditors',
+              result: [auditors, 0n],
+            }),
+          }
+        }
 
         if (selector === multicallSelector.toLowerCase()) {
           const decoded = decodeFunctionData({ abi: MULTICALL3_ABI, data: requestData })
@@ -196,19 +157,19 @@ async function installLeaderboardMock(page: import('@playwright/test').Page) {
               ? (aggregateCall as { callData: Hex }).callData
               : ('0x' as Hex)
 
-            if (callData.slice(0, 10).toLowerCase() !== submissionSelector.toLowerCase()) {
+            if (callData.slice(0, 10).toLowerCase() !== auditorStatsSelector.toLowerCase()) {
               return { success: false, returnData: '0x' as Hex }
             }
 
-            const decodedSubmission = decodeFunctionData({ abi: BOUNTY_HUB_V2_ABI, data: callData })
-            const submissionId = Array.isArray(decodedSubmission.args) ? (decodedSubmission.args[0] as bigint) : 0n
+            const decodedAuditor = decodeFunctionData({ abi: BOUNTY_HUB_V2_ABI, data: callData })
+            const auditor = Array.isArray(decodedAuditor.args) ? (decodedAuditor.args[0] as Hex) : shortAddr(1)
 
             return {
               success: true,
               returnData: encodeFunctionResult({
                 abi: BOUNTY_HUB_V2_ABI,
-                functionName: 'submissions',
-                result: buildSubmissionTuple(submissionId),
+                functionName: 'getAuditorStats',
+                result: buildAuditorStats(auditor),
               }),
             }
           })

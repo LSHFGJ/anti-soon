@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatEther, parseAbiItem, type GetLogsReturnType } from 'viem'
-import type { Address } from 'viem'
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { formatEther, parseAbiItem, type Address, type GetLogsReturnType } from 'viem'
+import { SeverityBadge } from '../components/shared/SeverityBadge'
+import { StatCard } from '../components/shared/StatCard'
+import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { Card, CardContent } from '../components/ui/card'
 import {
   Table,
@@ -12,18 +13,20 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table'
-import { SeverityBadge } from '../components/shared/SeverityBadge'
-import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
-import { StatCard } from '../components/shared/StatCard'
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { useWallet } from '../hooks/useWallet'
-import { STATUS_LABELS } from '../types'
-import type { Submission, ExtendedSubmission } from '../types'
-import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
 import { discoverDeploymentBlockWithFallback, getLogsWithRangeFallback } from '../lib/chainLogs'
-import { getBlockNumberWithRpcFallback, getLogsWithRpcFallback, multicallWithRpcFallback, readContractWithRpcFallback } from '../lib/publicClient'
+import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
 import { readStoredPoCPreview } from '../lib/oasisUpload'
+import {
+  getBlockNumberWithRpcFallback,
+  getLogsWithRpcFallback,
+  multicallWithRpcFallback,
+  readContractWithRpcFallback,
+} from '../lib/publicClient'
+import { readAllAuditorSubmissionIds } from '../lib/submissionIndex'
+import { STATUS_LABELS, type ExtendedSubmission, type Submission } from '../types'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/explorerLinks'
-import { normalizeEthereumAddress } from '../lib/address'
 
 const POC_COMMITTED_EVENT = parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)')
 type PoCCommittedLog = GetLogsReturnType<typeof POC_COMMITTED_EVENT, [typeof POC_COMMITTED_EVENT], true>[number]
@@ -46,10 +49,54 @@ type SubmissionTuple = readonly [
   challengeBond: bigint
 ]
 
-const DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE = 50
+type AuditorStatsTuple = readonly [
+  totalSubmissions: bigint,
+  activeValidCount: bigint,
+  pendingCount: bigint,
+  paidCount: bigint,
+  highPaidCount: bigint,
+  criticalPaidCount: bigint,
+  totalEarnedWei: bigint,
+  leaderboardIndex: bigint,
+]
+
+type DashboardStatsSnapshot = {
+  totalEarned: bigint
+  totalCount: number
+  validCount: number
+  pendingCount: number
+}
+
+async function readCommitTxHashMap(userAddress: Address): Promise<Map<string, `0x${string}`>> {
+  const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
+    fetchLogs: (range) => getLogsWithRpcFallback({
+      address: BOUNTY_HUB_ADDRESS,
+      event: POC_COMMITTED_EVENT,
+      strict: true,
+      args: { auditor: userAddress },
+      ...(range ?? {}),
+      toBlock: range?.toBlock ?? 'latest',
+    }) as Promise<PoCCommittedLog[]>,
+    getLatestBlock: () => getBlockNumberWithRpcFallback(),
+    getStartBlock: async (latestBlock) => discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
+  })
+
+  return new Map(
+    logs
+      .map((log) => {
+        const submissionId = log.args.submissionId
+        if (!submissionId || !log.transactionHash) {
+          return null
+        }
+
+        return [submissionId.toString(), log.transactionHash] as const
+      })
+      .filter((entry): entry is readonly [string, `0x${string}`] => entry !== null),
+  )
+}
 
 export function Dashboard() {
-  const { address, isConnected, isConnecting, connect } = useWallet({ autoSwitchToSepolia: false })
+  const { address, isConnected, isConnecting, connect, walletClient } = useWallet({ autoSwitchToSepolia: false })
   const [submissions, setSubmissions] = useState<ExtendedSubmission[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,123 +104,53 @@ export function Dashboard() {
   const [previewContent, setPreviewContent] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewLoadingId, setPreviewLoadingId] = useState<bigint | null>(null)
+  const [statsSnapshot, setStatsSnapshot] = useState<DashboardStatsSnapshot | null>(null)
 
   const STATUS_FINALIZED = 4
   const STATUS_VERIFIED = 2
 
-  const metrics = useMemo(
+  const computedMetrics = useMemo(
     () => deriveDashboardMetrics(submissions, STATUS_FINALIZED, STATUS_VERIFIED),
     [submissions]
   )
 
-  const { totalEarned, totalCount, validCount, pendingCount, pendingPayouts } = metrics
-
-  const scanUserSubmissionsFromState = useCallback(async (userAddress: Address): Promise<Submission[]> => {
-    const nextSubmissionId = await readContractWithRpcFallback({
-      address: BOUNTY_HUB_ADDRESS,
-      abi: BOUNTY_HUB_V2_ABI,
-      functionName: 'nextSubmissionId',
-    }) as bigint
-
-    if (nextSubmissionId === 0n) {
-      return []
-    }
-
-    const matched: Submission[] = []
-    const normalizedUserAddress = normalizeEthereumAddress(userAddress)
-    if (!normalizedUserAddress) {
-      return []
-    }
-
-    for (let endExclusive = Number(nextSubmissionId); endExclusive > 0; endExclusive -= DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE) {
-      const startInclusive = Math.max(0, endExclusive - DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE)
-      const chunkIds = Array.from(
-        { length: endExclusive - startInclusive },
-        (_, index) => BigInt(endExclusive - 1 - index),
-      )
-
-      const results = await multicallWithRpcFallback({
-        contracts: chunkIds.map((id) => ({
-          address: BOUNTY_HUB_ADDRESS,
-          abi: BOUNTY_HUB_V2_ABI,
-          functionName: 'submissions' as const,
-          args: [id] as const,
-        })),
-        allowFailure: false,
-      }) as SubmissionTuple[]
-
-      results.forEach((data, index) => {
-        const auditor = normalizeEthereumAddress(data[0])
-        if (auditor !== normalizedUserAddress) {
-          return
-        }
-
-        matched.push({
-          id: chunkIds[index],
-          auditor: data[0],
-          projectId: data[1],
-          commitHash: data[2],
-          cipherURI: data[3],
-          salt: data[4],
-          commitTimestamp: data[5],
-          revealTimestamp: data[6],
-          status: data[7],
-          drainAmountWei: data[8],
-          severity: data[9],
-          payoutAmount: data[10],
-          disputeDeadline: data[11],
-          challenged: data[12],
-          challenger: data[13],
-          challengeBond: data[14],
-        })
-      })
-    }
-
-    return matched
-  }, [])
+  const pendingPayouts = computedMetrics.pendingPayouts
+  const totalEarned = statsSnapshot?.totalEarned ?? computedMetrics.totalEarned
+  const totalCount = statsSnapshot?.totalCount ?? computedMetrics.totalCount
+  const validCount = statsSnapshot?.validCount ?? computedMetrics.validCount
+  const pendingCount = statsSnapshot?.pendingCount ?? computedMetrics.pendingCount
 
   const fetchUserSubmissions = useCallback(async (userAddress: Address) => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
-        fetchLogs: (range) => getLogsWithRpcFallback({
+      const [submissionIds, auditorStats] = await Promise.all([
+        readAllAuditorSubmissionIds(userAddress),
+        readContractWithRpcFallback({
           address: BOUNTY_HUB_ADDRESS,
-          event: POC_COMMITTED_EVENT,
-          strict: true,
-          args: { auditor: userAddress },
-          ...(range ?? {}),
-          toBlock: range?.toBlock ?? 'latest',
-        }) as Promise<PoCCommittedLog[]>,
-        getLatestBlock: () => getBlockNumberWithRpcFallback(),
-        getStartBlock: async (latestBlock) => discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'getAuditorStats',
+          args: [userAddress],
+        }) as Promise<AuditorStatsTuple>,
+      ])
+
+      setStatsSnapshot({
+        totalEarned: auditorStats[6],
+        totalCount: Number(auditorStats[0]),
+        validCount: Number(auditorStats[1]),
+        pendingCount: Number(auditorStats[2]),
       })
-
-      const submissionIds = Array.from(
-        new Set(
-          logs
-            .map((log) => log.args.submissionId)
-            .filter((submissionId): submissionId is bigint => submissionId !== undefined)
-        )
-      )
-      const commitTxHashById = new Map(
-        logs
-          .map((log) => {
-            const submissionId = log.args.submissionId
-            if (!submissionId || !log.transactionHash) {
-              return null
-            }
-
-            return [submissionId.toString(), log.transactionHash] as const
-          })
-          .filter((entry): entry is readonly [string, `0x${string}`] => entry !== null),
-      )
 
       if (submissionIds.length === 0) {
         setSubmissions([])
         return
       }
+
+      const commitTxHashPromise = readCommitTxHashMap(userAddress).catch((logLookupError) => {
+        console.warn('Optional commit tx lookup failed:', logLookupError)
+        return new Map<string, `0x${string}`>()
+      })
 
       const submissionContracts = submissionIds.map((id) => ({
         address: BOUNTY_HUB_ADDRESS,
@@ -203,27 +180,36 @@ export function Dashboard() {
         challenged: data[12],
         challenger: data[13],
         challengeBond: data[14],
-        commitTxHash: commitTxHashById.get(submissionIds[index].toString()),
       }))
 
       setSubmissions(fetchedSubmissions)
 
+      void commitTxHashPromise.then((commitTxHashById) => {
+        if (commitTxHashById.size === 0) {
+          return
+        }
+
+        const normalizedUserAddress = userAddress.toLowerCase()
+        setSubmissions((current) => current.map((submission) => {
+          if (submission.auditor.toLowerCase() !== normalizedUserAddress) {
+            return submission
+          }
+
+          const commitTxHash = commitTxHashById.get(submission.id.toString())
+          return commitTxHash ? { ...submission, commitTxHash } : submission
+        }))
+      })
+
     } catch (err) {
       console.error('Failed to fetch submissions:', err)
-      try {
-        const scannedSubmissions = await scanUserSubmissionsFromState(userAddress)
-        setSubmissions(scannedSubmissions)
-        setError(scannedSubmissions.length === 0 ? 'Failed to load your submissions from blockchain' : null)
-      } catch (scanErr) {
-        console.error('State-scan fallback failed:', scanErr)
-        setError('Failed to load your submissions from blockchain')
-      }
+      setStatsSnapshot(null)
+      setError('Failed to load your submissions from blockchain')
     } finally {
       setIsLoading(false)
     }
-  }, [scanUserSubmissionsFromState])
+  }, [])
 
-  const handlePreviewPoC = useCallback(async (submission: ExtendedSubmission) => {
+  const handlePreviewPoC = async (submission: ExtendedSubmission) => {
     setPreviewSubmissionId(submission.id)
     setPreviewLoadingId(submission.id)
     setPreviewError(null)
@@ -232,6 +218,7 @@ export function Dashboard() {
       const preview = await readStoredPoCPreview({
         cipherURI: submission.cipherURI,
         fallbackAuditor: submission.auditor,
+        ethereumProvider: walletClient,
       })
       setPreviewContent(JSON.stringify(preview.poc, null, 2))
     } catch (previewErr) {
@@ -240,7 +227,7 @@ export function Dashboard() {
     } finally {
       setPreviewLoadingId(null)
     }
-  }, [])
+  }
 
   useEffect(() => {
     if (isConnected && address) {

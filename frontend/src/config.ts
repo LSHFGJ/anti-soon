@@ -1,7 +1,7 @@
-import { sepolia } from "viem/chains";
 import { getAddress, isAddress } from "viem";
+import { sepolia } from "viem/chains";
 
-const DEFAULT_BOUNTY_HUB_ADDRESS = "0x17797b473864806072186f6997801D4473AAF6e8";
+const DEFAULT_BOUNTY_HUB_ADDRESS = "0x76592151f145Dd8c402Ad16202BC94DaF4f8D607";
 
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
@@ -202,6 +202,104 @@ export const BOUNTY_HUB_V2_ABI = [
 		stateMutability: "view",
 		inputs: [],
 		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
+		name: "getProjectCount",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
+		name: "getProjectIds",
+		type: "function",
+		stateMutability: "view",
+		inputs: [
+			{ name: "cursor", type: "uint256" },
+			{ name: "limit", type: "uint256" },
+		],
+		outputs: [
+			{ name: "ids", type: "uint256[]" },
+			{ name: "nextCursor", type: "uint256" },
+		],
+	},
+	{
+		name: "getProjectSubmissionCount",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "projectId", type: "uint256" }],
+		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
+		name: "getAuditorSubmissionCount",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "auditor", type: "address" }],
+		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
+		name: "getProjectSubmissionIds",
+		type: "function",
+		stateMutability: "view",
+		inputs: [
+			{ name: "projectId", type: "uint256" },
+			{ name: "cursor", type: "uint256" },
+			{ name: "limit", type: "uint256" },
+		],
+		outputs: [
+			{ name: "ids", type: "uint256[]" },
+			{ name: "nextCursor", type: "uint256" },
+		],
+	},
+	{
+		name: "getAuditorSubmissionIds",
+		type: "function",
+		stateMutability: "view",
+		inputs: [
+			{ name: "auditor", type: "address" },
+			{ name: "cursor", type: "uint256" },
+			{ name: "limit", type: "uint256" },
+		],
+		outputs: [
+			{ name: "ids", type: "uint256[]" },
+			{ name: "nextCursor", type: "uint256" },
+		],
+	},
+	{
+		name: "getAuditorStats",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "auditor", type: "address" }],
+		outputs: [
+			{ name: "totalSubmissions", type: "uint256" },
+			{ name: "activeValidCount", type: "uint256" },
+			{ name: "pendingCount", type: "uint256" },
+			{ name: "paidCount", type: "uint256" },
+			{ name: "highPaidCount", type: "uint256" },
+			{ name: "criticalPaidCount", type: "uint256" },
+			{ name: "totalEarnedWei", type: "uint256" },
+			{ name: "leaderboardIndex", type: "uint256" },
+		],
+	},
+	{
+		name: "getLeaderboardAuditorCount",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
+		name: "getLeaderboardAuditors",
+		type: "function",
+		stateMutability: "view",
+		inputs: [
+			{ name: "cursor", type: "uint256" },
+			{ name: "limit", type: "uint256" },
+		],
+		outputs: [
+			{ name: "auditors", type: "address[]" },
+			{ name: "nextCursor", type: "uint256" },
+		],
 	},
 	// Dispute functions
 	{

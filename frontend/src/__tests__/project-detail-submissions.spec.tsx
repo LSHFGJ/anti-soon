@@ -6,6 +6,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDetail } from "../pages/ProjectDetail";
 
+function getFunctionName(parameters: unknown): string | null {
+	if (typeof parameters !== "object" || parameters === null || !("functionName" in parameters)) {
+		return null;
+	}
+
+	const value = parameters.functionName;
+	return typeof value === "string" ? value : null;
+}
+
 const { readProjectByIdMock, publicClientMock } = vi.hoisted(() => ({
 	readProjectByIdMock: vi.fn(),
 	publicClientMock: {
@@ -117,23 +126,24 @@ describe("ProjectDetail submission visibility", () => {
 		vi.clearAllMocks();
 
 		readProjectByIdMock.mockResolvedValue(mockProject);
-		publicClientMock.readContract.mockResolvedValue(mockRulesTuple);
+		publicClientMock.readContract.mockImplementation(async (parameters: unknown) => {
+			const functionName = getFunctionName(parameters);
+			if (functionName === "projectRules") {
+				return mockRulesTuple;
+			}
+			if (functionName === "getProjectSubmissionIds") {
+				return [[42n], 0n];
+			}
+
+			throw new Error(`Unexpected readContract call: ${String(functionName)}`);
+		});
 		publicClientMock.multicall.mockResolvedValue([mockSubmissionTuple]);
 		publicClientMock.getBlockNumber.mockResolvedValue(20_000n);
 		publicClientMock.getCode.mockRejectedValue(new Error("missing trie node"));
+		publicClientMock.getLogs.mockRejectedValue(new Error("legacy log discovery should not run"));
 	});
 
-	it("falls back to chunked log reads and still renders committed submission", async () => {
-		let logCallCount = 0;
-		publicClientMock.getLogs.mockImplementation(async () => {
-			logCallCount += 1;
-			if (logCallCount === 1) {
-				throw new Error("eth_getLogs is limited to a 10,000 range");
-			}
-
-			return [{ args: { submissionId: 42n } }];
-		});
-
+	it("uses the contract submission index and still renders committed submission", async () => {
 		renderProjectDetailRoute();
 
 		await waitFor(() => {
@@ -141,11 +151,21 @@ describe("ProjectDetail submission visibility", () => {
 		});
 
 		expect(screen.getByText("#42")).toBeDefined();
-		expect(publicClientMock.getLogs.mock.calls.length).toBeGreaterThan(1);
+		expect(publicClientMock.getLogs).not.toHaveBeenCalled();
 	});
 
 	it("shows explicit submissions load error when log query fails", async () => {
-		publicClientMock.getLogs.mockRejectedValue(new Error("rpc unavailable"));
+		publicClientMock.readContract.mockImplementation(async (parameters: unknown) => {
+			const functionName = getFunctionName(parameters);
+			if (functionName === "projectRules") {
+				return mockRulesTuple;
+			}
+			if (functionName === "getProjectSubmissionIds") {
+				throw new Error("rpc unavailable");
+			}
+
+			throw new Error(`Unexpected readContract call: ${String(functionName)}`);
+		});
 
 		renderProjectDetailRoute();
 

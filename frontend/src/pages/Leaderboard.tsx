@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { formatEther, parseAbiItem, type Address, type GetLogsReturnType } from 'viem'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { useWallet } from '../hooks/useWallet'
 import {
@@ -13,13 +13,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 import { StatCard } from '@/components/shared/StatCard'
-import { aggregateLeaderboardEntries } from '../lib/dashboardLeaderboardCompute'
-import { discoverDeploymentBlockWithFallback, getLogsWithRangeFallback } from '../lib/chainLogs'
-import { getBlockNumberWithRpcFallback, getLogsWithRpcFallback, multicallWithRpcFallback } from '../lib/publicClient'
+import { readAllLeaderboardAuditors, type AuditorStatsTuple } from '../lib/leaderboardReads'
+import { multicallWithRpcFallback } from '../lib/publicClient'
 import { formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
-
-const BOUNTY_PAID_EVENT = parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)')
-type BountyPaidLog = GetLogsReturnType<typeof BOUNTY_PAID_EVENT, [typeof BOUNTY_PAID_EVENT], true>[number]
 
 interface LeaderboardEntry {
   rank: number
@@ -28,28 +24,8 @@ interface LeaderboardEntry {
   totalEarned: bigint
   highCount: number
   criticalCount: number
+  leaderboardIndex: number
 }
-
-type SubmissionTuple = readonly [
-  auditor: Address,
-  projectId: bigint,
-  commitHash: `0x${string}`,
-  cipherURI: string,
-  salt: `0x${string}`,
-  commitTimestamp: bigint,
-  revealTimestamp: bigint,
-  status: number,
-  drainAmountWei: bigint,
-  severity: number,
-  payoutAmount: bigint,
-  disputeDeadline: bigint,
-  challenged: boolean,
-  challenger: Address,
-  challengeBond: bigint
-]
-
-const SEVERITY_HIGH = 3
-const SEVERITY_CRITICAL = 4
 
 function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) {
@@ -91,71 +67,46 @@ export function Leaderboard() {
       setIsLoading(true)
       setError(null)
 
-      const payoutLogs = await getLogsWithRangeFallback<BountyPaidLog>({
-        fetchLogs: (range) => getLogsWithRpcFallback({
-          address: BOUNTY_HUB_ADDRESS,
-          event: BOUNTY_PAID_EVENT,
-          strict: true,
-          ...(range ?? {}),
-          toBlock: range?.toBlock ?? 'latest',
-        }) as Promise<BountyPaidLog[]>,
-        getLatestBlock: () => getBlockNumberWithRpcFallback(),
-        getStartBlock: async (latestBlock) => discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
-      })
+      const auditors = await readAllLeaderboardAuditors()
 
-      if (payoutLogs.length === 0) {
+      if (auditors.length === 0) {
         setLeaderboard([])
         return
       }
 
-      const submissionIds = [
-        ...new Set(
-          payoutLogs
-            .map((log) => log.args.submissionId)
-            .filter((submissionId): submissionId is bigint => submissionId !== undefined)
-        )
-      ]
-      
-      const submissionContracts = submissionIds.map((id) => ({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'submissions' as const,
-        args: [id] as const
-      }))
-
-      const submissions = await multicallWithRpcFallback({
-        contracts: submissionContracts,
+      const auditorStats = await multicallWithRpcFallback({
+        contracts: auditors.map((auditor) => ({
+          address: BOUNTY_HUB_ADDRESS,
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'getAuditorStats' as const,
+          args: [auditor] as const,
+        })),
         allowFailure: false
-      }) as SubmissionTuple[]
-      
-      const severityMap = new Map<bigint, number>()
-      submissions.forEach((sub, index) => {
-        severityMap.set(submissionIds[index], sub[9])
-      })
+      }) as AuditorStatsTuple[]
 
-      const payoutRows = payoutLogs
-        .map((log) => {
-          const auditor = log.args.auditor
-          const amount = log.args.amount
-          const submissionId = log.args.submissionId
-          if (!auditor || amount === undefined || submissionId === undefined) {
-            return null
-          }
-
+      const sortedLeaderboard = auditors
+        .map((auditor, index) => {
+          const stats = auditorStats[index]
           return {
-            auditor,
-            amount,
-            submissionId,
+            address: auditor,
+            rank: 0,
+            validCount: Number(stats[3]),
+            totalEarned: stats[6],
+            highCount: Number(stats[4]),
+            criticalCount: Number(stats[5]),
+            leaderboardIndex: Number(stats[7]),
           }
         })
-        .filter((row): row is { auditor: Address; amount: bigint; submissionId: bigint } => row !== null)
-
-      const sortedLeaderboard = aggregateLeaderboardEntries(
-        payoutRows,
-        severityMap,
-        SEVERITY_HIGH,
-        SEVERITY_CRITICAL
-      )
+        .filter((entry) => entry.totalEarned > 0n)
+        .sort((left, right) => {
+          if (right.totalEarned > left.totalEarned) return 1
+          if (right.totalEarned < left.totalEarned) return -1
+          return left.leaderboardIndex - right.leaderboardIndex
+        })
+        .map((entry, index) => ({
+          ...entry,
+          rank: index + 1,
+        }))
 
       setLeaderboard(sortedLeaderboard)
     } catch (err) {
@@ -169,6 +120,7 @@ export function Leaderboard() {
             totalEarned: 3_200_000_000_000_000_000n,
             highCount: 4,
             criticalCount: 2,
+            leaderboardIndex: 0,
           },
           {
             rank: 2,
@@ -177,6 +129,7 @@ export function Leaderboard() {
             totalEarned: 1_900_000_000_000_000_000n,
             highCount: 3,
             criticalCount: 1,
+            leaderboardIndex: 1,
           },
         ])
         setError(formatPreviewFallbackMessage('Failed to load leaderboard data'))
@@ -263,7 +216,7 @@ export function Leaderboard() {
                     Auditor
                   </TableHead>
                   <TableHead className="text-center text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
-                    Valid
+                    Paid
                   </TableHead>
                   <TableHead className="text-center text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
                     High
