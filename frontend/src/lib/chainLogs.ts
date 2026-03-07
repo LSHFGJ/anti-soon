@@ -117,16 +117,46 @@ export async function getLogsWithRangeFallback<TLog>(params: {
 }): Promise<TLog[]> {
   const { fetchLogs, getLatestBlock, getStartBlock } = params
 
+  let cachedLatestBlock: bigint | undefined
+  let cachedStartBlock: bigint | undefined
+
+  async function resolveBounds(): Promise<{ latestBlock: bigint; startBlock: bigint }> {
+    if (cachedLatestBlock === undefined) {
+      cachedLatestBlock = await getLatestBlock()
+    }
+    if (cachedStartBlock === undefined) {
+      cachedStartBlock = await getStartBlock(cachedLatestBlock)
+    }
+
+    return {
+      latestBlock: cachedLatestBlock,
+      startBlock: cachedStartBlock,
+    }
+  }
+
   try {
-    return await fetchLogs()
+    const logs = await fetchLogs()
+    if (logs.length > 0) {
+      return logs
+    }
+
+    const { latestBlock, startBlock } = await resolveBounds()
+    if (startBlock > latestBlock) return []
+
+    try {
+      return await fetchLogs({ fromBlock: startBlock, toBlock: 'latest' })
+    } catch (error) {
+      if (!isRangeLimitError(error)) {
+        throw error
+      }
+    }
   } catch (error) {
     if (!isRangeLimitError(error)) {
       throw error
     }
   }
 
-  const latestBlock = await getLatestBlock()
-  const startBlock = await getStartBlock(latestBlock)
+  const { latestBlock, startBlock } = await resolveBounds()
 
   if (startBlock > latestBlock) return []
 

@@ -52,6 +52,24 @@ describe('getLogsWithRangeFallback', () => {
     expect(fetchLogs.mock.calls[2]?.[0]?.toBlock).toBe(15_000n)
   })
 
+  it('retries with deployment-bounded range when an unbounded log query silently returns empty', async () => {
+    const fetchLogs = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'bounded-hit' }])
+
+    const logs = await getLogsWithRangeFallback({
+      fetchLogs,
+      getLatestBlock: async () => 10_500n,
+      getStartBlock: async () => 10_000n,
+    })
+
+    expect(logs).toEqual([{ id: 'bounded-hit' }])
+    expect(fetchLogs).toHaveBeenCalledTimes(2)
+    expect(fetchLogs.mock.calls[1]?.[0]?.fromBlock).toBe(10_000n)
+    expect(fetchLogs.mock.calls[1]?.[0]?.toBlock).toBe('latest')
+  })
+
   it('rethrows non-range provider errors', async () => {
     const fetchLogs = vi.fn().mockRejectedValue(new Error('unauthorized'))
 
