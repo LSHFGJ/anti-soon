@@ -154,7 +154,9 @@ export function collectDocsRoutePathViolations(
 	path: string,
 	scope: DocsV1Scope = DOCS_V1_SCOPE,
 ): string[] {
-	if (path === DOCS_LANDING_PAGE_HREF) {
+	const landingPageHref = scope.routeBasePath;
+
+	if (path === landingPageHref) {
 		return [];
 	}
 
@@ -167,7 +169,7 @@ export function collectDocsRoutePathViolations(
 	const childPath = path.slice(scope.routeBasePath.length + 1);
 	if (!DOCS_CHILD_ROUTE_SEGMENT_PATTERN.test(childPath)) {
 		return [
-			`Docs v1 routes must be "${DOCS_LANDING_PAGE_HREF}" or a flat child route like "${scope.routeBasePath}/<slug>"; received "${path}"`,
+			`Docs v1 routes must be "${landingPageHref}" or a flat child route like "${scope.routeBasePath}/<slug>"; received "${path}"`,
 		];
 	}
 

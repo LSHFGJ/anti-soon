@@ -71,6 +71,14 @@ describe("docs policy contract", () => {
 			'Docs v1 routes must be "/docs" or a flat child route like "/docs/<slug>"; received "/docs/reference/contracts"',
 		]);
 
+		expect(
+			policyModule.collectDocsRoutePathViolations("/guides", {
+				...policyModule.DOCS_V1_SCOPE,
+				routeBasePath: "/guides",
+				routePrefixes: ["/guides"],
+			}),
+		).toEqual([]);
+
 		expect(policyModule.collectDocsRoutePathViolations("/guides/architecture")).toEqual([
 			'Docs v1 routes must stay rooted at "/docs"; received "/guides/architecture"',
 		]);
