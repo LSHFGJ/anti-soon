@@ -1,9 +1,9 @@
 import { overviewDocsPage } from "./overview";
-import { apiAndContractsDocsPage } from "./pages/api-and-contracts";
 import { architectureDocsPage } from "./pages/architecture";
 import { createProjectDocsPage } from "./pages/create-project";
 import { dashboardAndLeaderboardDocsPage } from "./pages/dashboard-and-leaderboard";
 import { dataFlowDocsPage } from "./pages/data-flow";
+import { deploymentsAndRepositoriesDocsPage } from "./pages/deployments-and-repositories";
 import { exploreProjectsDocsPage } from "./pages/explore-projects";
 import { gettingStartedDocsPage } from "./pages/getting-started";
 import { glossaryDocsPage } from "./pages/glossary";
@@ -11,6 +11,7 @@ import { operationsDocsPage } from "./pages/operations";
 import { securityDocsPage } from "./pages/security";
 import { submitPocDocsPage } from "./pages/submit-poc";
 import { troubleshootingDocsPage } from "./pages/troubleshooting";
+import { whyAntiSoonDocsPage } from "./pages/why-antisoon";
 
 import {
 	DOCS_AUTHORING_MALFORMED_FIXTURE,
@@ -27,6 +28,7 @@ export type {
 	DocsContentCollection,
 	DocsListBlock,
 	DocsListStyle,
+	DocsMermaidBlock,
 	DocsPage,
 	DocsParagraphBlock,
 	DocsSection,
@@ -44,9 +46,9 @@ export {
 
 export const DOCS_CONTENT = defineDocsContentCollection([
 	overviewDocsPage,
+	whyAntiSoonDocsPage,
 	architectureDocsPage,
 	dataFlowDocsPage,
-	apiAndContractsDocsPage,
 	securityDocsPage,
 	operationsDocsPage,
 	troubleshootingDocsPage,
@@ -56,6 +58,7 @@ export const DOCS_CONTENT = defineDocsContentCollection([
 	createProjectDocsPage,
 	dashboardAndLeaderboardDocsPage,
 	glossaryDocsPage,
+	deploymentsAndRepositoriesDocsPage,
 ]);
 
 export const docsSourceManifest = DOCS_CONTENT;

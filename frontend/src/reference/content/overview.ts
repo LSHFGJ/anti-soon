@@ -21,7 +21,21 @@ export const overviewDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Welcome to the AntiSoon documentation. This landing page aggregates all child guides into logical sections. Use the link lists below to jump directly into technical deep-dives or user workflows.",
+					text: "Welcome to the AntiSoon documentation. This portal is designed to answer two different questions: how the product works for researchers and project owners, and how the underlying contract plus workflow stack behaves for operators and contributors.",
+				},
+				{
+					type: "paragraph",
+					text: "Read this landing page as a map rather than a full manual. The sections below tell you which page to open next, what sort of evidence each page contains, and which guides are optimized for implementation detail versus operational usage.",
+				},
+				{
+					type: "link-list",
+					items: [
+						{
+							title: "Why AntiSoon",
+							href: "/docs/why-antisoon",
+							description: "Read the developer statement that explains why AntiSoon exists, what it critiques in current audit competitions, and what kind of decentralized alternative it is trying to build.",
+						},
+					],
 				},
 			],
 		},
@@ -33,16 +47,15 @@ export const overviewDocsPage = {
 			},
 			title: "Developer Quick Paths",
 			summary:
-				"Get up and running with the codebase, architecture, and API contracts.",
+				"Get up and running with the codebase, lifecycle model, and trust boundaries.",
 			blocks: [
+				{
+					type: "paragraph",
+					text: "Start here if you are trying to orient yourself in the implementation. These guides explain what the UI is expected to do, how lifecycle stages move through the system, and where trust boundaries sit without forcing you to read the full codebase in source order.",
+				},
 				{
 					type: "link-list",
 					items: [
-						{
-							title: "Getting Started",
-							href: "/docs/getting-started",
-							description: "Developer setup and initial onboarding.",
-						},
 						{
 							title: "Architecture",
 							href: "/docs/architecture",
@@ -54,9 +67,9 @@ export const overviewDocsPage = {
 							description: "Data processing and state transitions.",
 						},
 						{
-							title: "API & Contracts",
-							href: "/docs/api-and-contracts",
-							description: "API boundaries and data contracts.",
+							title: "Security",
+							href: "/docs/security",
+							description: "Trust boundaries, confidentiality, and adjudication safeguards.",
 						},
 					],
 				},
@@ -73,28 +86,36 @@ export const overviewDocsPage = {
 				"Guides on how to use the platform, create projects, and submit PoCs.",
 			blocks: [
 				{
+					type: "paragraph",
+					text: "These pages are the usage manual for the product. They explain where to start, what page to open, what information to prepare, what screen feedback matters, and what result tells you your action actually worked.",
+				},
+				{
 					type: "link-list",
 					items: [
 						{
+							title: "Getting Started",
+							href: "/docs/getting-started",
+							description: "Choose your role, open the right route, and reach your first useful action quickly.",
+						},
+						{
 							title: "Explore Projects",
 							href: "/docs/explore-projects",
-							description: "How to navigate and filter available projects.",
+							description: "Use the explorer and project detail pages to choose a competition and decide whether to submit.",
 						},
 						{
 							title: "Create a Project",
 							href: "/docs/create-project",
-							description: "Guidelines and workflow for starting new projects.",
+							description: "Walk through the owner wizard from repository scan to on-chain registration.",
 						},
 						{
 							title: "Submit a PoC",
 							href: "/docs/submit-poc",
-							description:
-								"Workflows for creating and submitting Proofs of Concept.",
+							description: "Move through the Builder step by step and know when your submission is actually complete.",
 						},
 						{
 							title: "Dashboard & Leaderboard",
 							href: "/docs/dashboard-and-leaderboard",
-							description: "Metrics, tracking, and community standings.",
+							description: "Read your own submission history and payouts, then compare public rankings once payouts land.",
 						},
 					],
 				},
@@ -110,6 +131,10 @@ export const overviewDocsPage = {
 			summary:
 				"In-depth reference material covering security, operations, and troubleshooting.",
 			blocks: [
+				{
+					type: "paragraph",
+					text: "Open the technical library when you need to reason about trust boundaries, workflow side effects, deployment expectations, or common operational failures. These pages prefer explicit tables, runbooks, and state descriptions over product copy.",
+				},
 				{
 					type: "link-list",
 					items: [
@@ -133,39 +158,6 @@ export const overviewDocsPage = {
 							href: "/docs/glossary",
 							description: "Definitions for domains and ubiquitous language.",
 						},
-					],
-				},
-			],
-		},
-		{
-			id: "docs-contract",
-			anchor: {
-				id: "docs-contract",
-				label: "Docs Contract",
-			},
-			title: "Docs Contract",
-			summary:
-				"The docs source stays lightweight and schema-driven instead of introducing markdown parsing or generated artifacts.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "Canonical docs content lives under src/reference/content as plain objects with stable ids, summaries, and rendering-ready blocks.",
-				},
-				{
-					type: "list",
-					style: "unordered",
-					items: [
-						"Every page has a stable slug and href used by the current /docs experience.",
-						"Every section carries an explicit anchor contract for in-page navigation.",
-						"Every block stays JSON-friendly so the source is safe to commit and test.",
-					],
-				},
-				{
-					type: "callout",
-					tone: "info",
-					title: "Offline-first docs",
-					body: [
-						"The content contract is runtime-validated during tests and when the canonical manifest is defined.",
 					],
 				},
 			],

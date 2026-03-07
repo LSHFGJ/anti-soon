@@ -111,6 +111,218 @@ describe("docs content schema", () => {
 		);
 	});
 
+	it("does not expose the removed docs contract section on the overview page", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const overviewPage = docsSourceManifest.find((page) => page.slug === "overview");
+
+		expect(overviewPage).toBeDefined();
+		expect(overviewPage?.sections.map((section) => section.id)).not.toContain("docs-contract");
+	});
+
+	it("does not render a flowchart on the docs overview landing section", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const overviewPage = docsSourceManifest.find((page) => page.slug === "overview");
+		const overviewSection = overviewPage?.sections.find((section) => section.id === "overview");
+
+		expect(overviewSection).toBeDefined();
+		expect(overviewSection?.blocks.map((block) => block.type)).not.toContain("mermaid");
+	});
+
+	it("realigns the core protocol docs around the lifecycle design vocabulary", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const getSectionIds = (slug: string) =>
+			docsSourceManifest.find((page) => page.slug === slug)?.sections.map((section) => section.id) ?? [];
+
+		expect(getSectionIds("data-flow")).toEqual(
+			expect.arrayContaining([
+				"protocol-pipeline",
+				"mode-dependent-reveal-orchestration",
+				"verdict-and-settlement-paths",
+			]),
+		);
+		expect(getSectionIds("submit-poc")).toEqual(
+			expect.arrayContaining([
+				"submission-readiness",
+				"commit-path",
+				"post-commit-lifecycle",
+			]),
+		);
+		expect(getSectionIds("create-project")).toEqual(
+			expect.arrayContaining([
+				"project-bootstrap",
+				"mode-and-deadline-design",
+				"registration-and-activation",
+			]),
+		);
+		expect(getSectionIds("explore-projects")).toEqual(
+			expect.arrayContaining([
+				"project-discovery",
+				"timeline-and-visibility",
+				"submission-signal-reading",
+			]),
+		);
+		expect(getSectionIds("dashboard-and-leaderboard")).toEqual(
+			expect.arrayContaining([
+				"visibility-model",
+				"verdict-and-payout-signals",
+				"grouping-and-ranking",
+			]),
+		);
+		expect(getSectionIds("operations")).toEqual(
+			expect.arrayContaining([
+				"runtime-topology",
+				"orchestration-checkpoints",
+				"release-and-docs-gates",
+			]),
+		);
+		expect(getSectionIds("security")).toEqual(
+			expect.arrayContaining([
+				"security-goals",
+				"confidentiality-and-provenance",
+				"verification-and-adjudication-trust",
+			]),
+		);
+		expect(getSectionIds("getting-started")).toEqual(
+			expect.arrayContaining([
+				"protocol-orientation",
+				"researcher-and-owner-entry-points",
+				"onboarding-prerequisites",
+			]),
+		);
+		expect(getSectionIds("troubleshooting")).toEqual(
+			expect.arrayContaining([
+				"lifecycle-debugging-lens",
+				"commit-and-visibility-issues",
+				"read-model-and-routing-issues",
+			]),
+		);
+	});
+
+	it("removes the API & Contracts page from the docs manifest and overview quick paths", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const overviewPage = docsSourceManifest.find((page) => page.slug === "overview");
+		const docsText = JSON.stringify(docsSourceManifest);
+		const overviewText = JSON.stringify(overviewPage);
+
+		expect(docsSourceManifest.map((page) => page.slug)).not.toContain("api-and-contracts");
+		expect(docsText).not.toContain('/docs/api-and-contracts');
+		expect(overviewText).not.toContain('API & Contracts');
+	});
+
+	it("documents the detailed jury orchestration design from the original protocol source", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const getPage = (slug: string) => docsSourceManifest.find((page) => page.slug === slug);
+
+		const architecture = getPage("architecture");
+		const dataFlow = getPage("data-flow");
+		const security = getPage("security");
+
+		expect(architecture?.sections.map((section) => section.id)).toEqual(
+			expect.arrayContaining(["jury-orchestration-design"]),
+		);
+		expect(dataFlow?.sections.map((section) => section.id)).toEqual(
+			expect.arrayContaining(["confidential-jury-flow"]),
+		);
+		expect(security?.sections.map((section) => section.id)).toEqual(
+			expect.arrayContaining(["jury-selection-and-confidentiality"]),
+		);
+
+		const architectureText = JSON.stringify(architecture);
+		const dataFlowText = JSON.stringify(dataFlow);
+		const securityText = JSON.stringify(security);
+
+		expect(architectureText).toContain("5 LLM");
+		expect(architectureText).toContain("5 human");
+		expect(architectureText).toContain("verification window");
+		expect(dataFlowText).toContain("solo");
+		expect(dataFlowText).toContain("duplicate");
+		expect(dataFlowText).toContain("owner testimony");
+		expect(securityText).toContain("VRF randomness");
+		expect(securityText).toContain("zk");
+	});
+
+	it("publishes a minimal addresses page with real on-chain contract addresses and one repo link", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const lastPage = docsSourceManifest.at(-1);
+		const addressesPage = docsSourceManifest.find(
+			(page) => page.slug === "deployments-and-repositories",
+		);
+
+		expect(lastPage?.slug).toBe("deployments-and-repositories");
+		expect(addressesPage?.title).toBe("Addresses");
+		expect(addressesPage?.sections.map((section) => section.id)).toEqual(
+			expect.arrayContaining([
+				"contracts",
+				"repository",
+			]),
+		);
+
+		const addressesText = JSON.stringify(addressesPage);
+		expect(addressesText).toContain("0x17797b473864806072186f6997801D4473AAF6e8");
+		expect(addressesText).toContain("0x15fC6ae953E024d975e77382eEeC56A9101f9F88");
+		expect(addressesText).toContain("https://github.com/LSHFGJ/anti-soon");
+		expect(addressesText).not.toContain("Evidence");
+		expect(addressesText).not.toContain("VITE_OASIS_STORAGE_CONTRACT");
+	});
+
+	it("models confidential storage as a workflow-connected surface in the system diagram", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const architecture = docsSourceManifest.find((page) => page.slug === "architecture");
+		const systemModel = architecture?.sections.find((section) => section.id === "system-model");
+		const mermaidBlock = systemModel?.blocks.find((block) => block.type === "mermaid");
+
+		expect(mermaidBlock).toBeDefined();
+		const diagram = mermaidBlock && mermaidBlock.type === "mermaid" ? mermaidBlock.diagram : "";
+		expect(diagram).toContain("OasisPOCStore");
+		expect(diagram).toContain("CRE Workflow DON");
+		expect(diagram).toContain("confidential store / retrieve");
+		expect(diagram).toContain("Auditor");
+		expect(diagram).toContain("payout");
+	expect(diagram).toContain("jury verification");
+	expect(diagram).not.toContain("Explorer and Dashboard reads");
+	});
+
+	it("keeps the System Model section focused on prose plus the flowchart", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const architecture = docsSourceManifest.find((page) => page.slug === "architecture");
+		const systemModel = architecture?.sections.find((section) => section.id === "system-model");
+		expect(
+			systemModel?.blocks.some((block) => JSON.stringify(block).includes('"type":"table"')),
+		).toBe(false);
+	});
+
+	it("does not duplicate step numbering inside step titles", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const numberedTitles = docsSourceManifest.flatMap((page) =>
+			page.sections.flatMap((section) =>
+				section.blocks.flatMap((block) =>
+					block.type === "steps"
+						? block.items
+								.filter((item) => /^\d+\.\s/.test(item.title))
+								.map((item) => `${page.slug}:${section.id}:${item.title}`)
+						: [],
+				),
+			),
+		);
+
+		expect(numberedTitles).toEqual([]);
+	});
+
+	it("uses steps blocks instead of ordered list blocks for numbered walkthroughs", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const orderedLists = docsSourceManifest.flatMap((page) =>
+			page.sections.flatMap((section) =>
+				section.blocks.flatMap((block) =>
+					block.type === "list" && JSON.stringify(block).includes('"style":"ordered"')
+						? [`${page.slug}:${section.id}`]
+						: [],
+				),
+			),
+		);
+
+		expect(orderedLists).toEqual([]);
+	});
+
 	it("allows the /docs landing page plus flat /docs/<slug> child pages", async () => {
 		const assertDocsContentCollection = await loadAssertDocsContentCollection();
 
@@ -215,7 +427,7 @@ describe("docs content schema", () => {
 		).toThrow(/callout|tone|body/i);
 	});
 
-	it("accepts code, table, and link-list docs blocks", async () => {
+	it("accepts code, table, mermaid, and link-list docs blocks", async () => {
 		const assertDocsContentCollection = await loadAssertDocsContentCollection();
 
 		expect(() =>
@@ -243,6 +455,11 @@ describe("docs content schema", () => {
 										["retries", "3"],
 									],
 									caption: "Runtime defaults",
+								},
+								{
+									type: "mermaid",
+									diagram: "flowchart TD\nA[Commit] --> B[Reveal]",
+									caption: "Lifecycle overview",
 								},
 								{
 									type: "link-list",
@@ -415,5 +632,31 @@ describe("docs content schema", () => {
 				}),
 			]),
 		).toThrow(/title|description/i);
+	});
+
+	it("rejects mermaid blocks without a diagram", async () => {
+		const assertDocsContentCollection = await loadAssertDocsContentCollection();
+
+		expect(() =>
+			assertDocsContentCollection([
+				createPage({
+					id: "broken-mermaid",
+					slug: "broken-mermaid",
+					href: "/docs/broken-mermaid",
+					title: "Broken mermaid",
+					summary: "Invalid mermaid fixture",
+					sections: [
+						createSection("broken-mermaid", "Broken mermaid", {
+							blocks: [
+								{
+									type: "mermaid",
+									diagram: "",
+								},
+							],
+						}),
+					],
+				}),
+			]),
+		).toThrow(/diagram/i);
 	});
 });
