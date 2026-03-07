@@ -6,120 +6,87 @@ export const dashboardAndLeaderboardDocsPage = {
 	href: "/docs/dashboard-and-leaderboard",
 	locale: "en",
 	title: "Dashboard & Leaderboard",
-	summary: "Metrics, tracking, and community standings.",
+	summary: "How to use `/dashboard` and `/leaderboard` to track your own submissions, payouts, and public ranking.",
 	sections: [
 		{
-			id: "wallet-connection",
-			anchor: {
-				id: "wallet-connection",
-				label: "Wallet Connection",
-			},
-			title: "Wallet Connection",
-			summary: "Accessing the Dashboard.",
+			id: "visibility-model",
+			anchor: { id: "visibility-model", label: "Use the Dashboard" },
+			title: "Use the Dashboard",
+			summary: "What the dashboard actually shows you after you connect your wallet.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The Dashboard is auditor-specific. You must connect your wallet to view your submissions, earnings, and pending payouts. The Leaderboard, however, is a global view and can be viewed without a connected wallet.",
+					text: "`/dashboard` is the page for your own activity. When your wallet is connected, it loads the submissions committed by that address and summarizes them into four top-line metrics before showing the recent-submissions table below.",
+				},
+				{
+					type: "table",
+					columns: ["Dashboard area", "What it shows", "How to use it"],
+					rows: [
+						["Connect wallet screen", "A prompt to connect before personalized data can load.", "If you only want public ranking data, go to `/leaderboard` instead. If you want your own submissions, connect first."],
+						["Top metrics", "`TOTAL EARNED`, `SUBMISSIONS`, `VALID`, and `PENDING`.", "Use these cards for a quick read on whether you are getting paid, how many submissions you have, and how much unresolved work is still in flight."],
+						["Pending payouts", "Rows that show project id, severity, and ETH amount for payouts still waiting to clear.", "Treat this as your watchlist for money that looks positive but is not fully settled yet."],
+						["Recent submissions", "A table of submission id, project, severity, status, payout, and date.", "Open the linked project when you need more competition context around a specific submission."],
+					],
 				},
 			],
 		},
 		{
-			id: "metrics-and-states",
-			anchor: {
-				id: "metrics-and-states",
-				label: "Metrics and States",
-			},
-			title: "Metrics and States",
-			summary: "Understanding your Dashboard numbers.",
+			id: "verdict-and-payout-signals",
+			anchor: { id: "verdict-and-payout-signals", label: "Read Submission Status" },
+			title: "Read Submission Status",
+			summary: "How to interpret the most important columns in your submission history.",
 			blocks: [
 				{
-					type: "paragraph",
-					text: "Your Dashboard aggregates data from all your on-chain submissions:",
+					type: "table",
+					columns: ["Column", "What to look for", "Practical interpretation"],
+					rows: [
+						["Severity", "The badge and any extra grouping marker.", "Use this to understand the quality of the current result package, but remember that severity alone does not mean the payout has already landed."],
+						["Status", "The status badge in the table row.", "Treat it as the current chain-derived stage for that submission. If the row still looks in-flight, keep checking here instead of assuming a payout is already due."],
+						["Payout", "Either an ETH amount or `-`.", "An ETH value means the system has a payout amount for the submission. `-` means nothing has been paid yet, even if other fields look promising."],
+						["Date", "The commit timestamp.", "Use it to understand recency and to distinguish a new submission from an older result that has simply changed status later."],
+					],
 				},
 				{
 					type: "list",
 					style: "unordered",
 					items: [
-						"Total Earned: The sum of payouts only for submissions that have reached the Finalized status.",
-						"Valid Submissions: The count of submissions evaluated as severity > 0 that are Verified or Finalized.",
-						"Pending Submissions: The count of submissions currently in the Verified state, awaiting finalization."
-					]
+						"If the dashboard says `No submissions found`, the fastest next action is to return to `/builder` and create your first submission.",
+						"If a row shows a positive payout amount and also appears in `PENDING PAYOUTS`, treat it as good news that still needs final settlement.",
+						"If the dashboard is showing a preview-mode warning, verify important payout and status data before acting on it.",
+					],
+				},
+			],
+		},
+		{
+			id: "grouping-and-ranking",
+			anchor: { id: "grouping-and-ranking", label: "Use the Leaderboard" },
+			title: "Use the Leaderboard",
+			summary: "What the public ranking view is for, and what it is not for.",
+			blocks: [
+				{
+					type: "paragraph",
+					text: "`/leaderboard` is the public summary screen. It ranks auditors by total earned bounty and shows how many valid, high, and critical results each address has accumulated. If your wallet is connected, your own row is highlighted so you can see where you stand without scanning the whole table manually.",
+				},
+				{
+					type: "table",
+					columns: ["Leaderboard column", "What it means", "How to use it"],
+					rows: [
+						["Rank", "Relative position by earnings.", "Use it as a quick public standing, not as a guarantee of current submission quality."],
+						["Auditor", "Shortened wallet address.", "If you connect your wallet, your own row is highlighted to help you spot yourself quickly."],
+						["Valid / High / Critical", "Counts of stronger recorded outcomes.", "Use these columns to understand why someone ranks highly, not just how much they have earned."],
+						["Earnings", "Total bounty amount paid to that address.", "This is the key ranking signal. New submissions do not change it until real payouts have happened."],
+					],
 				},
 				{
 					type: "callout",
 					tone: "info",
-					title: "Pending vs Finalized",
+					title: "Do not use the leaderboard as a live submission tracker",
 					body: [
-						"Verified submissions with a nonzero payout are visually highlighted as 'Pending Payouts', but they are not included in the 'Total Earned' metric until they are officially Finalized."
-					]
-				}
-			]
-		},
-		{
-			id: "submission-history",
-			anchor: {
-				id: "submission-history",
-				label: "Submission History",
-			},
-			title: "Submission History",
-			summary: "Tracking your PoCs.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "The recent submissions table displays the lifecycle of each PoC. The statuses you will see include:",
+						"The leaderboard can be empty even when people are actively working, because it is driven by bounty payout events rather than drafts or pending submissions.",
+						"Use `/dashboard` for your own in-flight work and `/leaderboard` for public results after money has actually moved.",
+					],
 				},
-				{
-					type: "list",
-					style: "unordered",
-					items: [
-						"Committed: The encrypted hash is registered on-chain.",
-						"Revealed: The payload is public and awaiting verification.",
-						"Verified: Nodes have confirmed the exploit and severity.",
-						"Disputed: The project owner has challenged the verdict.",
-						"Finalized: The payout has been executed.",
-						"Invalid: The exploit failed or did not meet severity thresholds."
-					]
-				}
-			]
+			],
 		},
-		{
-			id: "leaderboard-interpretation",
-			anchor: {
-				id: "leaderboard-interpretation",
-				label: "Leaderboard Interpretation",
-			},
-			title: "Leaderboard Interpretation",
-			summary: "How standings are calculated.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "The Leaderboard ranks addresses globally based on total finalized earnings.",
-				},
-				{
-					type: "list",
-					style: "unordered",
-					items: [
-						"Ranking: Sorted descending by total ETH earned from BountyPaid events.",
-						"Tie-breaking: In the event of a tie, the address with the earliest payout takes precedence.",
-						"Summary Stats: The page also shows total hunters, total payouts distributed, and counts for Critical and High severity bugs found across the network."
-					]
-				}
-			]
-		},
-		{
-			id: "empty-and-error-states",
-			anchor: {
-				id: "empty-and-error-states",
-				label: "Empty and Error States",
-			},
-			title: "Empty and Error States",
-			summary: "Handling missing data.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "If you have not submitted any PoCs, the Dashboard will guide you to the Explorer. If the application cannot connect to the blockchain, a warning banner will appear. In some environments, the app may fall back to 'Preview Mode' and display synthetic demo data to keep the UI functional for testing."
-				}
-			]
-		}
 	],
 } as const satisfies DocsPage;
