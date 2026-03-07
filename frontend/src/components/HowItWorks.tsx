@@ -1,35 +1,59 @@
 'use client'
 
+import type React from 'react'
 import { motion } from 'motion/react'
 import { Card, CardContent } from '@/components/ui/card'
 import { staggerContainer, staggerChild } from '@/lib/animations'
 
+function EncryptionUploadIcon() {
+  return (
+    <svg
+      aria-label="Encryption upload lock icon"
+      role="img"
+      viewBox="0 0 64 64"
+      className="mx-auto h-12 w-12"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M20 28V22C20 15.3726 25.3726 10 32 10C38.6274 10 44 15.3726 44 22V28"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+      />
+      <rect x="14" y="28" width="36" height="26" rx="8" stroke="currentColor" strokeWidth="3.5" />
+      <path d="M32 44V33" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" />
+      <path d="M26.5 38.5L32 33L37.5 38.5" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 const steps = [
   {
     step: '01',
-    title: 'SUBMIT_POC',
-    icon: '↑',
-    desc: 'Upload proof-of-concept exploit.',
+    title: 'ENCRYPT',
+    icon: <EncryptionUploadIcon />,
+    desc: 'Hide your fantastic exploits.',
   },
   {
     step: '02',
-    title: 'CRE_VERIFIES',
-    icon: '◈',
-    desc: 'Decentralized nodes validate hash.',
+    title: 'SIMULATE',
+    icon: '⚙',
+    desc: 'Run attacks in sandboxes.',
   },
   {
     step: '03',
-    title: 'SIMULATION',
-    icon: '⚙',
-    desc: 'Tenderly sandbox executes attack.',
+    title: 'CONSENSUS',
+    icon: '◈',
+    desc: 'AI & Human verify on a jury.',
   },
   {
     step: '04',
     title: 'PAYOUT',
     icon: '$',
-    desc: 'Smart contract releases bounty.',
+    desc: 'Release bounty NOW.',
   },
-]
+] satisfies Array<{ step: string; title: string; icon: React.ReactNode; desc: string }>
 
 export const HowItWorks: React.FC = () => {
   return (
@@ -41,7 +65,7 @@ export const HowItWorks: React.FC = () => {
         transition={{ duration: 0.5 }}
         className="text-center text-[var(--color-text-dim)] text-sm tracking-[0.3em] uppercase mb-16"
       >
-        System Architecture
+        System Features
       </motion.h2>
 
       <motion.div
@@ -66,7 +90,8 @@ export const HowItWorks: React.FC = () => {
 
               <CardContent className="p-6 flex flex-col items-center text-center">
                 <motion.div
-                  className="how-it-works-icon text-4xl mb-4 text-[var(--color-primary)]"
+                  data-testid="how-it-works-icon"
+                  className="how-it-works-icon mb-4 flex h-12 w-12 items-center justify-center text-4xl text-[var(--color-primary)]"
                   whileHover={{ scale: 1.1 }}
                   transition={{ duration: 0.2, ease: 'linear' }}
                 >

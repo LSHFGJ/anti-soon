@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
-import type { TargetConfig } from '../../../types/poc'
+import { useForm } from 'react-hook-form'
+import { targetConfigSchema, type TargetConfigFormData } from '../../../lib/validations/poc'
+import { cn } from '../../../lib/utils'
 import type { Project } from '../../../types'
-import { CodeEditor } from '../../CodeEditor'
+import type { TargetConfig } from '../../../types/poc'
 import { StepGuidance } from '../../StepGuidance'
 import { STEP_GUIDES } from '../../StepGuidance/guides'
+import { Button } from '../../ui/button'
 import {
   Form,
   FormControl,
@@ -14,8 +16,6 @@ import {
   FormLabel,
   FormMessage,
 } from '../../ui/form'
-import { Input } from '../../ui/input'
-import { Button } from '../../ui/button'
 import {
   Select,
   SelectContent,
@@ -23,13 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../ui/select'
-import {
-  chainOptions,
-  targetConfigSchema,
-} from '../../../lib/validations/poc'
-import type { TargetConfigFormData } from '../../../lib/validations/poc'
 import { useDeferredFieldUpdates } from './useDeferredFieldUpdates'
-import { cn } from '../../../lib/utils'
 
 function inferProjectChainLabel(project: Project): string {
   const rpcUrl = project.vnetRpcUrl.toLowerCase()
@@ -68,18 +62,21 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   const projectTriggerRef = useRef<HTMLButtonElement | null>(null)
   const pendingProjectContextHighlightRef = useRef(false)
   const [isProjectContextHighlighted, setIsProjectContextHighlighted] = useState(false)
-  const { schedule, flush, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
-  const chainValue = chainOptions.includes(config.chain as typeof chainOptions[number])
-    ? (config.chain as typeof chainOptions[number])
-    : 'Sepolia'
+  const { schedule, flushAll } = useDeferredFieldUpdates<keyof TargetConfig>(onUpdate)
+  const selectedProject = useMemo(
+    () => availableProjects.find((project) => project.id === selectedProjectId) ?? null,
+    [availableProjects, selectedProjectId],
+  )
+  const projectContractOptions = useMemo(
+    () => selectedProject ? [{ value: selectedProject.targetContract, label: selectedProject.targetContract }] : [],
+    [selectedProject],
+  )
 
   const form = useForm<TargetConfigFormData>({
     resolver: zodResolver(targetConfigSchema),
     defaultValues: {
       targetContract: config.targetContract,
-      chain: chainValue,
       forkBlock: config.forkBlock,
-      abiJson: config.abiJson,
     },
     mode: 'onChange',
   })
@@ -87,13 +84,9 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   useEffect(() => {
     form.reset({
       targetContract: config.targetContract,
-      chain: chainValue,
       forkBlock: config.forkBlock,
-      abiJson: config.abiJson,
     })
   }, [
-    chainValue,
-    config.abiJson,
     config.forkBlock,
     config.targetContract,
     form,
@@ -131,25 +124,6 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
     }
   }, [isActive, projectContextHighlightNonce])
 
-  const handleFieldChange = useCallback((
-    field: keyof TargetConfig, 
-    onChange: (value: string) => void
-  ) => {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      const value = e.target.value
-      onChange(value)
-      schedule(field, value)
-    }
-  }, [schedule])
-
-  const handleAbiChange = useCallback((value: string) => {
-    if (projectSelectionOnly) {
-      return
-    }
-    form.setValue('abiJson', value, { shouldValidate: true })
-    schedule('abiJson', value)
-  }, [form, projectSelectionOnly, schedule])
-
   const handleProjectSelect = useCallback((value: string) => {
     if (!onSelectProject) {
       return
@@ -165,6 +139,11 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
       return
     }
   }, [onSelectProject])
+
+  const handleContractSelect = useCallback((value: string) => {
+    form.setValue('targetContract', value, { shouldValidate: true, shouldDirty: true })
+    schedule('targetContract', value)
+  }, [form, schedule])
 
   const handleSubmit = useCallback((data: TargetConfigFormData) => {
     flushAll()
@@ -182,7 +161,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
           <FormItem>
             <FormLabel className="text-[var(--color-text)] text-sm font-medium">
-              Explorer Project (On-chain)
+              Target Project
             </FormLabel>
             <FormControl>
               <Select
@@ -233,84 +212,31 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
                   Target Contract Address
                 </FormLabel>
                 <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="0x..."
-                      onChange={projectSelectionOnly ? undefined : handleFieldChange('targetContract', field.onChange)}
-                      onBlur={() => flush('targetContract')}
-                      disabled={projectSelectionOnly}
-                      className="bg-[var(--color-bg)] border-[var(--color-text-dim)] text-[var(--color-text)] font-mono text-sm focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
-                    />
+                  <Select
+                    value={field.value}
+                    onValueChange={handleContractSelect}
+                    disabled={projectContractOptions.length === 0 || (projectSelectionOnly && projectContractOptions.length === 1)}
+                  >
+                    <SelectTrigger className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
+                      <SelectValue placeholder="[ SELECT_CONTRACT_FROM_PROJECT ]" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
+                      {projectContractOptions.map((contract) => (
+                        <SelectItem
+                          key={contract.value}
+                          value={contract.value}
+                          className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent"
+                        >
+                          {contract.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </FormControl>
                 <FormMessage className="text-[var(--color-error)] text-xs" />
               </FormItem>
             )}
           />
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="chain"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-[var(--color-text)] text-sm font-medium">
-                    Chain
-                  </FormLabel>
-                  <FormControl>
-                    <Select
-                      value={field.value}
-                      disabled={projectSelectionOnly}
-                      onValueChange={(value) => {
-                        if (projectSelectionOnly) return
-                        field.onChange(value)
-                        schedule('chain', value)
-                      }}
-                    >
-                    <SelectTrigger className="h-9 bg-neutral-900/80 border-neutral-800 text-[var(--color-text)] font-mono text-xs hover:border-[var(--color-primary-dim)] transition-colors ring-0 shadow-none focus:ring-0 focus:shadow-none focus-visible:ring-0 focus-visible:outline-none">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[var(--color-bg-panel)] backdrop-blur-md border-neutral-800">
-                        <SelectItem value="Mainnet" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Ethereum Mainnet</SelectItem>
-                        <SelectItem value="Sepolia" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Sepolia Testnet</SelectItem>
-                        <SelectItem value="Optimism" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Optimism</SelectItem>
-                        <SelectItem value="Arbitrum" className="text-[var(--color-text)] text-xs font-mono outline-none ring-0 shadow-none focus:bg-[var(--color-primary-dim)] focus:text-[var(--color-primary)] focus:ring-0 focus-visible:ring-0 data-[state=checked]:bg-transparent">Arbitrum</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage className="text-[var(--color-error)] text-xs" />
-                </FormItem>
-              )}
-            />
-
-          </div>
-
-          {!projectSelectionOnly ? (
-            <FormField
-              control={form.control}
-              name="abiJson"
-              render={({ field, fieldState }) => (
-                <FormItem>
-                  <FormLabel className="text-[var(--color-text-dim)] text-sm font-medium">
-                    Contract ABI (JSON)
-                  </FormLabel>
-                  <FormControl>
-                    <div className="abi-upload-area">
-                      <CodeEditor
-                        value={field.value}
-                        onChange={handleAbiChange}
-                        language="json"
-                        height={220}
-                        readOnly={projectSelectionOnly}
-                        placeholder='[{"inputs":[],"name":"withdraw","outputs":[],"stateMutability":"nonpayable","type":"function"}]'
-                        error={fieldState.error?.message}
-                      />
-                    </div>
-                  </FormControl>
-                  <FormMessage className="text-[var(--color-error)] text-xs" />
-                </FormItem>
-              )}
-            />
-          ) : null}
 
           {showStepNavigation ? (
             <div className="mt-4 text-right">

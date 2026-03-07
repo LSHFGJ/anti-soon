@@ -3,7 +3,7 @@ import {
 	BOUNTY_HUB_PROJECTS_V4_ABI,
 } from '../config'
 import { mapProjectTupleV4, type ProjectV4OnChain } from './projectMapping'
-import { publicClient } from './publicClient'
+import { readWithRpcFallback } from './publicClient'
 import type { Project } from '../types'
 
 function buildV4Contracts(projectIds: readonly bigint[]) {
@@ -26,10 +26,10 @@ export async function readProjectsByIds(projectIds: readonly bigint[]): Promise<
   }
 
 	try {
-		const v4 = await publicClient.multicall({
+		const v4 = await readWithRpcFallback((client) => client.multicall({
 			contracts: buildV4Contracts(projectIds),
 			allowFailure: false,
-		}) as ProjectV4OnChain[]
+		})) as ProjectV4OnChain[]
 		return v4.map((row, index) => mapProjectTupleV4(projectIds[index], row))
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error)

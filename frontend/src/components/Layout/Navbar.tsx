@@ -3,8 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { createPublicClient, defineChain, formatEther, http } from 'viem'
 import { useWallet } from '../../hooks/useWallet'
 import { Button } from '@/components/ui/button'
+import { getBalanceWithRpcFallback } from '@/lib/publicClient'
 import { cn } from '@/lib/utils'
-import { publicClient } from '@/lib/publicClient'
 import { DOCS_ENABLED } from '@/config'
 
 const LOW_GAS_BALANCE_WEI = 10_000_000_000_000_000n
@@ -191,7 +191,7 @@ export function Navbar() {
 
     try {
       const [sepoliaResult, sapphireResult] = await Promise.allSettled([
-        publicClient.getBalance({ address }),
+        getBalanceWithRpcFallback({ address }),
         sapphirePublicClient.getBalance({ address }),
       ])
 

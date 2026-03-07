@@ -25,19 +25,13 @@ export const targetConfigSchema = z.object({
     .string()
     .min(1, 'Target address is required')
     .refine(isValidAddress, 'Invalid Ethereum address format'),
-  chain: z.enum(chainOptions, {
-    errorMap: () => ({ message: 'Please select a valid chain' }),
-  }),
   forkBlock: z
     .string()
     .min(1, 'Fork block is required')
     .refine(
-      (val) => /^\d+$/.test(val) && parseInt(val) > 0,
+      (val) => /^\d+$/.test(val) && parseInt(val, 10) > 0,
       'Fork block must be a positive integer'
     ),
-  abiJson: z
-    .string()
-    .refine(isValidJson, 'Invalid JSON format for ABI'),
 })
 
 export const conditionSchema = z.object({
@@ -93,7 +87,10 @@ export const impactConfigSchema = z.object({
     ),
   description: z
     .string()
-    .min(10, 'Description must be at least 10 characters'),
+    .refine(
+      (val) => val.length === 0 || val.length >= 10,
+      'Description must be at least 10 characters'
+    ),
 })
 
 export const pocFormSchema = z.object({
@@ -108,12 +105,9 @@ export const pocFormSchema = z.object({
     .string()
     .min(1, 'Fork block is required')
     .refine(
-      (val) => /^\d+$/.test(val) && parseInt(val) > 0,
+      (val) => /^\d+$/.test(val) && parseInt(val, 10) > 0,
       'Fork block must be a positive integer'
     ),
-  abiJson: z
-    .string()
-    .refine(isValidJson, 'Invalid JSON format for ABI'),
   
   conditions: z.array(conditionSchema).optional(),
   
@@ -150,7 +144,7 @@ export const validateAddress = (value: string): string | null => {
 
 export const validateBlockNumber = (value: string): string | null => {
   if (!value) return 'Block number is required'
-  if (!/^\d+$/.test(value) || parseInt(value) <= 0) {
+  if (!/^\d+$/.test(value) || parseInt(value, 10) <= 0) {
     return 'Block number must be a positive integer'
   }
   return null

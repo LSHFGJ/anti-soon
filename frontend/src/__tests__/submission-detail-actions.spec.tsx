@@ -1,16 +1,19 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Address } from 'viem'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockProject } from '../test/utils'
 
-const { mockUseWallet, mockReadContract, mockWaitForReceipt, mockReadProjectById, mockWriteContract } = vi.hoisted(() => ({
+const { mockUseWallet, mockReadContract, mockWaitForReceipt, mockReadProjectById, mockWriteContract, mockReadStoredPoCPreview, mockReadSubmissionCommitTxHash, mockResolveSapphireTxHash } = vi.hoisted(() => ({
   mockUseWallet: vi.fn(),
   mockReadContract: vi.fn(),
   mockWaitForReceipt: vi.fn(),
   mockReadProjectById: vi.fn(),
   mockWriteContract: vi.fn(),
+  mockReadStoredPoCPreview: vi.fn(),
+  mockReadSubmissionCommitTxHash: vi.fn(),
+  mockResolveSapphireTxHash: vi.fn(),
 }))
 
 vi.mock('../hooks/useWallet', () => ({
@@ -22,10 +25,24 @@ vi.mock('../lib/publicClient', () => ({
     readContract: (...args: unknown[]) => mockReadContract(...args),
     waitForTransactionReceipt: (...args: unknown[]) => mockWaitForReceipt(...args),
   },
+  readContractWithRpcFallback: (...args: unknown[]) => mockReadContract(...args),
 }))
 
 vi.mock('../lib/projectReads', () => ({
   readProjectById: (...args: unknown[]) => mockReadProjectById(...args),
+}))
+
+vi.mock('../lib/oasisUpload', async () => {
+  const actual = await vi.importActual<typeof import('../lib/oasisUpload')>('../lib/oasisUpload')
+  return {
+    ...actual,
+    readStoredPoCPreview: (...args: unknown[]) => mockReadStoredPoCPreview(...args),
+    resolveSapphireTxHash: (...args: unknown[]) => mockResolveSapphireTxHash(...args),
+  }
+})
+
+vi.mock('../lib/submissionArtifacts', () => ({
+  readSubmissionCommitTxHash: (...args: unknown[]) => mockReadSubmissionCommitTxHash(...args),
 }))
 
 import { SubmissionDetail } from '../pages/SubmissionDetail'
@@ -76,6 +93,28 @@ function renderSubmissionDetail(path = '/submission/1') {
   )
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
+
+function renderRoutableSubmissionDetail(path = '/submission/1') {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Link to="/submission/2">Go to submission 2</Link>
+      <Routes>
+        <Route path="/submission/:id" element={<SubmissionDetail />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 describe('SubmissionDetail lifecycle action alignment', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -83,6 +122,17 @@ describe('SubmissionDetail lifecycle action alignment', () => {
 
     mockWriteContract.mockResolvedValue(MOCK_TX_HASH)
     mockWaitForReceipt.mockResolvedValue({ status: 'success' })
+    mockReadStoredPoCPreview.mockResolvedValue({
+      poc: { step: 'flashLoan()' },
+      payloadJson: '{"poc":{"step":"flashLoan()"}}',
+      source: 'sapphire',
+    })
+    mockReadSubmissionCommitTxHash.mockResolvedValue(
+      '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+    )
+    mockResolveSapphireTxHash.mockResolvedValue(
+      '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    )
     mockReadProjectById.mockResolvedValue(
       createMockProject({
         id: 1n,
@@ -209,6 +259,88 @@ describe('SubmissionDetail lifecycle action alignment', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'ACCEPT (Uphold)' })).toBeVisible()
       expect(screen.getByRole('button', { name: 'REJECT (Overturn)' })).toBeVisible()
+    })
+  })
+
+  it('ignores stale submission responses after route changes', async () => {
+    const submissionOneDeferred = deferred<ReturnType<typeof makeSubmissionTuple>>()
+    const projectOneDeferred = deferred<ReturnType<typeof createMockProject>>()
+
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+
+    mockReadContract.mockImplementation(({ args }: { args?: [bigint] }) => {
+      if (args?.[0] === 1n) {
+        return submissionOneDeferred.promise
+      }
+
+      return Promise.resolve(makeSubmissionTuple({ projectId: 2n }))
+    })
+
+    mockReadProjectById.mockImplementation((projectId: bigint) => {
+      if (projectId === 1n) {
+        return projectOneDeferred.promise
+      }
+
+      return Promise.resolve(createMockProject({ id: 2n, owner: OWNER }))
+    })
+
+    const user = userEvent.setup()
+    renderRoutableSubmissionDetail('/submission/1')
+
+    await user.click(screen.getByRole('link', { name: 'Go to submission 2' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('#2')).toBeVisible()
+    })
+
+    submissionOneDeferred.resolve(makeSubmissionTuple({ projectId: 1n }))
+    projectOneDeferred.resolve(createMockProject({ id: 1n, owner: OWNER }))
+
+    await waitFor(() => {
+      expect(screen.getByText('#2')).toBeVisible()
+      expect(screen.queryByText('#1')).toBeNull()
+    })
+  })
+
+  it('shows both Sapphire and Sepolia transaction hashes from chain-derived artifacts', async () => {
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockResolvedValue(makeSubmissionTuple())
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText('SAPPHIRE_TX')).toBeVisible()
+      expect(screen.getByText('SEPOLIA_COMMIT_TX')).toBeVisible()
+    })
+
+    expect(screen.queryByText('COMMIT_HASH')).not.toBeInTheDocument()
+    expect(screen.queryByText('CIPHER_URI')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('explorer.oasis.io/testnet/sapphire/tx/0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
+    )
+  })
+
+  it('shows a hard error instead of local补全 when chain read fails', async () => {
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockRejectedValue(new Error('rpc down'))
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load submission from blockchain/i)).toBeVisible()
     })
   })
 })

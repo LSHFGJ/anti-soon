@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { formatEther, parseAbiItem } from 'viem'
+import { formatEther, parseAbiItem, type GetLogsReturnType } from 'viem'
 import type { Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { Card, CardContent } from '../components/ui/card'
@@ -19,10 +19,14 @@ import { useWallet } from '../hooks/useWallet'
 import { STATUS_LABELS } from '../types'
 import type { Submission, ExtendedSubmission } from '../types'
 import { deriveDashboardMetrics } from '../lib/dashboardLeaderboardCompute'
-import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
-import { publicClient } from '../lib/publicClient'
-import { buildPreviewSubmission, formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
-import { explorerAddressUrl } from '@/lib/explorerLinks'
+import { discoverDeploymentBlockWithFallback, getLogsWithRangeFallback } from '../lib/chainLogs'
+import { getBlockNumberWithRpcFallback, getLogsWithRpcFallback, multicallWithRpcFallback, readContractWithRpcFallback } from '../lib/publicClient'
+import { readStoredPoCPreview } from '../lib/oasisUpload'
+import { explorerAddressUrl, explorerTxUrl } from '@/lib/explorerLinks'
+import { normalizeEthereumAddress } from '../lib/address'
+
+const POC_COMMITTED_EVENT = parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)')
+type PoCCommittedLog = GetLogsReturnType<typeof POC_COMMITTED_EVENT, [typeof POC_COMMITTED_EVENT], true>[number]
 
 type SubmissionTuple = readonly [
   auditor: Address,
@@ -42,11 +46,17 @@ type SubmissionTuple = readonly [
   challengeBond: bigint
 ]
 
+const DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE = 50
+
 export function Dashboard() {
   const { address, isConnected, isConnecting, connect } = useWallet({ autoSwitchToSepolia: false })
   const [submissions, setSubmissions] = useState<ExtendedSubmission[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [previewSubmissionId, setPreviewSubmissionId] = useState<bigint | null>(null)
+  const [previewContent, setPreviewContent] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewLoadingId, setPreviewLoadingId] = useState<bigint | null>(null)
 
   const STATUS_FINALIZED = 4
   const STATUS_VERIFIED = 2
@@ -58,21 +68,86 @@ export function Dashboard() {
 
   const { totalEarned, totalCount, validCount, pendingCount, pendingPayouts } = metrics
 
+  const scanUserSubmissionsFromState = useCallback(async (userAddress: Address): Promise<Submission[]> => {
+    const nextSubmissionId = await readContractWithRpcFallback({
+      address: BOUNTY_HUB_ADDRESS,
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'nextSubmissionId',
+    }) as bigint
+
+    if (nextSubmissionId === 0n) {
+      return []
+    }
+
+    const matched: Submission[] = []
+    const normalizedUserAddress = normalizeEthereumAddress(userAddress)
+    if (!normalizedUserAddress) {
+      return []
+    }
+
+    for (let endExclusive = Number(nextSubmissionId); endExclusive > 0; endExclusive -= DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE) {
+      const startInclusive = Math.max(0, endExclusive - DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE)
+      const chunkIds = Array.from(
+        { length: endExclusive - startInclusive },
+        (_, index) => BigInt(endExclusive - 1 - index),
+      )
+
+      const results = await multicallWithRpcFallback({
+        contracts: chunkIds.map((id) => ({
+          address: BOUNTY_HUB_ADDRESS,
+          abi: BOUNTY_HUB_V2_ABI,
+          functionName: 'submissions' as const,
+          args: [id] as const,
+        })),
+        allowFailure: false,
+      }) as SubmissionTuple[]
+
+      results.forEach((data, index) => {
+        const auditor = normalizeEthereumAddress(data[0])
+        if (auditor !== normalizedUserAddress) {
+          return
+        }
+
+        matched.push({
+          id: chunkIds[index],
+          auditor: data[0],
+          projectId: data[1],
+          commitHash: data[2],
+          cipherURI: data[3],
+          salt: data[4],
+          commitTimestamp: data[5],
+          revealTimestamp: data[6],
+          status: data[7],
+          drainAmountWei: data[8],
+          severity: data[9],
+          payoutAmount: data[10],
+          disputeDeadline: data[11],
+          challenged: data[12],
+          challenger: data[13],
+          challengeBond: data[14],
+        })
+      })
+    }
+
+    return matched
+  }, [])
+
   const fetchUserSubmissions = useCallback(async (userAddress: Address) => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const logs = await getLogsWithRangeFallback({
-        fetchLogs: (range) => publicClient.getLogs({
+      const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
+        fetchLogs: (range) => getLogsWithRpcFallback({
           address: BOUNTY_HUB_ADDRESS,
-          event: parseAbiItem('event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)'),
+          event: POC_COMMITTED_EVENT,
+          strict: true,
           args: { auditor: userAddress },
           ...(range ?? {}),
           toBlock: range?.toBlock ?? 'latest',
-        }),
-        getLatestBlock: () => publicClient.getBlockNumber(),
-        getStartBlock: async (latestBlock) => discoverDeploymentBlock(publicClient, BOUNTY_HUB_ADDRESS, latestBlock),
+        }) as Promise<PoCCommittedLog[]>,
+        getLatestBlock: () => getBlockNumberWithRpcFallback(),
+        getStartBlock: async (latestBlock) => discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
       })
 
       const submissionIds = Array.from(
@@ -81,6 +156,18 @@ export function Dashboard() {
             .map((log) => log.args.submissionId)
             .filter((submissionId): submissionId is bigint => submissionId !== undefined)
         )
+      )
+      const commitTxHashById = new Map(
+        logs
+          .map((log) => {
+            const submissionId = log.args.submissionId
+            if (!submissionId || !log.transactionHash) {
+              return null
+            }
+
+            return [submissionId.toString(), log.transactionHash] as const
+          })
+          .filter((entry): entry is readonly [string, `0x${string}`] => entry !== null),
       )
 
       if (submissionIds.length === 0) {
@@ -95,7 +182,7 @@ export function Dashboard() {
         args: [id] as const
       }))
 
-      const results = await publicClient.multicall({
+      const results = await multicallWithRpcFallback({
         contracts: submissionContracts,
         allowFailure: false
       }) as SubmissionTuple[]
@@ -115,25 +202,43 @@ export function Dashboard() {
         disputeDeadline: data[11],
         challenged: data[12],
         challenger: data[13],
-        challengeBond: data[14]
+        challengeBond: data[14],
+        commitTxHash: commitTxHashById.get(submissionIds[index].toString()),
       }))
 
       setSubmissions(fetchedSubmissions)
 
     } catch (err) {
       console.error('Failed to fetch submissions:', err)
-      if (shouldUsePreviewFallback()) {
-        setSubmissions([
-          buildPreviewSubmission(1001n, 0n, userAddress, { status: 2, severity: 3 }),
-          buildPreviewSubmission(1002n, 1n, userAddress, { status: 4, severity: 4, payoutAmount: 1_000_000_000_000_000_000n }),
-        ])
-        setError(formatPreviewFallbackMessage('Failed to load your submissions from blockchain'))
-        return
+      try {
+        const scannedSubmissions = await scanUserSubmissionsFromState(userAddress)
+        setSubmissions(scannedSubmissions)
+        setError(scannedSubmissions.length === 0 ? 'Failed to load your submissions from blockchain' : null)
+      } catch (scanErr) {
+        console.error('State-scan fallback failed:', scanErr)
+        setError('Failed to load your submissions from blockchain')
       }
-
-      setError('Failed to load your submissions from blockchain')
     } finally {
       setIsLoading(false)
+    }
+  }, [scanUserSubmissionsFromState])
+
+  const handlePreviewPoC = useCallback(async (submission: ExtendedSubmission) => {
+    setPreviewSubmissionId(submission.id)
+    setPreviewLoadingId(submission.id)
+    setPreviewError(null)
+
+    try {
+      const preview = await readStoredPoCPreview({
+        cipherURI: submission.cipherURI,
+        fallbackAuditor: submission.auditor,
+      })
+      setPreviewContent(JSON.stringify(preview.poc, null, 2))
+    } catch (previewErr) {
+      setPreviewContent(null)
+      setPreviewError(previewErr instanceof Error ? previewErr.message : String(previewErr))
+    } finally {
+      setPreviewLoadingId(null)
     }
   }, [])
 
@@ -272,6 +377,37 @@ export function Dashboard() {
             RECENT SUBMISSIONS [{submissions.length}]
           </h2>
 
+          {previewSubmissionId !== null && (
+            <NeonPanel className="mb-4 flex-shrink-0" contentClassName="p-4 font-mono text-sm">
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <h3 className="text-sm text-[var(--color-secondary)] tracking-wider">
+                  POC_PREVIEW #{previewSubmissionId.toString()}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewSubmissionId(null)
+                    setPreviewContent(null)
+                    setPreviewError(null)
+                    setPreviewLoadingId(null)
+                  }}
+                  className="text-xs text-[var(--color-text-dim)] hover:text-[var(--color-primary)]"
+                >
+                  [ CLOSE ]
+                </button>
+              </div>
+              {previewLoadingId === previewSubmissionId ? (
+                <p className="text-[var(--color-text-dim)]">Loading PoC from Sapphire...</p>
+              ) : previewError ? (
+                <StatusBanner variant="error" message={previewError} />
+              ) : (
+                <pre className="bg-neutral-900/80 p-3 border border-primary/20 rounded-md overflow-auto text-xs text-primary max-h-[240px] whitespace-pre-wrap">
+                  {previewContent}
+                </pre>
+              )}
+            </NeonPanel>
+          )}
+
           {isLoading && (
             <Card className="border-[var(--color-bg-light)] flex-1 flex items-center justify-center">
               <CardContent className="text-center p-8">
@@ -314,6 +450,7 @@ export function Dashboard() {
                     <TableRow className="border-[var(--color-bg-light)] bg-[var(--color-bg-light)] hover:bg-[var(--color-bg-light)]">
                       <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase w-20">ID</TableHead>
                       <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase">PROJECT</TableHead>
+                      <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase w-56">HASHES</TableHead>
                       <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase w-28">SEVERITY</TableHead>
                       <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase w-28">STATUS</TableHead>
                       <TableHead className="font-mono text-xs text-[var(--color-text-dim)] tracking-[0.05em] uppercase w-36">PAYOUT</TableHead>
@@ -332,7 +469,9 @@ export function Dashboard() {
                         }`}
                       >
                         <TableCell className="text-[var(--color-text-dim)]">
-                          #{sub.id.toString()}
+                          <Link to={`/submission/${sub.id.toString()}`} className="text-[var(--color-primary)] hover:underline">
+                            #{sub.id.toString()}
+                          </Link>
                         </TableCell>
                         <TableCell>
                           <Link 
@@ -341,6 +480,22 @@ export function Dashboard() {
                           >
                             PROJECT #{sub.projectId.toString()}
                           </Link>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-[var(--color-text-dim)] align-top">
+                          <div className="flex flex-col gap-2">
+                            {sub.commitTxHash ? (
+                              <a href={explorerTxUrl(sub.commitTxHash)} target="_blank" rel="noreferrer" className="hover:underline">
+                                SEPOLIA TX
+                              </a>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void handlePreviewPoC(sub)}
+                              className="text-left text-[var(--color-primary)] hover:underline"
+                            >
+                              VIEW POC
+                            </button>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1 items-start">

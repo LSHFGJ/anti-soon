@@ -3,9 +3,9 @@ import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PoCBuilder } from '../components/PoCBuilder'
 import { PageHeader } from '../components/shared/ui-primitives'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
+import { readContractWithRpcFallback } from '../lib/publicClient'
 import { resolveSubmissionProjectId } from './builderProjectResolution'
 import { readProjectsByIds } from '../lib/projectReads'
-import { publicClient } from '../lib/publicClient'
 import type { Project } from '../types'
 
 type BuilderLocationState = {
@@ -13,6 +13,7 @@ type BuilderLocationState = {
 }
 
 const VNET_STATUS_ACTIVE = 2
+const PROJECT_CONTEXT_CHUNK_SIZE = 24
 
 export function Builder() {
   const location = useLocation()
@@ -34,6 +35,7 @@ export function Builder() {
   const [defaultProjectId, setDefaultProjectId] = useState<bigint | null>(null)
   const [manualProjectId, setManualProjectId] = useState<bigint | null>(null)
   const [availableProjects, setAvailableProjects] = useState<Project[]>([])
+  const [isProjectContextLoading, setIsProjectContextLoading] = useState(true)
 
   useEffect(() => {
     if (explicitProjectId !== null) {
@@ -44,9 +46,57 @@ export function Builder() {
   useEffect(() => {
     let cancelled = false
 
+    const readProjectChunksDescending = async (nextProjectId: bigint) => {
+      const loadedProjects: Project[] = []
+
+      for (let endExclusive = Number(nextProjectId); endExclusive > 0; endExclusive -= PROJECT_CONTEXT_CHUNK_SIZE) {
+        const startInclusive = Math.max(0, endExclusive - PROJECT_CONTEXT_CHUNK_SIZE)
+        const chunkIds = Array.from(
+          { length: endExclusive - startInclusive },
+          (_, index) => BigInt(endExclusive - 1 - index),
+        )
+
+        const chunkProjects = await readProjectsByIds(chunkIds)
+        loadedProjects.push(...chunkProjects)
+
+        if (cancelled) {
+          return loadedProjects
+        }
+
+        if (explicitProjectId === null) {
+          const firstReadyProject = loadedProjects.find(
+            (project) => project.active && project.vnetStatus === VNET_STATUS_ACTIVE,
+          )
+
+          if (firstReadyProject) {
+            setAvailableProjects(loadedProjects)
+            setDefaultProjectId(firstReadyProject.id)
+            setIsProjectContextLoading(false)
+            break
+          }
+        }
+      }
+
+      return loadedProjects
+    }
+
     const loadProjectContext = async () => {
+      setIsProjectContextLoading(true)
+
+      if (explicitProjectId !== null) {
+        try {
+          const explicitProjects = await readProjectsByIds([explicitProjectId])
+
+          if (!cancelled && explicitProjects.length > 0) {
+            setAvailableProjects(explicitProjects)
+            setDefaultProjectId(null)
+            setIsProjectContextLoading(false)
+          }
+        } catch {}
+      }
+
       try {
-        const nextProjectId = await publicClient.readContract({
+        const nextProjectId = await readContractWithRpcFallback({
           address: BOUNTY_HUB_ADDRESS,
           abi: BOUNTY_HUB_V2_ABI,
           functionName: 'nextProjectId'
@@ -66,12 +116,12 @@ export function Builder() {
           if (!cancelled) {
             setAvailableProjects(projects)
             setDefaultProjectId(null)
+            setIsProjectContextLoading(false)
           }
           return
         }
 
-        const projectIds = Array.from({ length: Number(nextProjectId) }, (_, index) => BigInt(index))
-        const projects = await readProjectsByIds(projectIds)
+        const projects = await readProjectChunksDescending(nextProjectId)
         let resolvedProjects = projects
 
         if (explicitProjectId !== null && !projects.some((project) => project.id === explicitProjectId)) {
@@ -93,6 +143,7 @@ export function Builder() {
 
         if (explicitProjectId !== null) {
           setDefaultProjectId(null)
+          setIsProjectContextLoading(false)
           return
         }
 
@@ -101,6 +152,7 @@ export function Builder() {
         )
 
         setDefaultProjectId(firstReadyProject?.id ?? null)
+        setIsProjectContextLoading(false)
       } catch {
         if (cancelled) {
           return
@@ -112,12 +164,14 @@ export function Builder() {
             if (!cancelled) {
               setAvailableProjects(explicitProjects)
               setDefaultProjectId(null)
+              setIsProjectContextLoading(false)
             }
             return
           } catch {
             if (!cancelled) {
               setAvailableProjects([])
               setDefaultProjectId(null)
+              setIsProjectContextLoading(false)
             }
             return
           }
@@ -125,6 +179,7 @@ export function Builder() {
 
         setAvailableProjects([])
         setDefaultProjectId(null)
+        setIsProjectContextLoading(false)
       }
     }
 
@@ -152,12 +207,18 @@ export function Builder() {
           className="mb-4"
         />
 
-        <PoCBuilder
-          selectedProject={selectedProject}
-          submissionProjectId={submissionProjectId}
-          availableProjects={availableProjects}
-          onProjectContextChange={handleProjectContextChange}
-        />
+        {isProjectContextLoading ? (
+          <div className="flex min-h-[320px] items-center justify-center rounded-sm border border-[var(--color-bg-light)] bg-[var(--color-bg-panel)] px-6 py-10 font-mono text-sm text-[var(--color-text-dim)]">
+            Loading project context...
+          </div>
+        ) : (
+          <PoCBuilder
+            selectedProject={selectedProject}
+            submissionProjectId={submissionProjectId}
+            availableProjects={availableProjects}
+            onProjectContextChange={handleProjectContextChange}
+          />
+        )}
       </div>
     </main>
   )

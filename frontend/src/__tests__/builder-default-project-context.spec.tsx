@@ -9,9 +9,7 @@ const { mockReadContract, mockReadProjectsByIds } = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/publicClient', () => ({
-  publicClient: {
-    readContract: mockReadContract,
-  },
+  readContractWithRpcFallback: mockReadContract,
 }))
 
 vi.mock('../lib/projectReads', () => ({
@@ -58,6 +56,17 @@ function renderBuilder(entry: string) {
   )
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
+
 describe('Builder default project context', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -79,7 +88,7 @@ describe('Builder default project context', () => {
     })
 
     expect(mockReadContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'nextProjectId' }))
-    expect(mockReadProjectsByIds).toHaveBeenCalledWith([0n, 1n, 2n])
+    expect(mockReadProjectsByIds).toHaveBeenCalledWith([2n, 1n, 0n])
   })
 
   it('keeps explicit context even while preloading project options', async () => {
@@ -100,8 +109,8 @@ describe('Builder default project context', () => {
     })
 
     expect(mockReadContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'nextProjectId' }))
-    expect(mockReadProjectsByIds).toHaveBeenNthCalledWith(1, [0n])
-    expect(mockReadProjectsByIds).toHaveBeenNthCalledWith(2, [9n])
+    expect(mockReadProjectsByIds).toHaveBeenNthCalledWith(1, [9n])
+    expect(mockReadProjectsByIds).toHaveBeenNthCalledWith(2, [0n])
   })
 
   it('falls back to loading explicit project metadata when project index is empty', async () => {
@@ -116,6 +125,46 @@ describe('Builder default project context', () => {
       expect(screen.getByTestId('builder-project-context')).toHaveTextContent('PROJECT: #9')
       expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('9')
       expect(screen.getByTestId('builder-available-projects')).toHaveTextContent('9')
+    })
+
+    expect(mockReadProjectsByIds).toHaveBeenCalledWith([9n])
+  })
+
+  it('waits for project context before rendering PoCBuilder content', async () => {
+    const projectsDeferred = deferred<ReturnType<typeof createMockProject>[]>()
+
+    mockReadContract.mockResolvedValue(1n)
+    mockReadProjectsByIds.mockReturnValue(projectsDeferred.promise)
+
+    renderBuilder('/builder')
+
+    expect(screen.queryByTestId('builder-submission-project')).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project context...')).toBeInTheDocument()
+
+    projectsDeferred.resolve([
+      createMockProject({ id: 0n, active: true }),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-project-context')).toHaveTextContent('PROJECT: #0')
+      expect(screen.queryByText('Loading project context...')).not.toBeInTheDocument()
+    })
+  })
+
+  it('renders explicit project context without waiting for full project index preload', async () => {
+    const nextProjectDeferred = deferred<bigint>()
+
+    mockReadContract.mockReturnValue(nextProjectDeferred.promise)
+    mockReadProjectsByIds.mockResolvedValue([
+      createMockProject({ id: 9n, active: true }),
+    ])
+
+    renderBuilder('/builder?projectId=9')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-project-context')).toHaveTextContent('PROJECT: #9')
+      expect(screen.getByTestId('builder-submission-project')).toHaveTextContent('9')
+      expect(screen.queryByText('Loading project context...')).not.toBeInTheDocument()
     })
 
     expect(mockReadProjectsByIds).toHaveBeenCalledWith([9n])

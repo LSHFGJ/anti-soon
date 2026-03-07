@@ -1,4 +1,5 @@
 import type { Address, PublicClient } from 'viem'
+import { getBlockNumberWithRpcFallback, getCodeWithRpcFallback } from './publicClient'
 
 const MAX_ETH_GET_LOGS_RANGE = 10_000n
 const NON_ARCHIVE_LOOKBACK_BLOCKS = 1_000_000n
@@ -10,7 +11,8 @@ function isRangeLimitError(error: unknown): boolean {
   return (
     message.includes('eth_getlogs is limited to') ||
     message.includes('limited to a 10,000 range') ||
-    message.includes('10000 blocks range')
+    message.includes('10000 blocks range') ||
+    message.includes('exceed maximum block range')
   )
 }
 
@@ -41,6 +43,49 @@ export async function discoverDeploymentBlock(
 
     try {
       code = await client.getCode({ address, blockNumber: mid })
+    } catch (error) {
+      if (!isPrunedHistoryError(error)) {
+        throw error
+      }
+
+      const fallback = latest > NON_ARCHIVE_LOOKBACK_BLOCKS
+        ? latest - NON_ARCHIVE_LOOKBACK_BLOCKS
+        : 0n
+      deploymentBlockCache.set(cacheKey, fallback)
+      return fallback
+    }
+
+    const hasCode = code !== undefined && code !== '0x'
+    if (hasCode) {
+      high = mid
+    } else {
+      low = mid + 1n
+    }
+  }
+
+  deploymentBlockCache.set(cacheKey, low)
+  return low
+}
+
+export async function discoverDeploymentBlockWithFallback(
+  address: Address,
+  latestBlock?: bigint,
+): Promise<bigint> {
+  const cacheKey = `${0}:${address.toLowerCase()}`
+  const cached = deploymentBlockCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  const latest = latestBlock ?? await getBlockNumberWithRpcFallback()
+
+  let low = 0n
+  let high = latest
+
+  while (low < high) {
+    const mid = (low + high) / 2n
+    let code: `0x${string}` | undefined
+
+    try {
+      code = await getCodeWithRpcFallback({ address, blockNumber: mid })
     } catch (error) {
       if (!isPrunedHistoryError(error)) {
         throw error

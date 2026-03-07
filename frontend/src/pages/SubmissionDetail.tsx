@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { formatEther, type Address } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { readProjectById } from '../lib/projectReads'
+import { readContractWithRpcFallback } from '../lib/publicClient'
+import { readStoredPoCPreview, resolveSapphireTxHash } from '../lib/oasisUpload'
+import { readSubmissionCommitTxHash } from '../lib/submissionArtifacts'
 import { Timeline } from '../components/shared/Timeline'
 import { getSubmissionTimeline } from '../components/shared/submissionTimeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
@@ -11,13 +14,7 @@ import { useWallet } from '../hooks/useWallet'
 import { publicClient } from '../lib/publicClient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { explorerAddressUrl, explorerSearchUrl } from '@/lib/explorerLinks'
-import {
-  buildPreviewProject,
-  buildPreviewSubmission,
-  formatPreviewFallbackMessage,
-  shouldUsePreviewFallback,
-} from '@/lib/previewFallback'
+import { explorerAddressUrl, explorerTxUrl } from '@/lib/explorerLinks'
 import type { Submission, Project, ExtendedSubmission } from '../types'
 
 type SubmissionTuple = readonly [
@@ -53,9 +50,13 @@ export function SubmissionDetail() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [previewContent, setPreviewContent] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const requestIdRef = useRef(0)
 
-  const refreshSubmissionData = useCallback(async (submissionId: bigint) => {
-    const subData = await publicClient.readContract({
+  const refreshSubmissionData = useCallback(async (submissionId: bigint, requestId?: number) => {
+    const subData = await readContractWithRpcFallback({
       address: BOUNTY_HUB_ADDRESS,
       abi: BOUNTY_HUB_V2_ABI,
       functionName: 'submissions',
@@ -81,34 +82,75 @@ export function SubmissionDetail() {
       challengeBond: subData[14]
     }
 
-    setSubmission(fetchedSubmission)
-    const fetchedProject: Project = await readProjectById(fetchedSubmission.projectId)
+    if (requestId !== undefined && requestIdRef.current !== requestId) {
+      return
+    }
+
+    const [fetchedProject, commitTxHash, sapphireTxHash] = await Promise.all([
+      readProjectById(fetchedSubmission.projectId),
+      readSubmissionCommitTxHash(submissionId),
+      resolveSapphireTxHash({
+        cipherURI: fetchedSubmission.cipherURI,
+        auditor: fetchedSubmission.auditor,
+      }),
+    ])
+
+    if (requestId !== undefined && requestIdRef.current !== requestId) {
+      return
+    }
+
+    setSubmission({
+      ...fetchedSubmission,
+      commitTxHash,
+      oasisTxHash: sapphireTxHash,
+    })
     setProject(fetchedProject)
   }, [])
+
+  const handlePreviewPoC = useCallback(async () => {
+    if (!submission) return
+
+    setPreviewLoading(true)
+    setPreviewError(null)
+
+    try {
+      const preview = await readStoredPoCPreview({
+        cipherURI: submission.cipherURI,
+        fallbackAuditor: submission.auditor,
+      })
+      setPreviewContent(JSON.stringify(preview.poc, null, 2))
+    } catch (err) {
+      setPreviewContent(null)
+      setPreviewError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [submission])
 
   useEffect(() => {
     if (!id) return
 
     const fetchData = async () => {
       const submissionId = BigInt(id)
+      const requestId = ++requestIdRef.current
 
       try {
         setIsLoading(true)
         setError(null)
-        await refreshSubmissionData(submissionId)
+        setSubmission(null)
+        setProject(null)
+        await refreshSubmissionData(submissionId, requestId)
       } catch (err) {
         console.error('Failed to fetch submission:', err)
-        if (shouldUsePreviewFallback()) {
-          const fallbackSubmission = buildPreviewSubmission(submissionId, 0n)
-          setSubmission(fallbackSubmission)
-          setProject(buildPreviewProject(fallbackSubmission.projectId))
-          setError(formatPreviewFallbackMessage('Failed to load submission from blockchain'))
+        if (requestIdRef.current !== requestId) {
           return
         }
 
         setError('Failed to load submission from blockchain')
       } finally {
-        setIsLoading(false)
+        if (requestIdRef.current === requestId) {
+          setIsLoading(false)
+        }
       }
     }
 
@@ -298,7 +340,7 @@ export function SubmissionDetail() {
 
         {error && (
           <StatusBanner
-            variant={error.includes('Preview mode active') ? 'warning' : 'error'}
+            variant='error'
             className="mb-4"
             message={error}
           />
@@ -318,19 +360,36 @@ export function SubmissionDetail() {
                 POC_METADATA
               </h2>
               <div className="space-y-4">
-                <MetaRow
-                  label="COMMIT_HASH"
-                  value={
-                    <a
-                      href={explorerSearchUrl(submission.commitHash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[var(--color-secondary)] break-all hover:underline"
-                    >
-                      {submission.commitHash}
-                    </a>
-                  }
-                />
+                {submission.commitTxHash && (
+                  <MetaRow
+                    label="SEPOLIA_COMMIT_TX"
+                    value={
+                      <a
+                        href={explorerTxUrl(submission.commitTxHash)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[var(--color-secondary)] break-all hover:underline"
+                      >
+                        {submission.commitTxHash}
+                      </a>
+                    }
+                  />
+                )}
+                {submission.oasisTxHash && (
+                  <MetaRow
+                    label="SAPPHIRE_TX"
+                    value={
+                      <a
+                        href={`https://explorer.oasis.io/testnet/sapphire/tx/${submission.oasisTxHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[var(--color-secondary)] break-all hover:underline"
+                      >
+                        {submission.oasisTxHash}
+                      </a>
+                    }
+                  />
+                )}
                 <MetaRow
                   label="AUDITOR"
                   value={
@@ -393,6 +452,26 @@ export function SubmissionDetail() {
                   </div>
                 )}
               </div>
+            </NeonPanel>
+
+            <NeonPanel className="border-[var(--color-bg-light)]" contentClassName="space-y-3 font-mono text-sm p-4">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-sm font-mono text-[var(--color-secondary)] tracking-wider">
+                  POC_PREVIEW
+                </h2>
+                <Button type="button" variant="outline" onClick={handlePreviewPoC} disabled={previewLoading} className="font-mono btn-cyber">
+                  {previewLoading ? '[ LOADING_POC... ]' : '[ VIEW_POC ]'}
+                </Button>
+              </div>
+              {previewError ? (
+                <StatusBanner variant="error" message={previewError} />
+              ) : previewContent ? (
+                <pre className="bg-neutral-900/80 p-3 border border-primary/20 rounded-md overflow-auto text-xs text-primary max-h-[240px] whitespace-pre-wrap">
+                  {previewContent}
+                </pre>
+              ) : (
+                <p className="text-[var(--color-text-dim)]">Load the Sapphire-stored PoC payload for this submission.</p>
+              )}
             </NeonPanel>
           </div>
 

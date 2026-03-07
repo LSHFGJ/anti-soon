@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  chainOptions,
+  impactConfigSchema,
+  impactTypes,
   pocFormSchema,
   targetConfigSchema,
   transactionSchema,
-  impactConfigSchema,
   type PocFormData,
-  impactTypes,
-  chainOptions,
   validateAddress,
   validateBlockNumber,
   validateHexData,
@@ -19,9 +19,7 @@ describe('Form Validation', () => {
     it('should reject invalid Ethereum address (too short)', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: '0x1234',
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
       })
 
       expect(result.success).toBe(false)
@@ -33,9 +31,7 @@ describe('Form Validation', () => {
     it('should reject invalid Ethereum address (wrong format)', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: 'invalid-address',
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
       })
 
       expect(result.success).toBe(false)
@@ -47,9 +43,7 @@ describe('Form Validation', () => {
     it('should reject empty target address', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: '',
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
       })
 
       expect(result.success).toBe(false)
@@ -61,9 +55,7 @@ describe('Form Validation', () => {
     it('should accept valid Ethereum address', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: validAddress,
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
       })
 
       expect(result.success).toBe(true)
@@ -72,23 +64,10 @@ describe('Form Validation', () => {
       }
     })
 
-    it('should reject invalid chain option', () => {
-      const result = targetConfigSchema.safeParse({
-        targetContract: validAddress,
-        chain: 'InvalidChain',
-        forkBlock: '20000000',
-        abiJson: '',
-      })
-
-      expect(result.success).toBe(false)
-    })
-
     it('should reject invalid fork block (zero)', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: validAddress,
-        chain: 'Sepolia',
         forkBlock: '0',
-        abiJson: '',
       })
 
       expect(result.success).toBe(false)
@@ -100,9 +79,7 @@ describe('Form Validation', () => {
     it('should reject invalid fork block (negative)', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: validAddress,
-        chain: 'Sepolia',
         forkBlock: '-1',
-        abiJson: '',
       })
 
       expect(result.success).toBe(false)
@@ -111,9 +88,7 @@ describe('Form Validation', () => {
     it('should accept valid fork block', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: validAddress,
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
       })
 
       expect(result.success).toBe(true)
@@ -122,26 +97,10 @@ describe('Form Validation', () => {
       }
     })
 
-    it('should reject invalid ABI JSON', () => {
+    it('should accept target config without chain or ABI fields', () => {
       const result = targetConfigSchema.safeParse({
         targetContract: validAddress,
-        chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: 'not valid json',
-      })
-
-      expect(result.success).toBe(false)
-      if (!result.success) {
-        expect(result.error.issues.some(i => i.message.match(/json/i))).toBe(true)
-      }
-    })
-
-    it('should accept valid ABI JSON', () => {
-      const result = targetConfigSchema.safeParse({
-        targetContract: validAddress,
-        chain: 'Sepolia',
-        forkBlock: '20000000',
-        abiJson: '[{"name": "test"}]',
       })
 
       expect(result.success).toBe(true)
@@ -211,6 +170,16 @@ describe('Form Validation', () => {
       }
     })
 
+    it('should accept empty description because impact notes are optional', () => {
+      const result = impactConfigSchema.safeParse({
+        type: 'fundsDrained',
+        estimatedLoss: '',
+        description: '',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
     it('should reject short description', () => {
       const result = impactConfigSchema.safeParse({
         type: 'fundsDrained',
@@ -230,7 +199,6 @@ describe('Form Validation', () => {
       targetContract: validAddress,
       chain: 'Sepolia',
       forkBlock: '20000000',
-      abiJson: '',
     }
 
     const validTransaction = {
@@ -302,7 +270,6 @@ describe('Form Validation', () => {
         targetContract: validAddress,
         chain: 'Sepolia',
         forkBlock: '20000000',
-        abiJson: '',
         transactions: [{ to: validAddress, value: '0', data: '0x' }],
         impact: { type: 'fundsDrained', estimatedLoss: '1000', description: 'Test description' },
       }

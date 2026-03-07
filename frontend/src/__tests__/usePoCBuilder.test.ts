@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { usePoCBuilder } from '../hooks/usePoCBuilder'
 import type { PoCData } from '../types/poc'
 
@@ -20,7 +20,6 @@ describe('usePoCBuilder', () => {
         targetContract: '',
         chain: 'Sepolia',
         forkBlock: '',
-        abiJson: ''
       })
     })
 
@@ -98,16 +97,6 @@ describe('usePoCBuilder', () => {
       expect(result.current.targetConfig.forkBlock).toBe('18500000')
     })
 
-    it('should update ABI JSON', () => {
-      const { result } = renderHook(() => usePoCBuilder())
-      const abi = '[{"name":"test","type":"function"}]'
-      
-      act(() => {
-        result.current.updateTargetConfig('abiJson', abi)
-      })
-      
-      expect(result.current.targetConfig.abiJson).toBe(abi)
-    })
   })
 
   describe('conditions management', () => {

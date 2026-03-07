@@ -1,22 +1,17 @@
 export const STEP_GUIDES = {
   target: {
     title: '// STEP_01: TARGET',
-    description: 'Specify the vulnerable contract and network configuration for the PoC execution environment.',
+    description: 'Choose the project context and then select the deployed contract you want the PoC to target.',
     fields: [
       {
+        field: 'targetProject',
+        description: 'Pick the explorer project whose deployment context should back this PoC run.',
+        example: '#42 · 0x1234...beef · Sepolia'
+      },
+      {
         field: 'targetContract',
-        description: 'The Ethereum address of the vulnerable contract you want to exploit.',
+        description: 'Select a deployed contract from the chosen project instead of entering an address manually.',
         example: '0x1234567890abcdef1234567890abcdef12345678'
-      },
-      {
-        field: 'chain',
-        description: 'The blockchain network where the contract is deployed.',
-        example: 'Ethereum Mainnet, Sepolia Testnet'
-      },
-      {
-        field: 'abiJson',
-        description: 'The contract ABI in JSON format. Required to encode function calls.',
-        example: '[{"name":"transfer","inputs":[{"type":"address"},{"type":"uint256"}]}]'
       }
     ]
   },
@@ -72,20 +67,15 @@ export const STEP_GUIDES = {
         example: 'fundsDrained, accessEscalation, stateCorruption'
       },
       {
-        field: 'estimatedLoss',
-        description: 'Estimated value at risk in wei.',
-        example: '1000000000000000000000 (1000 ETH)'
-      },
-      {
         field: 'description',
-        description: 'Human-readable explanation of the vulnerability and its impact.',
+        description: 'Optional human-readable explanation of the vulnerability and its impact.',
         example: 'Reentrancy allows attacker to drain all user deposits'
       }
     ]
   },
   review: {
     title: '// STEP_05: REVIEW & SUBMIT',
-    description: 'Review your PoC configuration and submit to the verification network. The PoC will be validated by decentralized nodes.',
+    description: 'Review your PoC and commit it on Sepolia. Track verification later.',
     fields: []
   }
 } as const

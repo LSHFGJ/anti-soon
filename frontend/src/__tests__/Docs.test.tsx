@@ -79,6 +79,7 @@ describe('docs page rendering', () => {
       expect(screen.getByText(paragraphBlock.text)).toBeInTheDocument()
     }
 
+    expect(screen.queryByTestId('status-banner')).not.toBeInTheDocument()
     expect(document.querySelectorAll('.docs-reader-callout').length).toBe(0)
   })
 
