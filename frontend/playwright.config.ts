@@ -27,13 +27,32 @@ async function findAvailablePort(host: string, startPort: number) {
   for (let candidatePort = startPort; candidatePort < startPort + 20; candidatePort += 1) {
     const isAvailable = await new Promise<boolean>((resolve) => {
       const probe = createServer()
+      let isSettled = false
+
+      const finish = (value: boolean) => {
+        if (isSettled) {
+          return
+        }
+
+        isSettled = true
+        resolve(value)
+      }
+
+      const cleanup = (value: boolean) => {
+        if (probe.listening) {
+          probe.close(() => finish(value))
+          return
+        }
+
+        finish(value)
+      }
 
       probe.once('error', () => {
-        resolve(false)
+        cleanup(false)
       })
 
       probe.listen(candidatePort, host, () => {
-        probe.close(() => resolve(true))
+        cleanup(true)
       })
     })
 
