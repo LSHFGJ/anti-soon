@@ -1,10 +1,10 @@
 import React from 'react'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { TargetStep } from '../components/PoCBuilder/Steps/TargetStep'
 import { ConditionsStep } from '../components/PoCBuilder/Steps/ConditionsStep'
-import { TransactionsStep } from '../components/PoCBuilder/Steps/TransactionsStep'
 import { ImpactStep } from '../components/PoCBuilder/Steps/ImpactStep'
+import { TargetStep } from '../components/PoCBuilder/Steps/TargetStep'
+import { TransactionsStep } from '../components/PoCBuilder/Steps/TransactionsStep'
 import { createMockProject } from '../test/utils'
 
 vi.mock('../components/CodeEditor', () => ({
@@ -18,48 +18,44 @@ vi.mock('../components/CodeEditor', () => ({
 }))
 
 describe('PoC builder step latency boundaries', () => {
-  it('coalesces target typing updates while preserving final target address', () => {
+  it('updates target contract from the project-driven contract dropdown', () => {
     vi.useFakeTimers()
 
     const onUpdate = vi.fn()
-    const { container } = render(
+    const availableProjects = [
+      createMockProject({
+        id: 7n,
+        targetContract: '0x7777777777777777777777777777777777777777',
+        forkBlock: 22000000n,
+      }),
+    ]
+
+    render(
       React.createElement(TargetStep, {
         config: {
           targetContract: '',
           chain: 'Sepolia',
           forkBlock: '',
-          abiJson: '[]'
         },
         onUpdate,
-        onNext: () => undefined
+        onNext: () => undefined,
+        availableProjects,
+        selectedProjectId: 7n,
       })
     )
 
-    const targetInput = container.querySelector('input[placeholder="0x..."]') as HTMLInputElement | null
-    expect(targetInput).not.toBeNull()
-    if (!targetInput) {
-      vi.useRealTimers()
-      return
-    }
-
-    const typedValues = [
-      '0x1',
-      '0x11',
-      '0x111',
-      '0x1111',
-      '0x11111',
-      '0x111111',
-      '0x1111111',
-      '0x11111111'
-    ]
+    const contractSelect = screen.getAllByRole('combobox').at(1) as HTMLButtonElement
+    expect(contractSelect).toBeDefined()
 
     act(() => {
-      for (const value of typedValues) {
-        fireEvent.change(targetInput, { target: { value } })
-      }
+      fireEvent.keyDown(contractSelect, { key: 'ArrowDown' })
     })
 
-    expect(targetInput.value).toBe('0x11111111')
+    act(() => {
+      const listbox = screen.getByRole('listbox')
+      fireEvent.click(within(listbox).getByText(/0x7777777777777777777777777777777777777777/i))
+    })
+
     expect(onUpdate.mock.calls.length).toBeLessThanOrEqual(2)
 
     act(() => {
@@ -67,7 +63,7 @@ describe('PoC builder step latency boundaries', () => {
     })
 
     expect(onUpdate).toHaveBeenCalled()
-    expect(onUpdate).toHaveBeenLastCalledWith('targetContract', '0x11111111')
+    expect(onUpdate).toHaveBeenLastCalledWith('targetContract', '0x7777777777777777777777777777777777777777')
 
     vi.useRealTimers()
   })
@@ -92,10 +88,9 @@ describe('PoC builder step latency boundaries', () => {
       targetContract: '',
       chain: 'Sepolia',
       forkBlock: '',
-      abiJson: '[]',
     }
 
-    const { container, rerender } = render(
+    const { rerender } = render(
       React.createElement(TargetStep, {
         config: initialConfig,
         onUpdate,
@@ -126,7 +121,6 @@ describe('PoC builder step latency boundaries', () => {
           targetContract: '0x7777777777777777777777777777777777777777',
           chain: 'Mainnet',
           forkBlock: '22000000',
-          abiJson: '[]',
         },
         onUpdate,
         onNext: () => undefined,
@@ -136,11 +130,12 @@ describe('PoC builder step latency boundaries', () => {
       }),
     )
 
-    const targetInput = container.querySelector('input[placeholder="0x..."]') as HTMLInputElement
-    const chainSelect = screen.getAllByRole('combobox').at(1) as HTMLButtonElement
+    const contractSelect = screen.getAllByRole('combobox').at(1) as HTMLButtonElement
 
-    expect(targetInput.value).toBe('0x7777777777777777777777777777777777777777')
-    expect(chainSelect).toHaveTextContent('Ethereum Mainnet')
+    expect(contractSelect).toHaveTextContent('0x7777777777777777777777777777777777777777')
+    expect(screen.getAllByRole('combobox')).toHaveLength(2)
+    expect(screen.queryByText('Contract ABI (JSON)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Chain')).not.toBeInTheDocument()
   })
 
   it('highlights explorer project selector when retry context requests refocus', () => {
@@ -158,7 +153,6 @@ describe('PoC builder step latency boundaries', () => {
           targetContract: '0x7777777777777777777777777777777777777777',
           chain: 'Sepolia',
           forkBlock: '',
-          abiJson: '[]',
         },
         onUpdate: vi.fn(),
         availableProjects,
@@ -187,7 +181,6 @@ describe('PoC builder step latency boundaries', () => {
           targetContract: '0x7777777777777777777777777777777777777777',
           chain: 'Sepolia',
           forkBlock: '',
-          abiJson: '[]',
         },
         onUpdate: vi.fn(),
         availableProjects,
@@ -207,7 +200,6 @@ describe('PoC builder step latency boundaries', () => {
           targetContract: '0x7777777777777777777777777777777777777777',
           chain: 'Sepolia',
           forkBlock: '',
-          abiJson: '[]',
         },
         onUpdate: vi.fn(),
         availableProjects,
@@ -315,6 +307,10 @@ describe('PoC builder step latency boundaries', () => {
         onBack: () => undefined
       })
     )
+
+    expect(screen.getByText('Impact Description (optional)')).toBeInTheDocument()
+    expect(screen.queryByText('Direct theft of protocol funds')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Estimated Loss (ETH in wei)')).not.toBeInTheDocument()
 
     const impactDescription = impactContainer.querySelector('textarea#impact-description') as HTMLTextAreaElement | null
     expect(impactDescription).not.toBeNull()

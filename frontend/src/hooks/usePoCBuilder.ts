@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react'
-import type { Condition, Transaction, ImpactType, TargetConfig, ImpactConfig, PoCData } from '../types/poc'
+import { useCallback, useState } from 'react'
+import type { Condition, ImpactConfig, ImpactType, PoCData, TargetConfig, Transaction } from '../types/poc'
 
 function stripConditionId(condition: Condition): Omit<Condition, 'id'> {
   return {
@@ -26,7 +26,6 @@ export const usePoCBuilder = () => {
     targetContract: '',
     chain: 'Sepolia',
     forkBlock: '',
-    abiJson: ''
   })
   
   const [conditions, setConditions] = useState<Condition[]>([])
@@ -95,7 +94,7 @@ export const usePoCBuilder = () => {
     const poc: PoCData = {
       target: targetConfig.targetContract,
       chain: targetConfig.chain,
-      forkBlock: parseInt(targetConfig.forkBlock) || 0,
+      forkBlock: parseInt(targetConfig.forkBlock, 10) || 0,
       conditions: conditions.map(stripConditionId),
       transactions: transactions.map(stripTransactionId),
       impact: impactConfig,

@@ -2,19 +2,55 @@ import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithRouter } from '../test/utils'
 
-const { mockReadContract, mockMulticall } = vi.hoisted(() => ({
-  mockReadContract: vi.fn(),
-  mockMulticall: vi.fn(),
+const {
+  mockPrimaryReadContract,
+  mockPrimaryMulticall,
+  mockSecondaryReadContract,
+  mockSecondaryMulticall,
+  nextMockClient,
+  resetMockClients,
+} = vi.hoisted(() => {
+  const primaryClient = {
+    readContract: vi.fn(),
+    multicall: vi.fn(),
+  }
+
+  const secondaryClient = {
+    readContract: vi.fn(),
+    multicall: vi.fn(),
+  }
+
+  let clientIndex = 0
+
+  return {
+    mockPrimaryReadContract: primaryClient.readContract,
+    mockPrimaryMulticall: primaryClient.multicall,
+    mockSecondaryReadContract: secondaryClient.readContract,
+    mockSecondaryMulticall: secondaryClient.multicall,
+    nextMockClient: () => {
+      clientIndex += 1
+      return clientIndex === 1 ? primaryClient : secondaryClient
+    },
+    resetMockClients: () => {
+      clientIndex = 0
+      primaryClient.readContract.mockReset()
+      primaryClient.multicall.mockReset()
+      secondaryClient.readContract.mockReset()
+      secondaryClient.multicall.mockReset()
+    },
+  }
+})
+
+vi.mock('../lib/rpcConfig', () => ({
+  resolveRpcUrl: () => 'https://rpc-primary.test',
+  resolveRpcUrls: () => ['https://rpc-primary.test', 'https://rpc-secondary.test'],
 }))
 
 vi.mock('viem', async () => {
   const actual = await vi.importActual<typeof import('viem')>('viem')
   return {
     ...actual,
-    createPublicClient: vi.fn(() => ({
-      readContract: mockReadContract,
-      multicall: mockMulticall,
-    })),
+    createPublicClient: vi.fn(() => nextMockClient()),
     http: vi.fn(() => ({})),
   }
 })
@@ -46,6 +82,7 @@ function buildProjectRow(params: { id: bigint; active: boolean; mode: number; bo
 describe('Landing featured projects', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetMockClients()
     vi.stubGlobal('IntersectionObserver', class {
       observe() {}
       unobserve() {}
@@ -55,8 +92,14 @@ describe('Landing featured projects', () => {
   })
 
   it('renders featured cards from on-chain project reads instead of hardcoded demo list', async () => {
-    mockReadContract.mockResolvedValue(3n)
-    mockMulticall.mockResolvedValue([
+    mockPrimaryReadContract.mockResolvedValue(3n)
+    mockPrimaryMulticall.mockResolvedValue([
+      buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
+      buildProjectRow({ id: 1n, active: false, mode: 1, bountyPool: 6_000_000_000_000_000_000n }),
+      buildProjectRow({ id: 2n, active: true, mode: 1, bountyPool: 7_000_000_000_000_000_000n }),
+    ])
+    mockSecondaryReadContract.mockResolvedValue(3n)
+    mockSecondaryMulticall.mockResolvedValue([
       buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
       buildProjectRow({ id: 1n, active: false, mode: 1, bountyPool: 6_000_000_000_000_000_000n }),
       buildProjectRow({ id: 2n, active: true, mode: 1, bountyPool: 7_000_000_000_000_000_000n }),
@@ -71,5 +114,37 @@ describe('Landing featured projects', () => {
 
     expect(screen.queryByText('PROJECT_#1')).not.toBeInTheDocument()
     expect(screen.queryByText('DummyVault')).not.toBeInTheDocument()
+  })
+
+  it('keeps featured project content visible instead of relying on viewport animation state', async () => {
+    mockPrimaryReadContract.mockResolvedValue(1n)
+    mockPrimaryMulticall.mockResolvedValue([
+      buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
+    ])
+    mockSecondaryReadContract.mockResolvedValue(1n)
+    mockSecondaryMulticall.mockResolvedValue([
+      buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
+    ])
+
+    renderWithRouter(<Landing />)
+
+    await waitFor(() => {
+      expect(screen.getByText('PROJECT_#0')).toBeVisible()
+    })
+  })
+
+  it('falls back to a secondary RPC when the primary client stalls', async () => {
+    mockPrimaryReadContract.mockImplementation(() => new Promise(() => {}))
+    mockPrimaryMulticall.mockImplementation(() => new Promise(() => {}))
+    mockSecondaryReadContract.mockResolvedValue(1n)
+    mockSecondaryMulticall.mockResolvedValue([
+      buildProjectRow({ id: 0n, active: true, mode: 0, bountyPool: 5_000_000_000_000_000_000n }),
+    ])
+
+    renderWithRouter(<Landing />)
+
+    await waitFor(() => {
+      expect(screen.getByText('PROJECT_#0')).toBeVisible()
+    })
   })
 })

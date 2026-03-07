@@ -54,8 +54,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			switch (phase) {
 				case "encrypting":
 				case "committing":
-				case "committed":
-				case "revealing":
 					return true;
 				case "failed":
 					return hasFlowContext && !hydratedFromRecovery;
@@ -82,7 +80,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				toastWarning({
 					title: "SUBMISSION_IN_PROGRESS",
 					description:
-						"Commit/reveal flow is in progress. Refreshing now may interrupt the submission process.",
+						"Submission is in progress. Refreshing now may interrupt the commit transaction.",
 				});
 
 				event.preventDefault();
@@ -160,11 +158,11 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				toastWarning({
 					title: "SUBMISSION_IN_PROGRESS",
 					description:
-						"Commit/reveal flow is in progress. Leaving now may interrupt submission; confirm in browser dialog if you still want to leave.",
+						"Submission is in progress. Leaving now may interrupt the commit transaction; confirm if you still want to leave.",
 				});
 
 				const shouldLeave = window.confirm(
-					"A PoC submission flow is in progress. Leaving this page may interrupt commit/reveal. Continue leaving?",
+					"A PoC submission is still in progress. Continue leaving?",
 				);
 
 				if (!shouldLeave) {
@@ -197,11 +195,11 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				toastWarning({
 					title: "SUBMISSION_IN_PROGRESS",
 					description:
-						"Commit/reveal flow is in progress. Use the browser dialog to confirm whether to leave this page.",
+						"Submission is in progress. Use the browser dialog to confirm whether to leave this page.",
 				});
 
 				const shouldLeave = window.confirm(
-					"A PoC submission flow is in progress. Leaving this page may interrupt commit/reveal. Continue leaving?",
+					"A PoC submission is still in progress. Continue leaving?",
 				);
 
 				if (shouldLeave) {
@@ -223,15 +221,20 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			}
 
 			if (phase !== notifiedPhaseRef.current) {
-				if (phase === "committed" && !hydratedFromRecovery) {
+				if (phase === "encrypting" && !hydratedFromRecovery) {
+					toastInfo({
+						title: "Encrypting PoC",
+						description: "Preparing encrypted payload for commit.",
+					});
+				} else if (phase === "committing" && !hydratedFromRecovery) {
+					toastInfo({
+						title: "Submitting Commit",
+						description: "Sapphire handoff complete. Confirm the Sepolia commit in your wallet.",
+					});
+				} else if (phase === "committed" && !hydratedFromRecovery) {
 					success({
 						title: "PoC Committed",
 						description: "Your PoC reference has been submitted successfully.",
-					});
-				} else if (phase === "revealed" && !hydratedFromRecovery) {
-					success({
-						title: "PoC Revealed",
-						description: "Verification is now in progress.",
 					});
 				} else if (phase === "failed" && phaseError && !hydratedFromRecovery) {
 					toastError({
@@ -260,7 +263,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 				});
 				notifiedErrorRef.current = phaseError;
 			}
-		}, [isActive, phase, phaseError, hydratedFromRecovery, success, toastError]);
+		}, [isActive, phase, phaseError, hydratedFromRecovery, success, toastError, toastInfo]);
 
 		const showProjectContextToast = () => {
 			toastWarning({
@@ -321,11 +324,13 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			if (state.phase === "committed") {
 				return (
 					<Button
+						asChild
 						type="button"
-						onClick={handleActionClick}
 						className="font-mono btn-cyber justify-self-end"
 					>
-						[ REVEAL_POC ]
+						<a href={`/submission/${state.submissionId}`}>
+							[ VIEW_VERIFICATION_STATUS ]
+						</a>
 					</Button>
 				);
 			}
@@ -359,20 +364,6 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 							[ RETRY ]
 						</Button>
 					</div>
-				);
-			}
-
-			if (state.phase === "revealed") {
-				return (
-					<Button
-						asChild
-						type="button"
-						className="font-mono btn-cyber justify-self-end"
-					>
-						<a href={`/submission/${state.submissionId}`}>
-							[ VIEW_VERIFICATION_STATUS ]
-						</a>
-					</Button>
 				);
 			}
 

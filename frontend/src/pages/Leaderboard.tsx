@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { formatEther, parseAbiItem, type Address } from 'viem'
+import { formatEther, parseAbiItem, type Address, type GetLogsReturnType } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { useWallet } from '../hooks/useWallet'
 import {
@@ -14,9 +14,12 @@ import { Badge } from '@/components/ui/badge'
 import { PageHeader, StatusBanner, NeonPanel } from '@/components/shared/ui-primitives'
 import { StatCard } from '@/components/shared/StatCard'
 import { aggregateLeaderboardEntries } from '../lib/dashboardLeaderboardCompute'
-import { discoverDeploymentBlock, getLogsWithRangeFallback } from '../lib/chainLogs'
-import { publicClient } from '../lib/publicClient'
+import { discoverDeploymentBlockWithFallback, getLogsWithRangeFallback } from '../lib/chainLogs'
+import { getBlockNumberWithRpcFallback, getLogsWithRpcFallback, multicallWithRpcFallback } from '../lib/publicClient'
 import { formatPreviewFallbackMessage, shouldUsePreviewFallback } from '@/lib/previewFallback'
+
+const BOUNTY_PAID_EVENT = parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)')
+type BountyPaidLog = GetLogsReturnType<typeof BOUNTY_PAID_EVENT, [typeof BOUNTY_PAID_EVENT], true>[number]
 
 interface LeaderboardEntry {
   rank: number
@@ -88,15 +91,16 @@ export function Leaderboard() {
       setIsLoading(true)
       setError(null)
 
-      const payoutLogs = await getLogsWithRangeFallback({
-        fetchLogs: (range) => publicClient.getLogs({
+      const payoutLogs = await getLogsWithRangeFallback<BountyPaidLog>({
+        fetchLogs: (range) => getLogsWithRpcFallback({
           address: BOUNTY_HUB_ADDRESS,
-          event: parseAbiItem('event BountyPaid(uint256 indexed submissionId, address indexed auditor, uint256 amount)'),
+          event: BOUNTY_PAID_EVENT,
+          strict: true,
           ...(range ?? {}),
           toBlock: range?.toBlock ?? 'latest',
-        }),
-        getLatestBlock: () => publicClient.getBlockNumber(),
-        getStartBlock: async (latestBlock) => discoverDeploymentBlock(publicClient, BOUNTY_HUB_ADDRESS, latestBlock),
+        }) as Promise<BountyPaidLog[]>,
+        getLatestBlock: () => getBlockNumberWithRpcFallback(),
+        getStartBlock: async (latestBlock) => discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
       })
 
       if (payoutLogs.length === 0) {
@@ -119,7 +123,7 @@ export function Leaderboard() {
         args: [id] as const
       }))
 
-      const submissions = await publicClient.multicall({
+      const submissions = await multicallWithRpcFallback({
         contracts: submissionContracts,
         allowFailure: false
       }) as SubmissionTuple[]

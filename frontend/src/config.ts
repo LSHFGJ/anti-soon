@@ -170,6 +170,19 @@ export const BOUNTY_HUB_V2_ABI = [
 		outputs: [],
 	},
 	{
+		name: "queueRevealBySig",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_auditor", type: "address" },
+			{ name: "_submissionId", type: "uint256" },
+			{ name: "_salt", type: "bytes32" },
+			{ name: "_deadline", type: "uint256" },
+			{ name: "_signature", type: "bytes" },
+		],
+		outputs: [],
+	},
+	{
 		name: "executeQueuedReveal",
 		type: "function",
 		stateMutability: "nonpayable",
@@ -217,6 +230,13 @@ export const BOUNTY_HUB_V2_ABI = [
 	},
 	// View functions
 	{
+		name: "sigNonces",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "address" }],
+		outputs: [{ name: "", type: "uint256" }],
+	},
+	{
 		name: "projectRules",
 		type: "function",
 		stateMutability: "view",
@@ -244,6 +264,18 @@ export const BOUNTY_HUB_V2_ABI = [
 		inputs: [
 			{ name: "submissionId", type: "uint256", indexed: true },
 			{ name: "overturned", type: "bool", indexed: false },
+		],
+	},
+	{
+		name: "queuedReveals",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "", type: "uint256" }],
+		outputs: [
+			{ name: "auditor", type: "address" },
+			{ name: "salt", type: "bytes32" },
+			{ name: "deadline", type: "uint256" },
+			{ name: "queued", type: "bool" },
 		],
 	},
 	{

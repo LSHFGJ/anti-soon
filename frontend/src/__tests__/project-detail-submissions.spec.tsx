@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import type { Address } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +23,11 @@ vi.mock("../lib/projectReads", () => ({
 
 vi.mock("../lib/publicClient", () => ({
 	publicClient: publicClientMock,
+	readContractWithRpcFallback: (...args: unknown[]) => publicClientMock.readContract(...args),
+	getLogsWithRpcFallback: (...args: unknown[]) => publicClientMock.getLogs(...args),
+	getBlockNumberWithRpcFallback: (...args: unknown[]) => publicClientMock.getBlockNumber(...args),
+	multicallWithRpcFallback: (...args: unknown[]) => publicClientMock.multicall(...args),
+	getCodeWithRpcFallback: (...args: unknown[]) => publicClientMock.getCode(...args),
 }));
 
 const mockProject = {
@@ -84,6 +90,28 @@ function renderProjectDetailRoute() {
 	);
 }
 
+function renderRoutableProjectDetail(path = "/project/1") {
+	return render(
+		<MemoryRouter initialEntries={[path]}>
+			<Link to="/project/2">Go to project 2</Link>
+			<Routes>
+				<Route path="/project/:id" element={<ProjectDetail />} />
+			</Routes>
+		</MemoryRouter>,
+	);
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+
+	return { promise, resolve, reject };
+}
+
 describe("ProjectDetail submission visibility", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -125,6 +153,38 @@ describe("ProjectDetail submission visibility", () => {
 			expect(
 				screen.getByText(/Failed to load submissions from blockchain/),
 			).toBeDefined();
+		});
+	});
+
+	it("ignores stale project responses after route changes", async () => {
+		const projectOneDeferred = deferred<typeof mockProject>();
+
+		readProjectByIdMock.mockImplementation((projectId: bigint) => {
+			if (projectId === 1n) {
+				return projectOneDeferred.promise;
+			}
+
+			return Promise.resolve({
+				...mockProject,
+				id: 2n,
+				targetContract: "0x3333333333333333333333333333333333333333" as Address,
+			});
+		});
+
+		const user = userEvent.setup();
+		renderRoutableProjectDetail("/project/1");
+
+		await user.click(screen.getByRole("link", { name: "Go to project 2" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("PROJECT #2")).toBeVisible();
+		});
+
+		projectOneDeferred.resolve(mockProject);
+
+		await waitFor(() => {
+			expect(screen.getByText("PROJECT #2")).toBeVisible();
+			expect(screen.queryByText("PROJECT #1")).toBeNull();
 		});
 	});
 });

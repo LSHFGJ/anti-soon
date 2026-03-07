@@ -1,11 +1,15 @@
 import { wrapEthereumProvider } from "@oasisprotocol/sapphire-paratime";
 import {
+	createPublicClient,
 	decodeAbiParameters,
 	decodeEventLog,
 	decodeFunctionData,
+	defineChain,
 	encodeFunctionData,
+	http,
 	keccak256,
 	parseAbi,
+	parseAbiItem,
 	parseAbiParameters,
 	toBytes,
 } from "viem";
@@ -29,6 +33,12 @@ interface UploadEncryptedPoCResult {
 	oasisTxHash: `0x${string}`;
 }
 
+export interface StoredPoCPreview {
+	poc: unknown;
+	payloadJson: string;
+	source: 'sapphire';
+}
+
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
 		.env ?? {};
@@ -36,6 +46,27 @@ const ENV =
 const SAPPHIRE_CHAIN_ID_HEX = "0x5aff";
 const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
 const OASIS_TX_ENCRYPTION_ENABLED = ENV.VITE_OASIS_TX_ENCRYPTION !== "false";
+
+const sapphireTestnetChain = defineChain({
+	id: 23295,
+	name: 'Oasis Sapphire Testnet',
+	nativeCurrency: {
+		name: 'TEST',
+		symbol: 'TEST',
+		decimals: 18,
+	},
+	rpcUrls: {
+		default: {
+			http: ['https://testnet.sapphire.oasis.io'],
+		},
+	},
+	blockExplorers: {
+		default: {
+			name: 'Oasis Explorer',
+			url: 'https://explorer.oasis.io/testnet/sapphire',
+		},
+	},
+})
 
 type RelayerUploadResponse = {
 	cipherURI: string;
@@ -429,6 +460,62 @@ async function readSapphirePayloadJson(args: {
 		rawResult as `0x${string}`,
 	);
 	return payloadJson;
+}
+
+export async function readStoredPoCPreview(args: {
+	cipherURI: string;
+	fallbackAuditor: `0x${string}`;
+	ethereumProvider?: unknown;
+}): Promise<StoredPoCPreview> {
+	const provider = readProvider(args.ethereumProvider);
+	const parsed = parseCipherURI(args.cipherURI);
+
+	try {
+		await ensureChain(provider, SAPPHIRE_CHAIN_ID_HEX);
+		const from = await resolveProviderAddress(provider, args.fallbackAuditor);
+		const payloadJson = await readSapphirePayloadJson({
+			provider,
+			contract: parsed.contract,
+			slotId: parsed.slotId,
+			from,
+		});
+		const payload = JSON.parse(payloadJson) as { poc?: unknown };
+
+		return {
+			poc: payload.poc ?? payload,
+			payloadJson,
+			source: 'sapphire',
+		};
+	} finally {
+		try {
+			await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX);
+		} catch {}
+	}
+}
+
+const sapphireTxLookupClient = createPublicClient({
+	chain: sapphireTestnetChain,
+	transport: http('https://testnet.sapphire.oasis.io'),
+})
+
+const POC_STORED_EVENT = parseAbiItem('event PoCStored(bytes32 indexed slotKey, address indexed writer, uint256 storedAt, bytes32 payloadHash)')
+
+export async function resolveSapphireTxHash(args: {
+	cipherURI: string;
+	auditor?: `0x${string}`;
+}): Promise<`0x${string}` | undefined> {
+	const parsed = parseCipherURI(args.cipherURI)
+	const slotKey = keccak256(toBytes(parsed.slotId))
+	const logs = await sapphireTxLookupClient.getLogs({
+		address: parsed.contract,
+		event: POC_STORED_EVENT,
+		args: args.auditor ? { slotKey, writer: args.auditor } : { slotKey },
+		fromBlock: 0n,
+		toBlock: 'latest',
+		strict: false,
+	})
+
+	return logs.at(-1)?.transactionHash
 }
 
 async function readSapphireWriter(args: {

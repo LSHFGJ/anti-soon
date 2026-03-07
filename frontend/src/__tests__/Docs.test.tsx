@@ -78,11 +78,7 @@ describe('docs page rendering', () => {
       expect(screen.getByText(paragraphBlock.text)).toBeInTheDocument()
     }
 
-    // Check callout rendering if present in the page
-    const hasCallout = overviewPage.sections.some(s => s.blocks.some(b => b.type === 'callout'))
-    if (hasCallout) {
-      expect(screen.getAllByTestId('status-banner').length).toBeGreaterThan(0)
-    }
+    expect(screen.queryByTestId('status-banner')).not.toBeInTheDocument()
   })
 
   it('resolves /docs#overview to a real section anchor on the overview page', async () => {

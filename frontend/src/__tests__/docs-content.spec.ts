@@ -48,6 +48,14 @@ describe("docs content schema", () => {
 		);
 	});
 
+	it("does not expose the removed docs contract section on the overview page", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const overviewPage = docsSourceManifest.find((page) => page.slug === "overview");
+
+		expect(overviewPage).toBeDefined();
+		expect(overviewPage?.sections.map((section) => section.id)).toEqual(["overview"]);
+	});
+
 	it("rejects malformed docs content pages", async () => {
 		const docsContentModule = (await import("../reference/content")) as {
 			assertDocsContentCollection?: (value: unknown) => void;

@@ -22,7 +22,6 @@ export interface TargetConfig {
   targetContract: string
   chain: string
   forkBlock: string
-  abiJson: string
 }
 
 export interface ImpactConfig {

@@ -101,11 +101,11 @@ describe("ReviewStep feedback reliability", () => {
 		});
 	});
 
-	it("renders revealed-state verification action without inline messaging", () => {
+	it("renders committed-state verification action without inline messaging", () => {
 		mockUsePoCSubmission.mockReturnValue({
 			...baseSubmission,
 			state: {
-				phase: "revealed",
+				phase: "committed",
 				submissionId: 9n,
 				commitTxHash: "0xabc",
 			},
@@ -118,6 +118,19 @@ describe("ReviewStep feedback reliability", () => {
 		).toBeVisible();
 		expect(
 			screen.queryByText(/CRE verification is now in progress/i),
+		).not.toBeInTheDocument();
+	});
+
+	it("uses commit-terminal guidance copy in step 5", () => {
+		renderReviewStep();
+
+		expect(
+			screen.getByText(
+				"Review your PoC and commit it on Sepolia. Track verification later.",
+			),
+		).toBeVisible();
+		expect(
+			screen.queryByText(/validated by decentralized nodes/i),
 		).not.toBeInTheDocument();
 	});
 
@@ -162,13 +175,22 @@ describe("ReviewStep feedback reliability", () => {
 
 		expect(mockToastSuccess).toHaveBeenCalledTimes(1);
 
-		phaseState = {
-			phase: "revealed",
-			submissionId: 11n,
-			commitTxHash: "0x01",
-			revealTxHash: "0x02",
+		expect(mockToastSuccess).toHaveBeenCalledTimes(1);
+	});
+
+	it("emits staged progress toasts during commit lifecycle", async () => {
+		let phaseState: Record<string, unknown> = {
+			phase: "idle",
 		};
 
+		mockUsePoCSubmission.mockImplementation(() => ({
+			...baseSubmission,
+			state: phaseState,
+		}));
+
+		const view = renderReviewStep();
+
+		phaseState = { phase: "encrypting" };
 		view.rerender(
 			React.createElement(
 				MemoryRouter,
@@ -184,10 +206,34 @@ describe("ReviewStep feedback reliability", () => {
 			),
 		);
 
-		expect(mockToastSuccess).toHaveBeenCalledTimes(2);
-		expect(mockToastSuccess).toHaveBeenLastCalledWith(
-			expect.objectContaining({ title: "PoC Revealed" }),
+		await waitFor(() => {
+			expect(mockToastInfo).toHaveBeenCalledWith(
+				expect.objectContaining({ title: "Encrypting PoC" }),
+			);
+		});
+
+		phaseState = { phase: "committing" };
+		view.rerender(
+			React.createElement(
+				MemoryRouter,
+				undefined,
+				React.createElement(ReviewStep, {
+					pocJson: '{"target":"0x123"}',
+					isConnected: true,
+					onConnect: vi.fn(),
+					onBack: vi.fn(),
+					projectId: 1n,
+					useV2: true,
+				}),
+			),
 		);
+
+		await waitFor(() => {
+			expect(mockToastInfo).toHaveBeenCalledWith(
+				expect.objectContaining({ title: "Submitting Commit" }),
+			);
+		});
+
 	});
 
 	it("suppresses success toasts for hydration-only recovered phases", () => {
@@ -204,7 +250,7 @@ describe("ReviewStep feedback reliability", () => {
 
 		expect(mockToastSuccess).not.toHaveBeenCalled();
 		expect(
-			screen.getByRole("button", { name: "[ REVEAL_POC ]" }),
+			screen.getByRole("link", { name: "[ VIEW_VERIFICATION_STATUS ]" }),
 		).toBeVisible();
 	});
 
@@ -356,6 +402,29 @@ describe("ReviewStep feedback reliability", () => {
 		expect(mockToastWarning).toHaveBeenCalledWith(
 			expect.objectContaining({ title: "SUBMISSION_IN_PROGRESS" }),
 		);
+	});
+
+	it("does not arm leave guards after commit is complete", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
+			state: {
+				phase: "committed",
+				submissionId: 15n,
+				commitTxHash: "0xabc",
+			},
+		});
+
+		renderReviewStepWithLeaveLink();
+		fireEvent.click(screen.getByRole("link", { name: "[ LEAVE ]" }));
+
+		await waitFor(() => {
+			expect(screen.getByText("Explorer destination")).toBeVisible();
+		});
+
+		expect(confirmSpy).not.toHaveBeenCalled();
+		expect(mockToastWarning).not.toHaveBeenCalled();
+		confirmSpy.mockRestore();
 	});
 
 	it("does not arm leave guards while review step is hidden", () => {

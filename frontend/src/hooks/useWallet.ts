@@ -69,12 +69,12 @@ function confirmWalletOperationInterruption(operationName: string): boolean {
 	if (!isCommitRevealFlowGuardActive()) return true;
 
 	toast.warning("SUBMISSION_IN_PROGRESS", {
-		description: `${operationName} may interrupt the active commit/reveal flow. Confirm in browser dialog if you still want to continue.`,
+		description: `${operationName} may interrupt the active submission handoff flow. Confirm in browser dialog if you still want to continue.`,
 		duration: 4500,
 	});
 
 	return window.confirm(
-		"A PoC submission flow is in progress. Wallet changes may interrupt commit/reveal. Continue?",
+		"A PoC submission is still being queued for workflow processing. Continue?",
 	);
 }
 

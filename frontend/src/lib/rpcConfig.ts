@@ -11,13 +11,26 @@ const RPC_KEYS: readonly (keyof RpcEnv)[] = [
   'VITE_PRIVATE_RPC_URL',
 ]
 
-export function resolveRpcUrl(env: RpcEnv = import.meta.env as unknown as RpcEnv): string | undefined {
+export function resolveRpcUrls(env: RpcEnv = import.meta.env as unknown as RpcEnv): string[] {
+  const urls: string[] = []
+
   for (const key of RPC_KEYS) {
     const value = env[key]?.trim()
-    if (value) {
-      return value
+    if (!value) {
+      continue
+    }
+
+    for (const candidate of value.split(',')) {
+      const url = candidate.trim()
+      if (url && !urls.includes(url)) {
+        urls.push(url)
+      }
     }
   }
 
-  return undefined
+  return urls
+}
+
+export function resolveRpcUrl(env: RpcEnv = import.meta.env as unknown as RpcEnv): string | undefined {
+  return resolveRpcUrls(env)[0]
 }

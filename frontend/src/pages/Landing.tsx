@@ -9,7 +9,7 @@ import { AnimatedStatCard } from '../components/shared/AnimatedStatCard'
 import { StatCardSkeletonGrid } from '../components/skeletons/StatCardSkeleton'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from '../config'
 import { pageTransition, slideUp, staggerChild, staggerContainer } from '../lib/animations'
-import { publicClient } from '../lib/publicClient'
+import { readWithRpcFallback } from '../lib/publicClient'
 import { readProjectsByIds } from '../lib/projectReads'
 import type { Project } from '../types'
 
@@ -147,11 +147,11 @@ const FeaturedProjectsSection = () => {
       setIsLoading(true)
       setError(null)
 
-      const nextProjectId = await publicClient.readContract({
+      const nextProjectId = await readWithRpcFallback((client) => client.readContract({
         address: BOUNTY_HUB_ADDRESS,
         abi: BOUNTY_HUB_V2_ABI,
         functionName: 'nextProjectId',
-      }) as bigint
+      })) as bigint
 
       if (nextProjectId === 0n) {
         setProjects([])
@@ -187,8 +187,7 @@ const FeaturedProjectsSection = () => {
         <motion.div
           variants={staggerContainer}
           initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
+          animate="visible"
         >
           <motion.div variants={staggerChild} className="page-header">
             <h2 className="page-title">Featured Projects</h2>

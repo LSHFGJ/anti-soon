@@ -296,8 +296,8 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
         ) : null}
       </div>
 
-      <NeonPanel className="flex-1 min-h-0" contentClassName="h-full min-h-0 p-4">
-        <div data-builder-scroll-owner="primary" className="h-full min-h-0 overflow-y-auto px-1">
+      <NeonPanel className="flex-none" contentClassName="p-4">
+        <div data-builder-scroll-owner="primary" className="px-1">
           <StepSurface step={1} activeStep={activeStep}>
             <TargetStep 
               config={targetConfig} 

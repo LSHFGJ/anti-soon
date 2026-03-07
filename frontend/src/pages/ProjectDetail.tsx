@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { type Address, formatEther, parseAbiItem } from "viem";
+import { type Address, formatEther, parseAbiItem, type GetLogsReturnType } from "viem";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,12 +22,17 @@ import {
 	StatusBanner,
 } from "../components/shared/ui-primitives";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
-import {
-	discoverDeploymentBlock,
+import { 
+	discoverDeploymentBlockWithFallback,
 	getLogsWithRangeFallback,
 } from "../lib/chainLogs";
+import {
+	getBlockNumberWithRpcFallback,
+	getLogsWithRpcFallback,
+	multicallWithRpcFallback,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
 import { readProjectById } from "../lib/projectReads";
-import { publicClient } from "../lib/publicClient";
 import {
 	type Project,
 	type ProjectRules,
@@ -35,6 +40,11 @@ import {
 	type Submission,
 	type ExtendedSubmission,
 } from "../types";
+
+const POC_COMMITTED_EVENT = parseAbiItem(
+	"event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)",
+);
+type PoCCommittedLog = GetLogsReturnType<typeof POC_COMMITTED_EVENT, [typeof POC_COMMITTED_EVENT], true>[number];
 
 type SubmissionTuple = readonly [
 	auditor: Address,
@@ -196,17 +206,23 @@ export function ProjectDetail() {
 	const [submissions, setSubmissions] = useState<ExtendedSubmission[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const projectRequestIdRef = useRef(0);
+	const submissionsRequestIdRef = useRef(0);
 
 	const fetchProject = useCallback(async () => {
 		if (!id) return;
+		const requestId = ++projectRequestIdRef.current;
 
 		try {
 			setIsLoading(true);
 			setError(null);
+			setProject(null);
+			setRules(null);
+			setSubmissions([]);
 
 			const [fetchedProject, rulesData] = await Promise.all([
 				readProjectById(projectId),
-				publicClient.readContract({
+				readContractWithRpcFallback({
 					address: BOUNTY_HUB_ADDRESS,
 					abi: BOUNTY_HUB_V2_ABI,
 					functionName: "projectRules",
@@ -216,6 +232,10 @@ export function ProjectDetail() {
 
 			if (!fetchedProject || fetchedProject.owner === "0x0000000000000000000000000000000000000000") {
 				throw new Error("Project not found");
+			}
+
+			if (projectRequestIdRef.current !== requestId) {
+				return;
 			}
 
 			setProject(fetchedProject);
@@ -233,11 +253,17 @@ export function ProjectDetail() {
 			}
 
 			if (isNotFound) {
+				if (projectRequestIdRef.current !== requestId) {
+					return;
+				}
 				setError("Project not found");
 				return;
 			}
 
 			if (shouldUsePreviewFallback()) {
+				if (projectRequestIdRef.current !== requestId) {
+					return;
+				}
 				setProject(buildPreviewProject(projectId));
 				setRules(buildPreviewProjectRules());
 				setSubmissions([
@@ -259,29 +285,33 @@ export function ProjectDetail() {
 				return;
 			}
 
+			if (projectRequestIdRef.current !== requestId) {
+				return;
+			}
 			setError("Failed to load project from blockchain");
 		} finally {
-			setIsLoading(false);
+			if (projectRequestIdRef.current === requestId) {
+				setIsLoading(false);
+			}
 		}
 	}, [id, projectId]);
 
 	const fetchSubmissions = useCallback(async () => {
+		const requestId = ++submissionsRequestIdRef.current;
 		try {
-			const logs = await getLogsWithRangeFallback({
+			const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
 				fetchLogs: (range) =>
-					publicClient.getLogs({
+					getLogsWithRpcFallback({
 						address: BOUNTY_HUB_ADDRESS,
-						event: parseAbiItem(
-							"event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)",
-						),
+						event: POC_COMMITTED_EVENT,
+						strict: true,
 						args: { projectId },
 						...(range ?? {}),
 						toBlock: range?.toBlock ?? "latest",
-					}),
-				getLatestBlock: () => publicClient.getBlockNumber(),
+					}) as Promise<PoCCommittedLog[]>,
+				getLatestBlock: () => getBlockNumberWithRpcFallback(),
 				getStartBlock: async (latestBlock) =>
-					discoverDeploymentBlock(
-						publicClient,
+					discoverDeploymentBlockWithFallback(
 						BOUNTY_HUB_ADDRESS,
 						latestBlock,
 					),
@@ -299,6 +329,9 @@ export function ProjectDetail() {
 			);
 
 			if (submissionIds.length === 0) {
+				if (submissionsRequestIdRef.current !== requestId) {
+					return;
+				}
 				setSubmissions([]);
 				return;
 			}
@@ -310,7 +343,7 @@ export function ProjectDetail() {
 				args: [subId] as const,
 			}));
 
-			const results = (await publicClient.multicall({
+			const results = (await multicallWithRpcFallback({
 				contracts: submissionContracts,
 				allowFailure: false,
 			})) as SubmissionTuple[];
@@ -334,12 +367,18 @@ export function ProjectDetail() {
 				challengeBond: data[14],
 			}));
 
+			if (submissionsRequestIdRef.current !== requestId) {
+				return;
+			}
 			setSubmissions(fetchedSubmissions);
 			setError((currentError) =>
 				currentError === SUBMISSION_LOAD_ERROR ? null : currentError,
 			);
 		} catch (err) {
 			console.error("Failed to fetch submissions:", err);
+			if (submissionsRequestIdRef.current !== requestId) {
+				return;
+			}
 			setSubmissions([]);
 			setError((currentError) => currentError ?? SUBMISSION_LOAD_ERROR);
 		}
