@@ -6,137 +6,96 @@ export const submitPocDocsPage = {
 	href: "/docs/submit-poc",
 	locale: "en",
 	title: "Submit a PoC",
-	summary: "Workflows for creating and submitting Proofs of Concept.",
+	summary: "How a researcher goes from choosing a project to completing a confirmed submission in the Builder.",
 	sections: [
 		{
-			id: "choose-a-project",
-			anchor: {
-				id: "choose-a-project",
-				label: "Choose a Project",
-			},
-			title: "Choose a Project",
-			summary: "Selecting a vulnerable target for your PoC.",
+			id: "submission-readiness",
+			anchor: { id: "submission-readiness", label: "Before You Open the Builder" },
+			title: "Before You Open the Builder",
+			summary: "What to prepare so the submission flow feels smooth instead of brittle.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Before building a Proof of Concept, you must select an active project. The Builder automatically populates project context when navigating from the Explorer. If no project is selected, the commit step will require you to select one or retry context linking.",
-				}
+					text: "The best submission flow starts from a chosen project, not from an empty builder. Use `/explorer` and the project detail page first, then move into `/builder` when you already know the target, the competition is still open, and you have the PoC details ready.",
+				},
+				{
+					type: "list",
+					style: "unordered",
+					items: [
+						"Choose the project first and, if possible, enter the Builder from that project's `SUBMIT POC` button so the project context is preselected.",
+						"Prepare the exploit scenario, setup assumptions, transaction sequence, and impact explanation before you start entering data into the wizard.",
+						"Connect a wallet that can sign on Sepolia and stay connected through the final review and submission step.",
+						"Keep enough time before the project's deadline so you can review and retry if your first submit attempt fails.",
+					],
+				},
 			],
 		},
 		{
-			id: "builder-inputs",
-			anchor: {
-				id: "builder-inputs",
-				label: "Builder Inputs",
-			},
-			title: "Builder Inputs",
-			summary: "The steps required to construct your exploit payload.",
+			id: "commit-path",
+			anchor: { id: "commit-path", label: "Use the Builder" },
+			title: "Use the Builder",
+			summary: "How the current step-based submission flow works from a user's point of view.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The PoC Builder uses a five-step wizard to construct a simulated execution environment and attack vector:",
+					text: "The Builder is a five-step flow: `TARGET`, `CONDITIONS`, `TRANSACTIONS`, `IMPACT`, and `REVIEW`. Work through the steps in order and treat the final review screen as the moment to verify that the selected project, exploit path, and expected impact all still match your intent.",
 				},
 				{
 					type: "steps",
 					items: [
 						{
 							title: "Target",
-							body: "Specify the vulnerable contract address and chain. The ABI is required to encode function calls."
+							body: "Confirm the project context and target contract you are attacking. If you entered from a project detail page, this step is usually easier because the project is already selected.",
 						},
 						{
 							title: "Conditions",
-							body: "Set up the initial blockchain state. You can manipulate ETH balances, block timestamps, or directly edit storage slots."
+							body: "Describe the state assumptions or setup requirements the exploit needs before it can run. This is where you make the scenario reproducible for later review.",
 						},
 						{
 							title: "Transactions",
-							body: "Define the sequence of exploit transactions, including target address, ETH value, and ABI-encoded calldata."
+							body: "Enter the exploit transaction sequence in the order it should execute. This step is the heart of the PoC because it defines what the replay path will actually try to run.",
 						},
 						{
 							title: "Impact",
-							body: "Describe the expected impact (e.g., funds drained) and estimate the loss to help validators verify the vulnerability."
+							body: "Choose the impact type and explain what the exploit achieves so the review path can tell the difference between a technical trick and a meaningful security issue.",
 						},
 						{
-							title: "Review",
-							body: "Inspect the generated JSON payload before beginning the on-chain submission flow."
-						}
-					]
-				}
-			]
-		},
-		{
-			id: "commit-reveal-flow",
-			anchor: {
-				id: "commit-reveal-flow",
-				label: "Commit-Reveal Flow",
-			},
-			title: "Commit-Reveal Flow",
-			summary: "The on-chain submission process.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "Submitting a PoC uses a two-step commit-reveal scheme to prevent front-running:",
-				},
-				{
-					type: "steps",
-					items: [
-						{
-							title: "Commit",
-							body: "Your PoC JSON is encrypted and hashed. An on-chain transaction registers this hash to secure your claim."
+							title: "Review and submit",
+							body: "Check the final summary, connect your wallet if needed, and submit. Do not treat the PoC as complete until the wallet transaction succeeds and the app shows a real committed result instead of local draft state.",
 						},
-						{
-							title: "Reveal",
-							body: "After the commit is confirmed, a second transaction publishes the decryption key or full payload so nodes can verify it."
-						}
-					]
+					],
 				},
 				{
 					type: "callout",
-					tone: "warning",
-					title: "Do Not Close the Tab",
+					tone: "info",
+					title: "Practical completion check",
 					body: [
-						"Navigating away during the encrypting, committing, or revealing phases may interrupt the flow. The UI provides a prompt if you attempt to leave early."
-					]
-				}
-			]
+						"A draft in the Builder is not a submission yet.",
+						"Treat the submission as complete only after the transaction succeeds and you can later find the result through the project page or your dashboard rather than only in local browser state.",
+					],
+				},
+			],
 		},
 		{
-			id: "submission-outcomes",
-			anchor: {
-				id: "submission-outcomes",
-				label: "Submission Outcomes",
-			},
-			title: "Submission Outcomes",
-			summary: "What happens after reveal.",
+			id: "post-commit-lifecycle",
+			anchor: { id: "post-commit-lifecycle", label: "After You Submit" },
+			title: "After You Submit",
+			summary: "Where to look next and what changes to expect after a successful submission.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Once the reveal transaction is successful, the verification network takes over. You can track the status of your PoC via the provided verification link. Outcomes include passing validation with automated payout or rejection if the nodes cannot reproduce the exploit.",
-				}
-			]
-		},
-		{
-			id: "common-failure-cases",
-			anchor: {
-				id: "common-failure-cases",
-				label: "Common Failure Cases",
-			},
-			title: "Common Failure Cases",
-			summary: "Troubleshooting the submission process.",
-			blocks: [
-				{
-					type: "list",
-					style: "unordered",
-					items: [
-						"Missing Project Context: Trying to commit without a linked target project.",
-						"Wallet Disconnected: Connection drops before the reveal transaction completes.",
-						"Transaction Reverted: Gas issues or network congestion during commit or reveal."
-					]
+					text: "After a successful submit, your next job is to track the result instead of re-submitting blindly. Use the project detail page to watch the competition itself, use `/dashboard` to watch your own submission history and pending payouts, and use `/leaderboard` only when you care about public ranking after payouts have actually happened.",
 				},
 				{
-					type: "paragraph",
-					text: "If a transaction fails, the Builder displays a failure state with options to Retry the transaction or Reset the flow."
-				}
-			]
-		}
+					type: "table",
+					columns: ["Where to look", "What you should expect", "Why it matters"],
+					rows: [
+						["Project detail page", "The competition's current status, rules, and submission list.", "Use it to understand the project's overall stage and whether the project is still open or already moving through later phases."],
+						["Dashboard", "Your own recent submissions, severity, status, payout amount, and date.", "This is the best place to answer: did my submission land, is it still pending, and has anything been paid yet?"],
+						["Leaderboard", "Public ranking by total earnings after real bounty payouts.", "Do not expect a fresh submission to change the leaderboard immediately. The leaderboard is payout-driven, not draft-driven."],
+					],
+				},
+			],
+		},
 	],
 } as const satisfies DocsPage;
