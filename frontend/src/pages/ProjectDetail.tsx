@@ -1,29 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import { type Address, formatEther } from "viem";
-import { CountdownTimer } from "../components/shared/CountdownTimer";
-import { SeverityBadge } from "../components/shared/SeverityBadge";
-import { StatCard } from "../components/shared/StatCard";
-import {
-	MetaRow,
-	NeonPanel,
-	PageHeader,
-	StatusBanner,
-} from "../components/shared/ui-primitives";
-import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
-import {
-	multicallWithRpcFallback,
-	readContractWithRpcFallback,
-} from "../lib/publicClient";
-import { readProjectById } from "../lib/projectReads";
-import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
-import {
-	STATUS_LABELS,
-	type ExtendedSubmission,
-	type Project,
-	type ProjectRules,
-	type Submission,
-} from "../types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +18,29 @@ import {
 	formatPreviewFallbackMessage,
 	shouldUsePreviewFallback,
 } from "@/lib/previewFallback";
+import { CountdownTimer } from "../components/shared/CountdownTimer";
+import { SeverityBadge } from "../components/shared/SeverityBadge";
+import { StatCard } from "../components/shared/StatCard";
+import {
+	MetaRow,
+	NeonPanel,
+	PageHeader,
+	StatusBanner,
+} from "../components/shared/ui-primitives";
+import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import { readProjectById } from "../lib/projectReads";
+import {
+	multicallWithRpcFallback,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
+import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
+import {
+	type ExtendedSubmission,
+	type Project,
+	type ProjectRules,
+	STATUS_LABELS,
+	type Submission,
+} from "../types";
 
 type SubmissionTuple = readonly [
 	auditor: Address,
@@ -68,22 +74,61 @@ type RulesTuple = readonly [
 
 const SUBMISSION_LOAD_ERROR = "Failed to load submissions from blockchain";
 
-function ThresholdCard({
+function formatRuleEther(amountWei: bigint): string {
+	const raw = formatEther(amountWei);
+	if (!raw.includes(".")) {
+		return `${raw}.0`;
+	}
+
+	return raw.replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+}
+
+function formatRuleDuration(seconds: bigint): string {
+	if (seconds === 0n) return "0s";
+	if (seconds <= 172_800n && seconds % 3_600n === 0n) {
+		return `${seconds / 3_600n}h`;
+	}
+	if (seconds % 86_400n === 0n) return `${seconds / 86_400n}d`;
+	if (seconds % 3_600n === 0n) return `${seconds / 3_600n}h`;
+	if (seconds % 60n === 0n) return `${seconds / 60n}m`;
+	return `${seconds.toString()}s`;
+}
+
+function RuleMetric({
+	label,
+	value,
+	valueClassName = "text-[var(--color-text)]",
+}: {
+	label: string;
+	value: ReactNode;
+	valueClassName?: string;
+}) {
+	return (
+		<div className="rounded-sm border border-[var(--color-bg-light)] bg-black/20 p-3">
+			<p className="text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--color-text-dim)]">
+				{label}
+			</p>
+			<div className={`mt-2 font-mono text-sm ${valueClassName}`}>{value}</div>
+		</div>
+	);
+}
+
+function ThresholdRow({
 	label,
 	amountWei,
-	colorVar,
+	accentClassName,
 }: {
 	label: string;
 	amountWei: bigint;
-	colorVar: string;
+	accentClassName: string;
 }) {
 	return (
-		<div className="flex flex-col p-3 border border-[var(--color-bg-light)] bg-black/20 rounded-sm">
-			<span className={`font-mono text-xs mb-1`} style={{ color: colorVar }}>
+		<div className="flex items-center justify-between gap-4 rounded-sm border border-[var(--color-bg-light)] bg-black/20 px-3 py-2.5 font-mono text-sm">
+			<span className={`uppercase tracking-[0.12em] ${accentClassName}`}>
 				{label}
 			</span>
-			<span className="font-mono text-sm">
-				&gt; {formatEther(amountWei)} ETH
+			<span className="text-[var(--color-text)]">
+				{formatRuleEther(amountWei)} ETH
 			</span>
 		</div>
 	);
@@ -220,7 +265,10 @@ export function ProjectDetail() {
 				}) as Promise<RulesTuple>,
 			]);
 
-			if (!fetchedProject || fetchedProject.owner === "0x0000000000000000000000000000000000000000") {
+			if (
+				!fetchedProject ||
+				fetchedProject.owner === "0x0000000000000000000000000000000000000000"
+			) {
 				throw new Error("Project not found");
 			}
 
@@ -236,8 +284,9 @@ export function ProjectDetail() {
 				thresholds: rulesData[3],
 			});
 		} catch (err) {
-			const isNotFound = err instanceof Error && err.message === "Project not found";
-			
+			const isNotFound =
+				err instanceof Error && err.message === "Project not found";
+
 			if (!isNotFound) {
 				console.error("Failed to fetch project:", err);
 			}
@@ -554,57 +603,51 @@ export function ProjectDetail() {
 					{rules && (
 						<NeonPanel contentClassName="p-6 flex flex-col">
 							<SectionHeader>RULES</SectionHeader>
-							<div className="space-y-4 font-mono text-sm mb-8">
-								<MetaRow
-									label="MAX ATTACKER SEED"
-									value={`${formatEther(rules.maxAttackerSeedWei)} ETH`}
-									inline
-								/>
-								<MetaRow
-									label="MAX TIME WARP"
-									value={`${rules.maxWarpSeconds.toString()}s`}
-									inline
-								/>
-								<MetaRow
-									label="DISPUTE WINDOW"
-									value={`${project.disputeWindow.toString()}s`}
-									inline
-								/>
-								<MetaRow
-									label="IMPERSONATION"
-									value={
-										<Badge
-											variant={rules.allowImpersonation ? "success" : "error"}
-										>
-											{rules.allowImpersonation ? "ALLOWED" : "DISABLED"}
-										</Badge>
-									}
-									inline
-								/>
-							</div>
+							<div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+								<div className="rounded-sm border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(0,0,0,0.12))] p-4">
+									<p className="text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--color-text-dim)]">
+										CURRENTLY ENFORCED
+									</p>
+									<div className="mt-4 grid gap-3">
+										<RuleMetric
+											label="DISPUTE WINDOW"
+											value={formatRuleDuration(project.disputeWindow)}
+											valueClassName="text-[var(--color-warning)]"
+										/>
+									</div>
+									<p className="mt-4 font-mono text-xs leading-6 text-[var(--color-text-dim)]">
+										Execution caps exist on-chain but are not enforced by the
+										current workflow.
+									</p>
+								</div>
 
-							<SectionHeader>THRESHOLDS</SectionHeader>
-							<div className="grid grid-cols-2 gap-3 mt-2">
-								<ThresholdCard
-									label="CRITICAL"
-									amountWei={rules.thresholds.criticalDrainWei}
-									colorVar="var(--color-error)"
-								/>
-								<ThresholdCard
-									label="HIGH"
-									amountWei={rules.thresholds.highDrainWei}
-									colorVar="var(--color-warning)"
-								/>
-								<ThresholdCard
-									label="MEDIUM"
-									amountWei={rules.thresholds.mediumDrainWei}
-									colorVar="var(--color-gold)"
-								/>
-								<ThresholdCard
-									label="LOW"
-									amountWei={rules.thresholds.lowDrainWei}
-									colorVar="var(--color-primary)"
-								/>
+								<div className="rounded-sm border border-[var(--color-bg-light)] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(0,0,0,0.12))] p-4">
+									<p className="text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--color-text-dim)]">
+										SEVERITY THRESHOLDS
+									</p>
+									<div className="mt-4 space-y-2">
+										<ThresholdRow
+											label="CRITICAL"
+											amountWei={rules.thresholds.criticalDrainWei}
+											accentClassName="text-[var(--color-error)]"
+										/>
+										<ThresholdRow
+											label="HIGH"
+											amountWei={rules.thresholds.highDrainWei}
+											accentClassName="text-[var(--color-warning)]"
+										/>
+										<ThresholdRow
+											label="MEDIUM"
+											amountWei={rules.thresholds.mediumDrainWei}
+											accentClassName="text-[var(--color-gold)]"
+										/>
+										<ThresholdRow
+											label="LOW"
+											amountWei={rules.thresholds.lowDrainWei}
+											accentClassName="text-[var(--color-primary)]"
+										/>
+									</div>
+								</div>
 							</div>
 						</NeonPanel>
 					)}
@@ -680,8 +723,14 @@ export function ProjectDetail() {
 															{STATUS_LABELS[sub.status]}
 														</Badge>
 														{sub.jury && (
-															<span className="text-[0.65rem] text-[var(--color-secondary)] tracking-wider mt-1" title={sub.jury.rationale}>
-																⚖️ {sub.jury.action.replace('_RESULT', '').replace(/_/g, ' ')}
+															<span
+																className="text-[0.65rem] text-[var(--color-secondary)] tracking-wider mt-1"
+																title={sub.jury.rationale}
+															>
+																⚖️{" "}
+																{sub.jury.action
+																	.replace("_RESULT", "")
+																	.replace(/_/g, " ")}
 															</span>
 														)}
 													</div>
@@ -691,7 +740,8 @@ export function ProjectDetail() {
 														<SeverityBadge severity={sub.severity} />
 														{sub.grouping && (
 															<span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
-																[{sub.grouping.cohort}-{sub.grouping.groupRank}/{sub.grouping.groupSize}]
+																[{sub.grouping.cohort}-{sub.grouping.groupRank}/
+																{sub.grouping.groupSize}]
 															</span>
 														)}
 													</div>
