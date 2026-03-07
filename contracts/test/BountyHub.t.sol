@@ -5,6 +5,17 @@ import "forge-std/Test.sol";
 import {BountyHub} from "../src/BountyHub.sol";
 
 contract BountyHubTest is Test {
+    struct AuditorStatsSnapshot {
+        uint256 totalSubmissions;
+        uint256 activeValidCount;
+        uint256 pendingCount;
+        uint256 paidCount;
+        uint256 highPaidCount;
+        uint256 criticalPaidCount;
+        uint256 totalEarnedWei;
+        uint256 leaderboardIndex;
+    }
+
     BountyHub public hub;
     address constant FORWARDER = address(0xF0);
     address constant TARGET = address(0xBEEF);
@@ -234,6 +245,184 @@ contract BountyHubTest is Test {
         assertEq(commitTimestampAfterReveal, commitTimestampBeforeReveal, "Commit timestamp should remain unchanged");
         assertGt(revealTimestampAfterReveal, commitTimestampAfterReveal, "Reveal timestamp should be after commit");
         assertEq(metadataHashAfterReveal, expectedMetadataHash, "Metadata hash should remain stable after reveal");
+    }
+
+    function test_getAuditorSubmissionIndex_returnsNewestFirstPages() public {
+        uint256 projectId = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+
+        uint256 firstSubmissionId = _commitSubmission(
+            projectId,
+            auditor,
+            keccak256("auditor-page-1"),
+            "ipfs://auditor-page-1"
+        );
+        vm.warp(block.timestamp + hub.COOLDOWN() + 1);
+        uint256 secondSubmissionId = _commitSubmission(
+            projectId,
+            auditor,
+            keccak256("auditor-page-2"),
+            "ipfs://auditor-page-2"
+        );
+        _commitSubmission(
+            projectId,
+            otherUser,
+            keccak256("other-user-page"),
+            "ipfs://other-user-page"
+        );
+        vm.warp(block.timestamp + hub.COOLDOWN() + 1);
+        uint256 thirdSubmissionId = _commitSubmission(
+            projectId,
+            auditor,
+            keccak256("auditor-page-3"),
+            "ipfs://auditor-page-3"
+        );
+
+        assertEq(_getAuditorSubmissionCount(auditor), 3, "auditor count should track committed submissions");
+
+        (uint256[] memory firstPage, uint256 nextCursor) = _getAuditorSubmissionIds(auditor, 0, 2);
+        assertEq(firstPage.length, 2, "first page should contain newest two submissions");
+        assertEq(firstPage[0], thirdSubmissionId, "first page should start from latest submission");
+        assertEq(firstPage[1], secondSubmissionId, "first page should preserve newest-first order");
+        assertEq(nextCursor, 1, "cursor should move to remaining items");
+
+        (uint256[] memory secondPage, uint256 finalCursor) = _getAuditorSubmissionIds(auditor, nextCursor, 2);
+        assertEq(secondPage.length, 1, "second page should contain remaining submission");
+        assertEq(secondPage[0], firstSubmissionId, "second page should expose oldest remaining submission");
+        assertEq(finalCursor, 0, "final cursor should signal completion");
+    }
+
+    function test_getProjectSubmissionIndex_returnsNewestFirstPages() public {
+        uint256 projectA = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+        uint256 projectB = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+
+        uint256 firstProjectASubmission = _commitSubmission(
+            projectA,
+            auditor,
+            keccak256("project-a-1"),
+            "ipfs://project-a-1"
+        );
+        _commitSubmission(
+            projectB,
+            auditor,
+            keccak256("project-b-1"),
+            "ipfs://project-b-1"
+        );
+        uint256 secondProjectASubmission = _commitSubmission(
+            projectA,
+            otherUser,
+            keccak256("project-a-2"),
+            "ipfs://project-a-2"
+        );
+
+        assertEq(_getProjectSubmissionCount(projectA), 2, "project count should only include matching project submissions");
+        assertEq(_getProjectSubmissionCount(projectB), 1, "other project count should remain isolated");
+
+        (uint256[] memory ids, uint256 nextCursor) = _getProjectSubmissionIds(projectA, 0, 5);
+        assertEq(ids.length, 2, "project page should include both project submissions");
+        assertEq(ids[0], secondProjectASubmission, "project page should be newest-first");
+        assertEq(ids[1], firstProjectASubmission, "project page should include older project submissions");
+        assertEq(nextCursor, 0, "single page should exhaust the project index");
+    }
+
+    function test_getProjectIds_returnsNewestFirstPages() public {
+        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
+
+        assertEq(_getProjectCount(), 3, "project count should match registered projects");
+
+        (uint256[] memory firstPage, uint256 nextCursor) = _getProjectIds(0, 2);
+        assertEq(firstPage.length, 2, "first page should contain latest projects");
+        assertEq(firstPage[0], 2, "first page should start with newest project id");
+        assertEq(firstPage[1], 1, "first page should preserve newest-first order");
+        assertEq(nextCursor, 1, "cursor should move to the remaining project");
+
+        (uint256[] memory secondPage, uint256 finalCursor) = _getProjectIds(nextCursor, 2);
+        assertEq(secondPage.length, 1, "second page should contain oldest project");
+        assertEq(secondPage[0], 0, "second page should expose the oldest project id");
+        assertEq(finalCursor, 0, "final cursor should signal completion");
+    }
+
+    function test_getAuditorStats_tracksDashboardAndLeaderboardAggregates() public {
+        (, uint256 submissionId) = _registerCommitAndReveal(2 ether, 1 ether);
+
+        AuditorStatsSnapshot memory statsBeforeVerify = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsBeforeVerify.totalSubmissions, 1, "commit should increment total submissions");
+        assertEq(statsBeforeVerify.activeValidCount, 0, "unverified submissions are not valid yet");
+        assertEq(statsBeforeVerify.pendingCount, 0, "pending count should start at zero");
+        assertEq(statsBeforeVerify.paidCount, 0, "paid count should start at zero");
+        assertEq(statsBeforeVerify.highPaidCount, 0, "high count should start at zero");
+        assertEq(statsBeforeVerify.criticalPaidCount, 0, "critical count should start at zero");
+        assertEq(statsBeforeVerify.totalEarnedWei, 0, "earnings should start at zero");
+        assertEq(statsBeforeVerify.leaderboardIndex, 0, "auditor should not join leaderboard before payout");
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionId, true, 5 ether));
+
+        AuditorStatsSnapshot memory statsAfterVerify = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsAfterVerify.totalSubmissions, 1, "verification should not change submission count");
+        assertEq(statsAfterVerify.activeValidCount, 1, "verified submission should count as active valid");
+        assertEq(statsAfterVerify.pendingCount, 1, "verified submission should count as pending");
+        assertEq(statsAfterVerify.paidCount, 0, "paid count should remain zero before finalize");
+        assertEq(statsAfterVerify.highPaidCount, 0, "high paid count should remain zero before payout");
+        assertEq(statsAfterVerify.criticalPaidCount, 0, "critical paid count should remain zero before payout");
+        assertEq(statsAfterVerify.totalEarnedWei, 0, "earnings should remain zero before payout");
+        assertEq(statsAfterVerify.leaderboardIndex, 0, "auditor should not join leaderboard before payout");
+
+        uint256 challengeBond = hub.MIN_CHALLENGE_BOND();
+        vm.deal(otherUser, 1 ether);
+        vm.prank(otherUser);
+        hub.challenge{value: challengeBond}(submissionId);
+
+        AuditorStatsSnapshot memory statsAfterChallenge = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsAfterChallenge.activeValidCount, 1, "challenged submission should stay valid");
+        assertEq(statsAfterChallenge.pendingCount, 0, "challenged submission should no longer be pending");
+
+        hub.resolveDispute(submissionId, false);
+
+        AuditorStatsSnapshot memory statsAfterResolve = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsAfterResolve.activeValidCount, 1, "confirmed dispute should preserve active valid count");
+        assertEq(statsAfterResolve.pendingCount, 1, "confirmed dispute should restore pending count");
+
+        vm.warp(block.timestamp + 1 days + 1);
+        hub.finalize(submissionId);
+
+        BountyHub.Submission memory finalizedSubmission = _getSubmission(submissionId);
+        AuditorStatsSnapshot memory statsAfterFinalize = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsAfterFinalize.totalSubmissions, 1, "finalize should not change submission count");
+        assertEq(statsAfterFinalize.activeValidCount, 1, "finalized valid submission should stay counted");
+        assertEq(statsAfterFinalize.pendingCount, 0, "finalize should clear pending count");
+        assertEq(statsAfterFinalize.paidCount, 1, "payout should increment paid count");
+        assertEq(statsAfterFinalize.highPaidCount, 1, "high severity payout should increment high count");
+        assertEq(statsAfterFinalize.criticalPaidCount, 0, "critical count should remain zero");
+        assertEq(statsAfterFinalize.totalEarnedWei, finalizedSubmission.payoutAmount, "earnings should track paid amount");
+        assertEq(_getLeaderboardAuditorCount(), 1, "first payout should register the auditor for leaderboard reads");
+        assertEq(statsAfterFinalize.leaderboardIndex, 0, "first paid auditor should receive index zero");
+
+        (address[] memory leaderboardAuditors, uint256 leaderboardCursor) = _getLeaderboardAuditors(0, 10);
+        assertEq(leaderboardAuditors.length, 1, "leaderboard page should include the paid auditor");
+        assertEq(leaderboardAuditors[0], auditor, "leaderboard page should expose the paid auditor");
+        assertEq(leaderboardCursor, 0, "single leaderboard page should exhaust results");
+    }
+
+    function test_getAuditorStats_decrementsValidCountWhenDisputeOverturned() public {
+        (, uint256 submissionId) = _registerCommitAndReveal(2 ether, 1 ether);
+
+        vm.prank(FORWARDER);
+        hub.onReport("", _buildReportV2(submissionId, true, 10 ether));
+
+        uint256 challengeBond = hub.MIN_CHALLENGE_BOND();
+        vm.deal(otherUser, 1 ether);
+        vm.prank(otherUser);
+        hub.challenge{value: challengeBond}(submissionId);
+
+        hub.resolveDispute(submissionId, true);
+
+        AuditorStatsSnapshot memory statsAfterOverturn = _getAuditorStatsSnapshot(auditor);
+        assertEq(statsAfterOverturn.activeValidCount, 0, "overturned dispute should remove valid count");
+        assertEq(statsAfterOverturn.pendingCount, 0, "overturned dispute should not restore pending count");
+        assertEq(statsAfterOverturn.paidCount, 0, "overturned dispute should not create leaderboard payout stats");
+        assertEq(_getLeaderboardAuditorCount(), 0, "auditor should not join leaderboard without payout");
     }
 
     function test_revealPoC_legacyKeyedInterfaceRejected() public {
@@ -1286,6 +1475,19 @@ contract BountyHubTest is Test {
         hub.revealPoC(subId, keccak256("salt"));
     }
 
+    function _commitSubmission(
+        uint256 projectId,
+        address submitter,
+        bytes32 salt,
+        string memory cipherURI
+    ) internal returns (uint256 submissionId) {
+        bytes32 commitHash = keccak256(
+            abi.encodePacked(keccak256(bytes(cipherURI)), submitter, salt)
+        );
+        vm.prank(submitter);
+        return hub.commitPoC(projectId, commitHash, cipherURI);
+    }
+
     function _getSubmission(uint256 subId) internal view returns (BountyHub.Submission memory sub) {
         (sub.auditor, sub.projectId, sub.commitHash, sub.cipherURI, sub.salt,
          sub.commitTimestamp, sub.revealTimestamp, sub.status, sub.drainAmountWei, sub.severity, 
@@ -1314,6 +1516,134 @@ contract BountyHubTest is Test {
         );
         assertTrue(ok, "grouping metadata getter should exist");
         return abi.decode(data, (bool, string, string, uint256, uint256));
+    }
+
+    function _getAuditorSubmissionCount(address auditorAddress) internal view returns (uint256 count) {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getAuditorSubmissionCount(address)", auditorAddress)
+        );
+        assertTrue(ok, "auditor submission count getter should exist");
+        return abi.decode(data, (uint256));
+    }
+
+    function _getProjectSubmissionCount(uint256 projectId) internal view returns (uint256 count) {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getProjectSubmissionCount(uint256)", projectId)
+        );
+        assertTrue(ok, "project submission count getter should exist");
+        return abi.decode(data, (uint256));
+    }
+
+    function _getAuditorSubmissionIds(address auditorAddress, uint256 cursor, uint256 limit)
+        internal
+        view
+        returns (uint256[] memory ids, uint256 nextCursor)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature(
+                "getAuditorSubmissionIds(address,uint256,uint256)",
+                auditorAddress,
+                cursor,
+                limit
+            )
+        );
+        assertTrue(ok, "auditor submission ids getter should exist");
+        return abi.decode(data, (uint256[], uint256));
+    }
+
+    function _getProjectSubmissionIds(uint256 projectId, uint256 cursor, uint256 limit)
+        internal
+        view
+        returns (uint256[] memory ids, uint256 nextCursor)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature(
+                "getProjectSubmissionIds(uint256,uint256,uint256)",
+                projectId,
+                cursor,
+                limit
+            )
+        );
+        assertTrue(ok, "project submission ids getter should exist");
+        return abi.decode(data, (uint256[], uint256));
+    }
+
+    function _getProjectCount() internal view returns (uint256 count) {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getProjectCount()")
+        );
+        assertTrue(ok, "project count getter should exist");
+        return abi.decode(data, (uint256));
+    }
+
+    function _getProjectIds(uint256 cursor, uint256 limit)
+        internal
+        view
+        returns (uint256[] memory ids, uint256 nextCursor)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getProjectIds(uint256,uint256)", cursor, limit)
+        );
+        assertTrue(ok, "project ids getter should exist");
+        return abi.decode(data, (uint256[], uint256));
+    }
+
+    function _getAuditorStats(address auditorAddress)
+        internal
+        view
+        returns (
+            uint256 totalSubmissions,
+            uint256 activeValidCount,
+            uint256 pendingCount,
+            uint256 paidCount,
+            uint256 highPaidCount,
+            uint256 criticalPaidCount,
+            uint256 totalEarnedWei,
+            uint256 leaderboardIndex
+        )
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getAuditorStats(address)", auditorAddress)
+        );
+        assertTrue(ok, "auditor stats getter should exist");
+        return abi.decode(data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
+    }
+
+    function _getAuditorStatsSnapshot(address auditorAddress)
+        internal
+        view
+        returns (AuditorStatsSnapshot memory snapshot)
+    {
+        (
+            snapshot.totalSubmissions,
+            snapshot.activeValidCount,
+            snapshot.pendingCount,
+            snapshot.paidCount,
+            snapshot.highPaidCount,
+            snapshot.criticalPaidCount,
+            snapshot.totalEarnedWei,
+            snapshot.leaderboardIndex
+        ) = _getAuditorStats(auditorAddress);
+    }
+
+    function _getLeaderboardAuditorCount() internal view returns (uint256 count) {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getLeaderboardAuditorCount()")
+        );
+        assertTrue(ok, "leaderboard auditor count getter should exist");
+        return abi.decode(data, (uint256));
+    }
+
+    function _getLeaderboardAuditors(uint256 cursor, uint256 limit)
+        internal
+        view
+        returns (address[] memory auditors, uint256 nextCursor)
+    {
+        (bool ok, bytes memory data) = address(hub).staticcall(
+            abi.encodeWithSignature("getLeaderboardAuditors(uint256,uint256)", cursor, limit)
+        );
+        assertTrue(ok, "leaderboard auditors getter should exist");
+        return abi.decode(data, (address[], uint256));
     }
 
     function _domainSeparator() internal view returns (bytes32) {

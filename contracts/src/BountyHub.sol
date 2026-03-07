@@ -105,6 +105,18 @@ contract BountyHub is ReceiverTemplate {
         uint256 groupSize;
     }
 
+    /// @notice Auditor-facing aggregates used by dashboard and leaderboard reads.
+    struct AuditorStats {
+        uint256 totalSubmissions;
+        uint256 activeValidCount;
+        uint256 pendingCount;
+        uint256 paidCount;
+        uint256 highPaidCount;
+        uint256 criticalPaidCount;
+        uint256 totalEarnedWei;
+        uint256 leaderboardIndex;
+    }
+
     /// @notice Pre-authorized reveal payload stored for delayed execution
     struct QueuedReveal {
         address auditor;
@@ -133,6 +145,11 @@ contract BountyHub is ReceiverTemplate {
     mapping(uint256 => UniqueRevealState) public uniqueRevealStateByProject;
     mapping(uint256 => SubmissionJuryMetadata) internal s_submissionJuryMetadata;
     mapping(uint256 => SubmissionGroupingMetadata) internal s_submissionGroupingMetadata;
+    mapping(uint256 => uint256[]) private s_submissionIdsByProject;
+    mapping(address => uint256[]) private s_submissionIdsByAuditor;
+    mapping(address => AuditorStats) private s_auditorStats;
+    address[] private s_leaderboardAuditors;
+    mapping(address => bool) private s_leaderboardAuditorSeen;
 
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
     mapping(uint256 => bytes32) public submissionMetadataHash; // V2+: deterministic bridge linkage metadata
@@ -142,6 +159,9 @@ contract BountyHub is ReceiverTemplate {
     uint256 public constant COOLDOWN = 10 minutes;
     uint256 public constant MIN_CHALLENGE_BOND = 0.01 ether;
     uint256 public constant TIMEOUT_PENALTY_BPS = 500; // 5% in basis points
+    uint256 public constant MAX_SUBMISSION_PAGE_SIZE = 100;
+    uint256 public constant MAX_PROJECT_PAGE_SIZE = 100;
+    uint256 public constant MAX_LEADERBOARD_PAGE_SIZE = 100;
 
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant EIP712_NAME_HASH = keccak256("BountyHub");
@@ -503,6 +523,9 @@ contract BountyHub is ReceiverTemplate {
         sub.status = SubmissionStatus.Committed;
         bytes32 metadataHash = keccak256(bytes(_cipherURI));
         submissionMetadataHash[submissionId] = metadataHash;
+        s_submissionIdsByProject[_projectId].push(submissionId);
+        s_submissionIdsByAuditor[_auditor].push(submissionId);
+        s_auditorStats[_auditor].totalSubmissions += 1;
 
         emit PoCCommitted(submissionId, _projectId, _auditor, _commitHash);
         emit PoCCommitMetadata(submissionId, metadataHash);
@@ -884,6 +907,7 @@ contract BountyHub is ReceiverTemplate {
         require(sub.status == SubmissionStatus.Revealed, "Not revealed");
 
         Project storage p = _projects[sub.projectId];
+        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
         UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
         if (p.mode == CompetitionMode.UNIQUE && sub.salt != bytes32(0)) {
             require(uniqueState.hasCandidate && uniqueState.candidateSubmissionId == submissionId, "Not active candidate");
@@ -895,6 +919,7 @@ contract BountyHub is ReceiverTemplate {
             ProjectRules storage rules = projectRules[sub.projectId];
             sub.severity = _calculateSeverity(drainAmountWei, rules.thresholds);
             sub.payoutAmount = _calculatePayout(sub.severity, p.maxPayoutPerBug);
+            auditorStats.activeValidCount += 1;
 
             // For V1 projects (no dispute window), pay immediately
             if (p.disputeWindow == 0) {
@@ -904,6 +929,7 @@ contract BountyHub is ReceiverTemplate {
                 // V2: Set dispute deadline and escrow
                 sub.status = SubmissionStatus.Verified;
                 sub.disputeDeadline = block.timestamp + p.disputeWindow;
+                auditorStats.pendingCount += 1;
             }
 
             if (p.mode == CompetitionMode.UNIQUE) {
@@ -955,6 +981,7 @@ contract BountyHub is ReceiverTemplate {
     /// @param sub The submission storage reference
     function _executePayout(uint256 _submissionId, Submission storage sub) internal {
         Project storage p = _projects[sub.projectId];
+        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
 
         uint256 payout = sub.payoutAmount;
         if (payout > p.maxPayoutPerBug) payout = p.maxPayoutPerBug;
@@ -962,6 +989,21 @@ contract BountyHub is ReceiverTemplate {
 
         p.bountyPool -= payout;
         sub.payoutAmount = payout; // Store actual payout
+
+        if (!s_leaderboardAuditorSeen[sub.auditor]) {
+            s_leaderboardAuditorSeen[sub.auditor] = true;
+            auditorStats.leaderboardIndex = s_leaderboardAuditors.length;
+            s_leaderboardAuditors.push(sub.auditor);
+        }
+
+        auditorStats.paidCount += 1;
+        auditorStats.totalEarnedWei += payout;
+        if (sub.severity == Severity.HIGH) {
+            auditorStats.highPaidCount += 1;
+        }
+        if (sub.severity == Severity.CRITICAL) {
+            auditorStats.criticalPaidCount += 1;
+        }
 
         (bool success, ) = sub.auditor.call{value: payout}("");
         require(success, "Transfer failed");
@@ -985,6 +1027,7 @@ contract BountyHub is ReceiverTemplate {
         sub.challenger = msg.sender;
         sub.challengeBond = msg.value;
         sub.status = SubmissionStatus.Disputed;
+        s_auditorStats[sub.auditor].pendingCount -= 1;
 
         emit DisputeRaised(_submissionId, msg.sender, msg.value);
     }
@@ -995,6 +1038,7 @@ contract BountyHub is ReceiverTemplate {
     function resolveDispute(uint256 _submissionId, bool _overturn) external {
         Submission storage sub = submissions[_submissionId];
         Project storage p = _projects[sub.projectId];
+        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
 
         require(p.owner == msg.sender, "Not owner");
         require(sub.status == SubmissionStatus.Disputed, "Not disputed");
@@ -1004,6 +1048,7 @@ contract BountyHub is ReceiverTemplate {
             // Reject the submission, challenger wins bond
             sub.status = SubmissionStatus.Invalid;
             sub.payoutAmount = 0;
+            auditorStats.activeValidCount -= 1;
 
             // Return bond to challenger
             (bool success, ) = sub.challenger.call{value: sub.challengeBond}("");
@@ -1014,6 +1059,7 @@ contract BountyHub is ReceiverTemplate {
             sub.status = SubmissionStatus.Verified;
             p.bountyPool += sub.challengeBond;
             sub.challengeBond = 0;
+            auditorStats.pendingCount += 1;
         }
 
         emit DisputeResolved(_submissionId, _overturn);
@@ -1051,6 +1097,10 @@ contract BountyHub is ReceiverTemplate {
         if (timeoutPenalty > 0 && timeoutPenalty <= p.bountyPool) {
             p.bountyPool -= timeoutPenalty;
             sub.payoutAmount += timeoutPenalty;
+        }
+
+        if (sub.status == SubmissionStatus.Verified) {
+            s_auditorStats[sub.auditor].pendingCount -= 1;
         }
 
         sub.status = SubmissionStatus.Finalized;
@@ -1132,6 +1182,159 @@ contract BountyHub is ReceiverTemplate {
             metadata.groupRank,
             metadata.groupSize
         );
+    }
+
+    function getAuditorStats(address auditor) external view returns (
+        uint256 totalSubmissions,
+        uint256 activeValidCount,
+        uint256 pendingCount,
+        uint256 paidCount,
+        uint256 highPaidCount,
+        uint256 criticalPaidCount,
+        uint256 totalEarnedWei,
+        uint256 leaderboardIndex
+    ) {
+        AuditorStats storage stats = s_auditorStats[auditor];
+        return (
+            stats.totalSubmissions,
+            stats.activeValidCount,
+            stats.pendingCount,
+            stats.paidCount,
+            stats.highPaidCount,
+            stats.criticalPaidCount,
+            stats.totalEarnedWei,
+            stats.leaderboardIndex
+        );
+    }
+
+    function getLeaderboardAuditorCount() external view returns (uint256) {
+        return s_leaderboardAuditors.length;
+    }
+
+    /// @notice Returns a newest-first page of auditors who have received payouts.
+    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
+    function getLeaderboardAuditors(
+        uint256 cursor,
+        uint256 limit
+    ) external view returns (address[] memory auditors, uint256 nextCursor) {
+        return _paginateAddressIds(s_leaderboardAuditors, cursor, limit);
+    }
+
+    function getProjectCount() external view returns (uint256) {
+        return nextProjectId;
+    }
+
+    /// @notice Returns a newest-first page of registered project ids.
+    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
+    function getProjectIds(
+        uint256 cursor,
+        uint256 limit
+    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
+        uint256 total = nextProjectId;
+        if (total == 0 || limit == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        uint256 cappedLimit = limit > MAX_PROJECT_PAGE_SIZE ? MAX_PROJECT_PAGE_SIZE : limit;
+        uint256 start = cursor == 0 ? total : cursor;
+        if (start > total) {
+            start = total;
+        }
+        if (start == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
+        ids = new uint256[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            ids[i] = start - 1 - i;
+        }
+
+        nextCursor = start > pageSize ? start - pageSize : 0;
+    }
+
+    function getProjectSubmissionCount(uint256 projectId) external view returns (uint256) {
+        return s_submissionIdsByProject[projectId].length;
+    }
+
+    function getAuditorSubmissionCount(address auditor) external view returns (uint256) {
+        return s_submissionIdsByAuditor[auditor].length;
+    }
+
+    /// @notice Returns a newest-first page of submission ids for a project.
+    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
+    function getProjectSubmissionIds(
+        uint256 projectId,
+        uint256 cursor,
+        uint256 limit
+    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
+        return _paginateSubmissionIds(s_submissionIdsByProject[projectId], cursor, limit);
+    }
+
+    /// @notice Returns a newest-first page of submission ids for an auditor.
+    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
+    function getAuditorSubmissionIds(
+        address auditor,
+        uint256 cursor,
+        uint256 limit
+    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
+        return _paginateSubmissionIds(s_submissionIdsByAuditor[auditor], cursor, limit);
+    }
+
+    function _paginateSubmissionIds(
+        uint256[] storage indexedSubmissionIds,
+        uint256 cursor,
+        uint256 limit
+    ) internal view returns (uint256[] memory ids, uint256 nextCursor) {
+        uint256 total = indexedSubmissionIds.length;
+        if (total == 0 || limit == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        uint256 cappedLimit = limit > MAX_SUBMISSION_PAGE_SIZE ? MAX_SUBMISSION_PAGE_SIZE : limit;
+        uint256 start = cursor == 0 ? total : cursor;
+        if (start > total) {
+            start = total;
+        }
+        if (start == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
+        ids = new uint256[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            ids[i] = indexedSubmissionIds[start - 1 - i];
+        }
+
+        nextCursor = start > pageSize ? start - pageSize : 0;
+    }
+
+    function _paginateAddressIds(
+        address[] storage indexedAddresses,
+        uint256 cursor,
+        uint256 limit
+    ) internal view returns (address[] memory ids, uint256 nextCursor) {
+        uint256 total = indexedAddresses.length;
+        if (total == 0 || limit == 0) {
+            return (new address[](0), 0);
+        }
+
+        uint256 cappedLimit = limit > MAX_LEADERBOARD_PAGE_SIZE ? MAX_LEADERBOARD_PAGE_SIZE : limit;
+        uint256 start = cursor == 0 ? total : cursor;
+        if (start > total) {
+            start = total;
+        }
+        if (start == 0) {
+            return (new address[](0), 0);
+        }
+
+        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
+        ids = new address[](pageSize);
+        for (uint256 i = 0; i < pageSize; i++) {
+            ids[i] = indexedAddresses[start - 1 - i];
+        }
+
+        nextCursor = start > pageSize ? start - pageSize : 0;
     }
 
     /// @notice Check if a submission can be finalized
