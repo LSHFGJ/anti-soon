@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
+import { collectDocsRoutePathViolations } from '../lib/docsPolicy'
 import { DOCS_CONTENT } from '../reference/content'
 import type { DocsContentBlock } from '../reference/content/schema'
 
@@ -63,6 +64,14 @@ function resolveDocsShellPage(pathname: string): DocsShellPage | null {
   }
 
   return DOCS_SHELL_PAGES.find((page) => page.slug === slug) ?? null
+}
+
+function isInternalDocsHref(href: string) {
+  return href.startsWith('/docs') && collectDocsRoutePathViolations(href).length === 0
+}
+
+function getTableRowKey(row: readonly string[], rowIndex: number) {
+  return `${rowIndex}:${row.join('::')}`
 }
 
 function renderBlock(block: DocsContentBlock, index: number) {
@@ -159,8 +168,8 @@ function renderBlock(block: DocsContentBlock, index: number) {
                 </tr>
               </thead>
               <tbody>
-                {block.rows.map((row) => (
-                  <tr key={row.join('::')} className="border-b border-[var(--color-primary-dim)] last:border-b-0">
+                {block.rows.map((row, rowIndex) => (
+                  <tr key={getTableRowKey(row, rowIndex)} className="border-b border-[var(--color-primary-dim)] last:border-b-0">
                     {row.map((cell, cellIndex) => (
                       <td key={`${block.columns[cellIndex]}:${cell}`} className="px-3 py-2 leading-relaxed">
                         {cell}
@@ -176,14 +185,24 @@ function renderBlock(block: DocsContentBlock, index: number) {
     case 'link-list':
       return (
         <ul key={index} className="mb-4 space-y-3">
-          {block.items.map((item) => (
-            <li key={`${item.href}-${item.title}`} className="rounded border border-[var(--color-primary-dim)] px-3 py-3">
-              <a href={item.href} className="font-mono text-sm uppercase tracking-[0.12em] text-[var(--color-primary)] hover:text-[var(--color-text)]">
-                {item.title}
-              </a>
-              <p className="mt-2 font-mono text-sm leading-relaxed text-[var(--color-text-dim)]">{item.description}</p>
-            </li>
-          ))}
+          {block.items.map((item) => {
+            const linkClass = 'font-mono text-sm uppercase tracking-[0.12em] text-[var(--color-primary)] hover:text-[var(--color-text)]'
+
+            return (
+              <li key={`${item.href}-${item.title}`} className="rounded border border-[var(--color-primary-dim)] px-3 py-3">
+                {isInternalDocsHref(item.href) ? (
+                  <Link to={item.href} className={linkClass}>
+                    {item.title}
+                  </Link>
+                ) : (
+                  <a href={item.href} className={linkClass}>
+                    {item.title}
+                  </a>
+                )}
+                <p className="mt-2 font-mono text-sm leading-relaxed text-[var(--color-text-dim)]">{item.description}</p>
+              </li>
+            )
+          })}
         </ul>
       )
     default:

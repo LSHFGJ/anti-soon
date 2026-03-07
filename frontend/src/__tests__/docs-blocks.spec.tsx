@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 window.scrollTo = vi.fn()
@@ -23,8 +23,14 @@ afterEach(() => {
   vi.doUnmock('../reference/content')
 })
 
+function LocationProbe() {
+  const location = useLocation()
+
+  return <div data-testid="location-probe">{location.pathname}</div>
+}
+
 describe('docs blocks', () => {
-  it('renders code, table, and link-list blocks with deterministic plain markup', async () => {
+  it('renders code, table, and link-list blocks with router-aware internal docs links', async () => {
     vi.doMock('../reference/content', async () => {
       const actual = await vi.importActual<typeof import('../reference/content')>('../reference/content')
 
@@ -58,6 +64,7 @@ describe('docs blocks', () => {
                     type: 'table',
                     columns: ['Setting', 'Value'],
                     rows: [
+                      ['mode', 'strict'],
                       ['mode', 'strict'],
                       ['retries', '3'],
                     ],
@@ -96,6 +103,7 @@ describe('docs blocks', () => {
     render(
       <MemoryRouter initialEntries={['/docs/architecture']}>
         <Docs />
+        <LocationProbe />
       </MemoryRouter>,
     )
 
@@ -113,18 +121,92 @@ describe('docs blocks', () => {
     expect(screen.getByText('Runtime defaults')).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: 'Setting' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: 'Value' })).toBeInTheDocument()
-    expect(within(table).getByText('strict')).toBeInTheDocument()
+    expect(within(table).getAllByRole('row')).toHaveLength(4)
+    expect(within(table).getAllByText('strict')).toHaveLength(2)
     expect(within(table).getByText('3')).toBeInTheDocument()
 
-    const docsOverviewLink = screen.getByRole('link', { name: 'Docs overview' })
-    const architectureLink = screen.getAllByRole('link', { name: 'Architecture' }).find(l => !l.className.includes('block rounded border')) || screen.getAllByRole('link', { name: 'Architecture' })[0]
-    const protocolReferenceLink = screen.getByRole('link', { name: 'Protocol reference' })
+    const docsOverviewItem = screen.getByText('Return to the landing page.').closest('li')
+    const architectureItem = screen.getByText('Open the architecture child page.').closest('li')
+    const protocolReferenceItem = screen.getByText('Read the external protocol reference.').closest('li')
+
+    expect(docsOverviewItem).not.toBeNull()
+    expect(architectureItem).not.toBeNull()
+    expect(protocolReferenceItem).not.toBeNull()
+
+    const docsOverviewLink = within(docsOverviewItem as HTMLLIElement).getByRole('link', { name: 'Docs overview' })
+    const architectureLink = within(architectureItem as HTMLLIElement).getByRole('link', { name: 'Architecture' })
+    const protocolReferenceLink = within(protocolReferenceItem as HTMLLIElement).getByRole('link', { name: 'Protocol reference' })
 
     expect(docsOverviewLink).toHaveAttribute('href', '/docs')
     expect(architectureLink).toHaveAttribute('href', '/docs/architecture')
     expect(protocolReferenceLink).toHaveAttribute('href', 'https://example.com/reference')
+
+    fireEvent.click(docsOverviewLink)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe')).toHaveTextContent('/docs')
+    })
+
     expect(screen.getByText('Return to the landing page.')).toBeInTheDocument()
     expect(screen.getByText('Open the architecture child page.')).toBeInTheDocument()
     expect(screen.getByText('Read the external protocol reference.')).toBeInTheDocument()
+  })
+
+  it('renders identical table rows without duplicate React key warnings', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.doMock('../reference/content', async () => {
+      const actual = await vi.importActual<typeof import('../reference/content')>('../reference/content')
+
+      return {
+        ...actual,
+        DOCS_CONTENT: [
+          {
+            id: 'architecture',
+            slug: 'architecture',
+            href: '/docs/architecture',
+            locale: 'en',
+            title: 'Duplicate Row Fixture',
+            summary: 'Duplicate row rendering fixture',
+            sections: [
+              {
+                id: 'duplicate-rows',
+                anchor: {
+                  id: 'duplicate-rows',
+                  label: 'Duplicate rows',
+                },
+                title: 'Duplicate rows',
+                summary: 'Verifies identical rows render without duplicate-key warnings.',
+                blocks: [
+                  {
+                    type: 'table',
+                    columns: ['Setting', 'Value'],
+                    rows: [
+                      ['mode', 'strict'],
+                      ['mode', 'strict'],
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+    })
+
+    const { Docs } = await import('../pages/Docs')
+
+    render(
+      <MemoryRouter initialEntries={['/docs/architecture']}>
+        <Docs />
+      </MemoryRouter>,
+    )
+
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
+
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join(' ')
+    expect(errorOutput).not.toMatch(/Encountered two children with the same key|same key/i)
+
+    consoleErrorSpy.mockRestore()
   })
 })
