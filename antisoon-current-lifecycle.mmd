@@ -1,0 +1,188 @@
+---
+id: 9c9c069f-64b8-4da3-9c8a-b152c38edf63
+---
+flowchart TD
+    subgraph P[Project Bootstrap]
+        P1[Owner calls registerProjectV2 or registerProjectV3]
+        P2[BountyHub stores project mode deadlines rules]
+        P3[Project vnetStatus set to Pending]
+        P4[Emit ProjectRegisteredV2]
+        P10[P10 Workflow records commit window for project]
+        P11[P11 Workflow schedules cron countdown by commit deadline]
+        P12[P12 Cron monitor starts immediately after registration]
+        P5[VNET_INIT workflow listens ProjectRegisteredV2]
+        P6[Create or reuse Tenderly VNet]
+        P7[Create base snapshot on VNet]
+        P8[Write typed report to BountyHub]
+        P9[_processReport applies setProjectVnet Active or markVnetFailed]
+        P1 --> P2 --> P3 --> P4 --> P10 --> P11 --> P12
+        P4 --> P5 --> P6 --> P7 --> P8 --> P9
+    end
+
+    subgraph F[Frontend Commit Path]
+        F1[Builder Review step active]
+        F2[Load recovery context by project wallet chain ttl]
+        F3{Recovery valid}
+        F4[Clear stale recovery and stay idle]
+        F5[User starts commit]
+        F6[Phase encrypting]
+        F7[uploadEncryptedPoC direct Sapphire mode]
+        F8[Direct Sapphire write transaction]
+        F9[Readback validation read and readMeta]
+        F10{Readback Not authorized}
+        F11[Tx proof fallback tx lookup or receipt PoCStored log proof]
+        F12[Switch back to Sepolia]
+        F13[Compute commitHash from cipherURI auditor salt]
+        F14[simulateContract commitPoC]
+        F15[wallet writeContract commitPoC]
+        F16[Wait receipt parse PoCCommitted for submissionId]
+        F17{PoCCommitted found}
+        F18[Fail closed clear recovery and show actionable error]
+        F19[Persist recovery v2 project wallet chain ttl]
+        F20[Phase committed wait workflow reveal orchestration]
+        F1 --> F2 --> F3
+        F3 -->|no| F4
+        F3 -->|yes or fresh| F5 --> F6 --> F7 --> F8 --> F9 --> F10
+        F10 -->|yes| F11 --> F12
+        F10 -->|no| F12
+        F12 --> F13 --> F14 --> F15 --> F16 --> F17
+        F17 -->|no| F18
+        F17 -->|yes| F19 --> F20
+    end
+
+    subgraph R[Workflow Reveal Orchestration]
+        R1[Submission committed on Sepolia]
+        R2{Project mode}
+        R3[UNIQUE: verify-poc workflow listens PoCCommitted]
+        R4[UNIQUE: workflow triggers auto reveal branch details later]
+        R5[MULTI: commit-window cron starts at registration]
+        R6[MULTI: pre-deadline commit-only period]
+        R7[Only submitter can read PoC in explorer submission page]
+        R8[All other readers denied before reveal trigger]
+        R9[MULTI: when commitDeadline reached cron scans committed submissions]
+        R10[MULTI: workflow auto reveals all committed submissions]
+        R11[MULTI reveal tx executes BountyHub reveal path]
+        R12[UNIQUE auto reveal tx executes BountyHub reveal path]
+        R13[Emit PoCRevealed for every revealed submission]
+        R1 --> R2
+        R2 -->|UNIQUE| R3 --> R4 --> R12 --> R13
+        R2 -->|MULTI| R6
+        R5 --> R6
+        R6 --> R7
+        R6 --> R8
+        R6 -->|commitDeadline reached| R9 --> R10 --> R11 --> R13
+    end
+
+    subgraph C[Contract Reveal Rules in _revealPoC]
+        C1[Require auditor matches and status Committed]
+        C2[Verify computed commit hash and nonzero salt]
+        C3[Set salt revealTimestamp status Revealed and emit PoCRevealed]
+        C1 --> C2 --> C3
+    end
+
+    subgraph W[Tenderly Verification and Strict Gate]
+        W1[PoCRevealed triggers verify-poc workflow]
+        W2[Load submission metadata and PoC payload from Sapphire]
+        W3[Run Tenderly execution and replay trace]
+        W4[Compute strict metrics isDrained and drainAmountWei]
+        W5{Meets project strict vulnerability criteria}
+        W6[Strict-pass verdict path High or Medium]
+        W7[Route strict-pass verdict to final packaging]
+        W8[Route non-strict cases to confidential jury]
+        W1 --> W2 --> W3 --> W4 --> W5
+        W5 -->|yes| W6 --> W7
+        W5 -->|no| W8
+    end
+
+    subgraph J[Confidential Jury Block]
+        J1[Assemble jury input PoC plus full verification trace]
+        J2[Dispatch to 5 LLM jurors with different base models]
+        J3[Dispatch to 5 human jurors selected by VRF randomness]
+        J4[Future path add zk identity proofs for anti-sybil humans]
+        J5[Each of 10 jurors outputs final validity opinion]
+        J6[Store all opinions in Sapphire confidential layer]
+        J7[Wait until verification window deadline]
+        J8[Retrieve confidential opinions and aggregate consensus]
+        J9{All 10 nodes reach consensus}
+        J10[Consensus verdict becomes final validity]
+        J11[No consensus open owner adjudication dispute path]
+        J1 --> J2 --> J5
+        J1 --> J3 --> J4 --> J5
+        J5 --> J6 --> J7 --> J8 --> J9
+        J9 -->|yes| J10
+        J9 -->|no| J11
+    end
+
+    subgraph O[Owner Adjudication with Testimony]
+        O1[Owner submits final judgment within dispute window]
+        O2[Owner submits testimony and reasoning evidence]
+        O3[LLM consensus verifies testimony and judgment consistency]
+        O4[Produce adjudicated final validity]
+        O1 --> O2 --> O3 --> O4
+    end
+
+    subgraph A[Post-Verdict Similarity and Grouping]
+        A1[Input final validity from strict pass jury or owner path]
+        A2{MULTI and validity is High or Medium}
+        A3[Run LLM-only similarity analysis consensus]
+        A4[Produce solo and duplicate clusters]
+        A5[Assemble final result package validity plus grouping]
+        A1 --> A2
+        A2 -->|yes| A3 --> A4 --> A5
+        A2 -->|no| A5
+    end
+
+    subgraph V[BountyHub Result Commit]
+        V1[Build CRE report payload from final package]
+        V2[writeReport to BountyHub]
+        V3[_processReport verifies workflow provenance]
+        V4[Persist final validity High or Medium or Invalid]
+        V5[Persist similarity groups when provided]
+        V6[Emit final adjudication events and payout state]
+        V1 --> V2 --> V3 --> V4 --> V5 --> V6
+    end
+
+    subgraph D[Finalize and Settlement]
+        D1[Dispute or review window checks]
+        D2[resolveDispute or timeout finalize path]
+        D3[Finalize status and execute payout]
+        D1 --> D2 --> D3
+    end
+
+    subgraph U[Explorer and Dashboard Visibility]
+        U1[ProjectDetail and Dashboard query PoCCommitted logs]
+        U2[getLogsWithRangeFallback handles provider range limits]
+        U3[discoverDeploymentBlock and chunked log fetch]
+        U4[multicall submissions by submissionId]
+        U5[Render High Medium Invalid verdict and payout timelines]
+        U6[Submission page read path enforces submitter-only pre-reveal access]
+        U7[Non-submitter pre-reveal access denied]
+        U8[Render solo and duplicate grouping in MULTI mode]
+        U1 --> U2 --> U3 --> U4 --> U5
+        U4 --> U6 --> U7
+        U5 --> U8
+    end
+
+    subgraph S[Recovery and UX Safety]
+        S1[Recovery key anti-soon commit-reveal-recovery v2]
+        S2[Wallet chain project and ttl checks on load]
+        S3[Hydration states marked hydratedFromRecovery]
+        S4[Hidden ReviewStep does not arm leave guards]
+        S5[Hydration-only success and failure toasts suppressed]
+        S6[Wallet disconnect clears recovery context]
+        S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    end
+
+    F20 --> R1
+    P12 --> R5
+    R11 --> C1
+    R12 --> C1
+    C3 --> R13
+    R13 --> W1
+    W7 --> A1
+    W8 --> J1
+    J10 --> A1
+    J11 --> O1
+    O4 --> A1
+    A5 --> V1
+    V6 --> D1
