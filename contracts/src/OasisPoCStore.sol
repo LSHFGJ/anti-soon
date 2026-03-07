@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+import {CompatSiweAuth} from "./CompatSiweAuth.sol";
+
 /// @notice Sapphire-side storage for encrypted PoC envelopes.
 /// @dev Payload should already be application-level encrypted.
-contract OasisPoCStore {
+contract OasisPoCStore is CompatSiweAuth {
     struct StoredRecord {
         address writer;
         string payload;
@@ -27,6 +29,8 @@ contract OasisPoCStore {
         uint256 indexed version,
         address indexed principal
     );
+
+    constructor(string memory domain) CompatSiweAuth(domain) {}
 
     function write(string calldata slotId, string calldata payload) external {
         require(bytes(slotId).length > 0, "Slot required");
@@ -64,10 +68,33 @@ contract OasisPoCStore {
     }
 
     function read(string calldata slotId) external view returns (string memory) {
+        return _read(slotId, bytes(""));
+    }
+
+    function read(string calldata slotId, bytes calldata token)
+        external
+        view
+        returns (string memory)
+    {
+        return _read(slotId, token);
+    }
+
+    function _read(string calldata slotId, bytes memory token)
+        internal
+        view
+        returns (string memory)
+    {
         bytes32 slotKey = keccak256(bytes(slotId));
         StoredRecord storage record = records[slotKey];
 
-        require(canRead[slotKey][record.version][msg.sender], "Not authorized");
+        address tokenReader = authMsgSender(token);
+
+        require(
+            canRead[slotKey][record.version][msg.sender] ||
+                canRead[slotKey][record.version][tokenReader],
+            "Not authorized"
+        );
+
         return record.payload;
     }
 

@@ -4,11 +4,15 @@ out = "out"
 libs = ["lib"]
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "forge-std/=lib/forge-std/src/"
+    "forge-std/=lib/forge-std/src/",
+    "@oasisprotocol/sapphire-contracts/=lib/sapphire-paratime/contracts/",
+    "oasisprotocol-sapphire-foundry/=lib/sapphire-paratime/integrations/foundry/lib/oasisprotocol-sapphire-foundry/"
 ]
+ffi = true
 via_ir = true
 optimizer = true
 optimizer_runs = 1000
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
+sapphire_testnet = "${SAPPHIRE_TESTNET_RPC_URL}"

@@ -10,5 +10,11 @@
       "name": "v5.6.1",
       "rev": "5fd1781b1454fd1ef8e722282f86f9293cacf256"
     }
+  },
+  "lib/sapphire-paratime": {
+    "tag": {
+      "name": "v1.2.0",
+      "rev": "e3b47b46f88241ffc20cbcb9c13e4b40ed9fa598"
+    }
   }
 }
