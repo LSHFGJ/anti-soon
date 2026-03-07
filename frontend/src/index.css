@@ -330,6 +330,475 @@ input:focus, select:focus, textarea:focus {
   text-transform: uppercase;
 }
 
+.docs-reader-shell {
+  --docs-surface: #fcfcf8;
+  --docs-surface-strong: #f3f5ef;
+  --docs-sidebar: rgba(250, 250, 246, 0.9);
+  --docs-text: #1f2a30;
+  --docs-muted: #5f6b72;
+  --docs-border: #d7ddd1;
+  --docs-accent: #335c48;
+  --docs-accent-soft: #e6efe9;
+  --docs-shadow: 0 30px 80px rgba(11, 18, 22, 0.18);
+}
+
+.docs-reader-grid {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.docs-reader-sidebar-shell,
+.docs-reader-toc-shell {
+  width: 100%;
+}
+
+.docs-reader-sidebar-card,
+.docs-reader-toc-card {
+  border: 1px solid var(--docs-border);
+  border-radius: 1.25rem;
+  background: var(--docs-sidebar);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 30px rgba(10, 18, 22, 0.12);
+  padding: 1rem;
+}
+
+.docs-reader-sidebar-label {
+  margin-bottom: 0.75rem;
+  color: var(--docs-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.docs-reader-nav-link,
+.docs-reader-toc-link {
+  display: block;
+  border-radius: 0.9rem;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.docs-reader-nav-link {
+  padding: 0.7rem 0.8rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.docs-reader-nav-link-idle {
+  color: var(--docs-muted);
+}
+
+.docs-reader-nav-link-idle:hover {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--docs-text);
+}
+
+.docs-reader-nav-link-active {
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent);
+  box-shadow: inset 0 0 0 1px rgba(51, 92, 72, 0.14);
+  font-weight: 600;
+}
+
+.docs-reader-main {
+  min-width: 0;
+}
+
+.docs-reader-header {
+  max-width: 52rem;
+  margin: 0 auto 1.5rem;
+  padding: 0 0.25rem;
+}
+
+.docs-reader-eyebrow {
+  margin-bottom: 0.85rem;
+  color: var(--docs-accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.docs-reader-title {
+  color: #f4f7f0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(2.35rem, 4vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+
+.docs-reader-summary {
+  max-width: 44rem;
+  margin-top: 1rem;
+  color: rgba(244, 247, 240, 0.78);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
+
+.docs-reader-article {
+  max-width: 52rem;
+  margin: 0 auto;
+  background: var(--docs-surface);
+  color: var(--docs-text);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 1.6rem;
+  box-shadow: var(--docs-shadow);
+  padding: 2rem 2rem 2.4rem;
+}
+
+.docs-reader-section + .docs-reader-section {
+  margin-top: 2.2rem;
+  padding-top: 2.2rem;
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-reader-section-header {
+  margin-bottom: 1rem;
+}
+
+.docs-reader-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #172227;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1.45rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.docs-reader-section-anchor {
+  color: #8ea18f;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.18s ease, color 0.18s ease;
+}
+
+.docs-reader-section:hover .docs-reader-section-anchor {
+  opacity: 1;
+}
+
+.docs-reader-section-anchor:hover {
+  color: var(--docs-accent);
+}
+
+.docs-reader-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.docs-reader-paragraph,
+.docs-reader-callout-body,
+.docs-reader-step-body,
+.docs-reader-link-list-description,
+.docs-reader-probe-state {
+  color: var(--docs-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  line-height: 1.78;
+}
+
+.docs-reader-muted {
+  color: var(--docs-muted);
+}
+
+.docs-reader-inline-code {
+  display: inline-block;
+  margin: 0 0.12rem;
+  padding: 0.08rem 0.38rem;
+  border-radius: 0.45rem;
+  background: rgba(51, 92, 72, 0.08);
+  color: #274739;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.55;
+  box-shadow: inset 0 0 0 1px rgba(51, 92, 72, 0.1);
+}
+
+.docs-reader-inline-link {
+  color: var(--docs-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+  font-weight: 600;
+}
+
+.docs-reader-inline-link:hover {
+  color: #20392c;
+}
+
+.docs-reader-list {
+  margin: 0.35rem 0 1.25rem 1.3rem;
+  color: var(--docs-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.docs-reader-list li + li {
+  margin-top: 0.55rem;
+}
+
+.docs-reader-callout {
+  margin: 0.5rem 0 1.35rem;
+  border: 1px solid;
+  border-radius: 1rem;
+  padding: 1rem 1.05rem;
+}
+
+.docs-reader-callout-title {
+  display: block;
+  margin-bottom: 0.55rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.docs-reader-steps {
+  margin: 0.55rem 0 1.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.docs-reader-step {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+.docs-reader-step-index {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  box-shadow: inset 0 0 0 1px rgba(51, 92, 72, 0.15);
+}
+
+.docs-reader-step-title {
+  margin-bottom: 0.2rem;
+  color: #172227;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.docs-reader-block {
+  margin: 0.7rem 0 1.4rem;
+  overflow: hidden;
+  border: 1px solid var(--docs-border);
+  border-radius: 1.05rem;
+  background: var(--docs-surface-strong);
+}
+
+.docs-reader-block-label,
+.docs-reader-block-caption {
+  padding: 0.7rem 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.docs-reader-block-label {
+  border-bottom: 1px solid var(--docs-border);
+  color: var(--docs-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.docs-reader-block-caption {
+  border-top: 1px solid var(--docs-border);
+  color: var(--docs-muted);
+}
+
+.docs-reader-code-pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 1rem 1.05rem;
+}
+
+.docs-reader-code-content {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #1f2a30;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.75;
+}
+
+.docs-reader-table-wrap {
+  border: none;
+  background: transparent;
+}
+
+.docs-reader-table {
+  min-width: 100%;
+  color: var(--docs-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.docs-reader-table-caption {
+  padding: 0.9rem 1rem;
+  text-align: left;
+  color: var(--docs-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.docs-reader-table-head-row {
+  background: rgba(51, 92, 72, 0.05);
+}
+
+.docs-reader-table-head-cell {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--docs-border);
+  color: #4f5f57;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.docs-reader-table-row:not(:last-child) {
+  border-bottom: 1px solid var(--docs-border);
+}
+
+.docs-reader-table-cell {
+  padding: 0.95rem 1rem;
+  vertical-align: top;
+}
+
+.docs-reader-link-list {
+  margin: 0.45rem 0 1.4rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.docs-reader-link-list-item {
+  border: 1px solid var(--docs-border);
+  border-radius: 1rem;
+  background: #ffffff;
+  padding: 1rem 1.05rem;
+}
+
+.docs-reader-link-list-title {
+  color: var(--docs-accent);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.docs-reader-link-list-title:hover {
+  color: #20392c;
+}
+
+.docs-reader-link-list-description {
+  margin-top: 0.5rem;
+  color: var(--docs-muted);
+}
+
+.docs-reader-mermaid-target {
+  display: flex;
+  justify-content: center;
+}
+
+.docs-reader-mermaid-target svg {
+  background: transparent;
+}
+
+.docs-reader-toc-shell {
+  display: none;
+}
+
+.docs-reader-toc-link {
+  padding: 0.5rem 0.65rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.docs-reader-toc-link-idle {
+  color: var(--docs-muted);
+}
+
+.docs-reader-toc-link-idle:hover {
+  color: var(--docs-text);
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.docs-reader-toc-link-active {
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent);
+  font-weight: 600;
+}
+
+@media (min-width: 1024px) {
+  .docs-reader-grid {
+    grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
+  }
+
+  .docs-reader-sidebar-shell {
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+@media (min-width: 1380px) {
+  .docs-reader-grid {
+    grid-template-columns: minmax(220px, 250px) minmax(0, 1fr) minmax(200px, 230px);
+  }
+
+  .docs-reader-toc-shell {
+    display: block;
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .docs-reader-article {
+    padding: 1.35rem 1.05rem 1.6rem;
+    border-radius: 1.2rem;
+  }
+
+  .docs-reader-title {
+    font-size: 2.35rem;
+  }
+
+  .docs-reader-summary,
+  .docs-reader-paragraph,
+  .docs-reader-list,
+  .docs-reader-callout-body,
+  .docs-reader-step-body,
+  .docs-reader-link-list-description {
+    font-size: 0.96rem;
+    line-height: 1.72;
+  }
+
+  .docs-reader-table {
+    min-width: 680px;
+  }
+}
+
 .countdown-timer.warning .countdown-value {
   color: var(--color-error);
   border-color: var(--color-error);
