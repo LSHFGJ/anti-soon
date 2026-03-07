@@ -11,7 +11,7 @@ const DOCS_EXTERNAL_HTTPS_HREF_PATTERN = /^https:\/\/.+/;
 export const DOCS_LOCALES = ["en"] as const;
 export const DOCS_CALLOUT_TONES = ["info", "success", "warning", "error"] as const;
 export const DOCS_LIST_STYLES = ["unordered", "ordered"] as const;
-export const DOCS_BLOCK_TYPES = ["paragraph", "list", "callout", "steps", "code", "table", "link-list"] as const;
+export const DOCS_BLOCK_TYPES = ["paragraph", "list", "callout", "steps", "code", "table", "link-list", "mermaid"] as const;
 
 export type DocsLocale = (typeof DOCS_LOCALES)[number];
 export type DocsCalloutTone = (typeof DOCS_CALLOUT_TONES)[number];
@@ -76,6 +76,12 @@ export type DocsLinkListBlock = {
 	items: readonly DocsLinkListItem[];
 };
 
+export type DocsMermaidBlock = {
+	type: "mermaid";
+	diagram: string;
+	caption?: string;
+};
+
 export type DocsContentBlock =
 	| DocsParagraphBlock
 	| DocsListBlock
@@ -83,7 +89,8 @@ export type DocsContentBlock =
 	| DocsStepsBlock
 	| DocsCodeBlock
 	| DocsTableBlock
-	| DocsLinkListBlock;
+	| DocsLinkListBlock
+	| DocsMermaidBlock;
 
 export type DocsSection = {
 	id: string;
@@ -388,6 +395,10 @@ function validateBlock(value: unknown, path: string, violations: string[]): void
 		}
 		case "link-list":
 			validateLinkListItems(value.items, `${path}.items`, violations);
+			return;
+		case "mermaid":
+			readNonEmptyString(value.diagram, `${path}.diagram`, violations);
+			readOptionalNonEmptyString(value.caption, `${path}.caption`, violations);
 			return;
 	}
 }

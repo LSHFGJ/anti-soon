@@ -1,6 +1,5 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
-import { NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { collectDocsRoutePathViolations } from '../lib/docsPolicy'
 import { DOCS_CONTENT } from '../reference/content'
 import type { DocsContentBlock } from '../reference/content/schema'
@@ -11,11 +10,53 @@ type DocsShellPage = {
   href: string
 }
 
+type MermaidModule = {
+  default: {
+    initialize: (config: Record<string, unknown>) => void
+    render: (id: string, text: string) => Promise<{ svg: string }>
+  }
+}
+
+let mermaidInstancePromise: Promise<MermaidModule['default']> | null = null
+let hasInitializedMermaid = false
+
+async function getMermaidInstance() {
+  if (!mermaidInstancePromise) {
+    mermaidInstancePromise = import('mermaid').then((mermaidModule) => mermaidModule.default as MermaidModule['default'])
+  }
+
+  const mermaid = await mermaidInstancePromise
+  if (!hasInitializedMermaid) {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#f8faf7',
+        primaryTextColor: '#20272b',
+        primaryBorderColor: '#9cb191',
+        lineColor: '#4e6856',
+        secondaryColor: '#eef2eb',
+        tertiaryColor: '#f4f0e6',
+        background: '#ffffff',
+        mainBkg: '#f8faf7',
+        secondBkg: '#eef2eb',
+        tertiaryBkg: '#f4f0e6',
+        textColor: '#20272b',
+        fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      },
+    })
+    hasInitializedMermaid = true
+  }
+
+  return mermaid
+}
+
 const DOCS_SHELL_PAGES: readonly DocsShellPage[] = [
   { slug: 'overview', title: 'Docs Overview', href: '/docs' },
+  { slug: 'why-antisoon', title: 'Why AntiSoon', href: '/docs/why-antisoon' },
   { slug: 'architecture', title: 'Architecture', href: '/docs/architecture' },
   { slug: 'data-flow', title: 'Data Flow', href: '/docs/data-flow' },
-  { slug: 'api-and-contracts', title: 'API & Contracts', href: '/docs/api-and-contracts' },
   { slug: 'security', title: 'Security', href: '/docs/security' },
   { slug: 'operations', title: 'Operations', href: '/docs/operations' },
   { slug: 'troubleshooting', title: 'Troubleshooting', href: '/docs/troubleshooting' },
@@ -25,6 +66,7 @@ const DOCS_SHELL_PAGES: readonly DocsShellPage[] = [
   { slug: 'create-project', title: 'Create a Project', href: '/docs/create-project' },
   { slug: 'dashboard-and-leaderboard', title: 'Dashboard & Leaderboard', href: '/docs/dashboard-and-leaderboard' },
   { slug: 'glossary', title: 'Glossary', href: '/docs/glossary' },
+  { slug: 'deployments-and-repositories', title: 'Addresses', href: '/docs/deployments-and-repositories' },
 ]
 
 const DOCS_OVERVIEW_PAGE = DOCS_SHELL_PAGES[0]
@@ -74,57 +116,194 @@ function getTableRowKey(row: readonly string[], rowIndex: number) {
   return `${rowIndex}:${row.join('::')}`
 }
 
+function renderInlineDocsText(text: string) {
+  const pattern = /(`[^`]+`|\\?\[[^\]]+\]\((https?:\/\/[^)]+|\/docs[^)]*)\))/g
+  const nodes: React.ReactNode[] = []
+  let cursor = 0
+
+  for (const match of text.matchAll(pattern)) {
+    const full = match[0]
+    const index = match.index ?? 0
+
+    if (index > cursor) {
+      const plain = text.slice(cursor, index)
+      nodes.push(<span key={`text-${cursor}`}>{plain}</span>)
+    }
+
+    if (full.startsWith('`') && full.endsWith('`')) {
+      nodes.push(
+        <code key={`code-${index}`} className="docs-reader-inline-code">
+          {full.slice(1, -1)}
+        </code>,
+      )
+    } else {
+      const linkMatch = full.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+      if (linkMatch) {
+        const [, label, href] = linkMatch
+        if (isInternalDocsHref(href)) {
+          nodes.push(
+            <Link key={`link-${index}`} to={href} className="docs-reader-inline-link">
+              {label}
+            </Link>,
+          )
+        } else {
+          nodes.push(
+            <a key={`link-${index}`} href={href} className="docs-reader-inline-link" target="_blank" rel="noreferrer">
+              {label}
+            </a>,
+          )
+        }
+      } else {
+        nodes.push(<span key={`text-${index}`}>{full}</span>)
+      }
+    }
+
+    cursor = index + full.length
+  }
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`text-${cursor}`}>{text.slice(cursor)}</span>)
+  }
+
+  return nodes
+}
+
+const CALLOUT_STYLES: Record<'info' | 'success' | 'warning' | 'error', string> = {
+  info: 'border-[#cfd8f6] bg-[#eef4ff] text-[#25407a]',
+  success: 'border-[#c8dfcc] bg-[#eef8f0] text-[#1f5b32]',
+  warning: 'border-[#ead8b2] bg-[#fff8e8] text-[#7a5710]',
+  error: 'border-[#edc9c6] bg-[#fff0ef] text-[#8a2f2f]',
+}
+
+function MermaidDiagram({ diagram, caption }: { diagram: string; caption?: string }) {
+  const [isRendered, setIsRendered] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const diagramId = useId().replace(/:/g, '-')
+  const renderTargetRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let isActive = true
+
+    async function renderDiagram() {
+      setIsRendered(false)
+      setHasError(false)
+      if (renderTargetRef.current) {
+        renderTargetRef.current.innerHTML = ''
+      }
+
+      try {
+        const mermaid = await getMermaidInstance()
+        if ('fonts' in document && typeof document.fonts?.ready?.then === 'function') {
+          await document.fonts.ready
+        }
+        const { svg: renderedSvg } = await mermaid.render(`docs-mermaid-${diagramId}`, diagram)
+        if (!isActive) {
+          return
+        }
+        if (renderTargetRef.current) {
+          renderTargetRef.current.innerHTML = renderedSvg
+        }
+        setIsRendered(true)
+        setHasError(false)
+      } catch {
+        if (!isActive) {
+          return
+        }
+        if (renderTargetRef.current) {
+          renderTargetRef.current.innerHTML = ''
+        }
+        setIsRendered(false)
+        setHasError(true)
+      }
+    }
+
+    renderDiagram()
+
+    return () => {
+      isActive = false
+    }
+  }, [diagram, diagramId])
+
+  return (
+    <figure className="docs-reader-block docs-reader-mermaid">
+      <div className="docs-reader-block-label">
+        Flowchart
+      </div>
+      <div
+        className={[
+          'px-4 py-4',
+          isRendered ? 'overflow-x-auto' : '',
+        ].join(' ')}
+        data-docs-mermaid={isRendered ? 'rendered' : hasError ? 'error' : 'loading'}
+      >
+        {hasError ? (
+          <div className="docs-reader-muted docs-reader-probe-state">
+            Mermaid diagram failed to render in this environment.
+          </div>
+        ) : null}
+        {!hasError && !isRendered ? (
+          <div className="docs-reader-muted docs-reader-probe-state">
+            Rendering diagram...
+          </div>
+        ) : null}
+        <div
+          ref={renderTargetRef}
+          className={isRendered ? 'docs-reader-mermaid-target [&_svg]:h-auto [&_svg]:max-w-full' : 'hidden'}
+        />
+      </div>
+      {caption ? (
+        <figcaption className="docs-reader-block-caption">
+          {caption}
+        </figcaption>
+      ) : null}
+    </figure>
+  )
+}
+
 function renderBlock(block: DocsContentBlock, index: number) {
   switch (block.type) {
     case 'paragraph':
       return (
-        <p key={index} className="text-[var(--color-text)] mb-4 leading-relaxed font-mono text-sm">
-          {block.text}
+        <p key={index} className="docs-reader-paragraph">
+          {renderInlineDocsText(block.text)}
         </p>
       )
     case 'list': {
       const ListTag = block.style === 'ordered' ? 'ol' : 'ul'
       const listClass = block.style === 'ordered' ? 'list-decimal' : 'list-disc'
       return (
-        <ListTag key={index} className={`${listClass} list-outside ml-5 mb-4 space-y-2 text-[var(--color-text)] font-mono text-sm`}>
+        <ListTag key={index} className={`docs-reader-list ${listClass} list-outside`}>
           {block.items.map((item, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: Static docs content
-            <li key={i} className="pl-1 leading-relaxed">{item}</li>
+            <li key={i}>{renderInlineDocsText(item)}</li>
           ))}
         </ListTag>
       )
     }
     case 'callout':
       return (
-        <StatusBanner
-          key={index}
-          variant={block.tone}
-          className="mb-4 mt-2"
-          message={
-            <div className="space-y-2">
-              <strong className="block uppercase tracking-widest text-xs opacity-90">{block.title}</strong>
-              <div className="space-y-2">
-                {block.body.map((p, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: Static docs content
-                  <p key={i} className="leading-relaxed">{p}</p>
-                ))}
-              </div>
-            </div>
-          }
-        />
+        <div key={index} className={`docs-reader-callout ${CALLOUT_STYLES[block.tone]}`}>
+          <strong className="docs-reader-callout-title">{block.title}</strong>
+          <div className="space-y-2">
+            {block.body.map((p, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: Static docs content
+              <p key={i} className="docs-reader-callout-body">{renderInlineDocsText(p)}</p>
+            ))}
+          </div>
+        </div>
       )
     case 'steps':
       return (
-        <div key={index} className="space-y-4 mb-4 mt-4">
+        <div key={index} className="docs-reader-steps">
           {block.items.map((item, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: Static docs content
-            <div key={i} className="flex gap-4">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full border border-[var(--color-primary)] bg-[var(--color-primary-dim)] flex items-center justify-center text-[var(--color-primary)] font-mono text-xs">
+            <div key={i} className="docs-reader-step">
+              <div className="docs-reader-step-index">
                 {i + 1}
               </div>
-              <div className="flex-1 pt-0.5">
-                <h4 className="text-[var(--color-text)] font-mono text-sm uppercase tracking-wide mb-1">{item.title}</h4>
-                <p className="text-[var(--color-text-dim)] font-mono text-sm leading-relaxed">{item.body}</p>
+              <div className="flex-1 pt-0.5 min-w-0">
+                <h4 className="docs-reader-step-title">{renderInlineDocsText(item.title)}</h4>
+                <p className="docs-reader-step-body">{renderInlineDocsText(item.body)}</p>
               </div>
             </div>
           ))}
@@ -132,17 +311,17 @@ function renderBlock(block: DocsContentBlock, index: number) {
       )
     case 'code':
       return (
-        <figure key={index} className="mb-4 overflow-hidden rounded border border-[var(--color-primary-dim)]">
-          <div className="border-b border-[var(--color-primary-dim)] px-3 py-2 text-[10px] font-mono uppercase tracking-[0.2em] text-[var(--color-text-dim)]">
+        <figure key={index} className="docs-reader-block docs-reader-code">
+          <div className="docs-reader-block-label">
             {block.language}
           </div>
-          <pre className="overflow-x-auto px-3 py-3">
-            <code className="block whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-[var(--color-text)]">
+          <pre className="docs-reader-code-pre">
+            <code className="docs-reader-code-content">
               {block.code}
             </code>
           </pre>
           {block.caption ? (
-            <figcaption className="border-t border-[var(--color-primary-dim)] px-3 py-2 font-mono text-xs text-[var(--color-text-dim)]">
+            <figcaption className="docs-reader-block-caption">
               {block.caption}
             </figcaption>
           ) : null}
@@ -150,18 +329,18 @@ function renderBlock(block: DocsContentBlock, index: number) {
       )
     case 'table':
       return (
-        <figure key={index} className="mb-4 space-y-2">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse font-mono text-left text-sm text-[var(--color-text)]">
+        <figure key={index} className="docs-reader-block docs-reader-table-wrap">
+          <div className="overflow-x-auto rounded-2xl border border-[var(--docs-border)] bg-[var(--docs-surface-strong)]">
+            <table className="docs-reader-table w-full border-collapse text-left">
               {block.caption ? (
-                <caption className="mb-2 text-left font-mono text-xs text-[var(--color-text-dim)]">
+                <caption className="docs-reader-table-caption">
                   {block.caption}
                 </caption>
               ) : null}
               <thead>
-                <tr className="border-b border-[var(--color-primary-dim)] text-[var(--color-text-dim)]">
+                <tr className="docs-reader-table-head-row">
                   {block.columns.map((column) => (
-                    <th key={column} className="px-3 py-2 font-mono text-xs uppercase tracking-[0.18em]">
+                    <th key={column} className="docs-reader-table-head-cell">
                       {column}
                     </th>
                   ))}
@@ -169,10 +348,10 @@ function renderBlock(block: DocsContentBlock, index: number) {
               </thead>
               <tbody>
                 {block.rows.map((row, rowIndex) => (
-                  <tr key={getTableRowKey(row, rowIndex)} className="border-b border-[var(--color-primary-dim)] last:border-b-0">
+                  <tr key={getTableRowKey(row, rowIndex)} className="docs-reader-table-row">
                     {row.map((cell, cellIndex) => (
-                      <td key={`${block.columns[cellIndex]}:${cell}`} className="px-3 py-2 leading-relaxed">
-                        {cell}
+                      <td key={`${block.columns[cellIndex]}:${cell}`} className="docs-reader-table-cell">
+                        {renderInlineDocsText(cell)}
                       </td>
                     ))}
                   </tr>
@@ -184,12 +363,12 @@ function renderBlock(block: DocsContentBlock, index: number) {
       )
     case 'link-list':
       return (
-        <ul key={index} className="mb-4 space-y-3">
+        <ul key={index} className="docs-reader-link-list">
           {block.items.map((item) => {
-            const linkClass = 'font-mono text-sm uppercase tracking-[0.12em] text-[var(--color-primary)] hover:text-[var(--color-text)]'
+            const linkClass = 'docs-reader-link-list-title'
 
             return (
-              <li key={`${item.href}-${item.title}`} className="rounded border border-[var(--color-primary-dim)] px-3 py-3">
+              <li key={`${item.href}-${item.title}`} className="docs-reader-link-list-item">
                 {isInternalDocsHref(item.href) ? (
                   <Link to={item.href} className={linkClass}>
                     {item.title}
@@ -199,12 +378,14 @@ function renderBlock(block: DocsContentBlock, index: number) {
                     {item.title}
                   </a>
                 )}
-                <p className="mt-2 font-mono text-sm leading-relaxed text-[var(--color-text-dim)]">{item.description}</p>
+                <p className="docs-reader-link-list-description">{renderInlineDocsText(item.description)}</p>
               </li>
             )
           })}
         </ul>
       )
+    case 'mermaid':
+      return <MermaidDiagram key={index} diagram={block.diagram} caption={block.caption} />
     default:
       return null
   }
@@ -221,7 +402,6 @@ export function Docs() {
   const shouldNormalizePath = location.pathname !== normalizedPath
   const shouldRedirectToDocs = !currentShellPage && normalizedPath !== '/docs'
   const displayTitle = contentPage?.slug === currentShellPage?.slug ? contentPage.title : currentShellPage?.title ?? contentPage?.title ?? ''
-  const displaySummary = contentPage?.summary ?? ''
   const displaySections = contentPage?.sections ?? []
 
   useEffect(() => {
@@ -259,11 +439,14 @@ export function Docs() {
     return null
   }
 
+  const currentAnchorId = decodeDocsHash(location.hash)
+
   return (
-    <div className="min-h-[calc(100vh-142px)] flex flex-col py-6" data-docs-route="page" data-docs-page={currentShellPage.slug}>
-      <div className="container flex-1 flex flex-col gap-8 min-h-0 lg:flex-row">
-        <aside className="w-full lg:w-64 lg:flex-shrink-0">
-          <NeonPanel>
+    <div className="docs-reader-shell min-h-[calc(100vh-142px)] py-6" data-docs-route="page" data-docs-page={currentShellPage.slug}>
+      <div className="container docs-reader-grid min-h-0">
+        <aside className="docs-reader-sidebar-shell">
+          <div className="docs-reader-sidebar-card">
+            <div className="docs-reader-sidebar-label">Pages</div>
             <nav data-docs-nav="pages" aria-label="Docs pages" className="space-y-2">
               {DOCS_SHELL_PAGES.map((page) => {
                 const isActivePage = page.slug === currentShellPage.slug
@@ -274,10 +457,10 @@ export function Docs() {
                     to={page.href}
                     aria-current={isActivePage ? 'page' : undefined}
                     className={[
-                      'block rounded border px-3 py-2 font-mono text-sm no-underline transition-colors',
+                      'docs-reader-nav-link',
                       isActivePage
-                        ? 'border-[var(--color-primary)] bg-[var(--color-primary-dim)] text-[var(--color-primary)]'
-                        : 'border-[var(--color-primary-dim)] text-[var(--color-text-dim)] hover:border-[var(--color-primary)] hover:text-[var(--color-text)]',
+                        ? 'docs-reader-nav-link-active'
+                        : 'docs-reader-nav-link-idle',
                     ].join(' ')}
                   >
                     {page.title}
@@ -285,39 +468,59 @@ export function Docs() {
                 )
               })}
             </nav>
-          </NeonPanel>
+          </div>
         </aside>
 
-        <div className="min-w-0 flex-1">
-          <PageHeader title={displayTitle} subtitle={`> ${displaySummary}`} />
+        <div className="docs-reader-main min-w-0">
+          <header className="docs-reader-header" data-testid="page-header">
+            <h1 className="docs-reader-title">{displayTitle}</h1>
+          </header>
 
-          <div className="max-w-4xl space-y-12 mt-8">
+          <article className="docs-reader-article">
             {displaySections.map((section) => (
-            <section key={section.id} id={section.anchor.id} className="scroll-mt-24 group">
-              <div className="mb-4">
-                <h2 className="text-xl font-mono uppercase tracking-[0.1em] text-[var(--color-primary)] mb-2 flex items-center gap-2">
+            <section key={section.id} id={section.anchor.id} className="docs-reader-section scroll-mt-24 group">
+              <div className="docs-reader-section-header">
+                <h2 className="docs-reader-section-title">
                   {section.title}
-                  <a href={`#${section.anchor.id}`} className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-text-dim)] hover:text-[var(--color-primary)]">
+                  <a href={`#${section.anchor.id}`} className="docs-reader-section-anchor" aria-label={`Jump to ${section.title}`}>
                     #
                   </a>
                 </h2>
-                <p className="text-[var(--color-text-dim)] font-mono text-sm">
-                  {section.summary}
-                </p>
               </div>
-              
-              <NeonPanel>
-                <div className="flex flex-col gap-2">
+              <div className="docs-reader-section-body">
                   {section.blocks.map((block, index) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: Static docs content blocks
                     <div key={index}>{renderBlock(block, index)}</div>
                   ))}
-                </div>
-              </NeonPanel>
+              </div>
             </section>
             ))}
-          </div>
+          </article>
         </div>
+
+        <aside className="docs-reader-toc-shell" aria-label="On this page">
+          <div className="docs-reader-toc-card">
+            <div className="docs-reader-sidebar-label">Outline</div>
+            <nav className="space-y-1">
+              {displaySections.map((section) => {
+                const isActiveAnchor = currentAnchorId === section.anchor.id
+
+                return (
+                  <a
+                    key={section.id}
+                    href={`#${section.anchor.id}`}
+                    className={[
+                      'docs-reader-toc-link',
+                      isActiveAnchor ? 'docs-reader-toc-link-active' : 'docs-reader-toc-link-idle',
+                    ].join(' ')}
+                  >
+                    {section.anchor.label}
+                  </a>
+                )
+              })}
+            </nav>
+          </div>
+        </aside>
       </div>
     </div>
   )
