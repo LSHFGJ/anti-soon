@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   ...(isDocsEnabled ? [{ path: '/docs', label: 'DOCS' }] as const : []),
 ]
 
-test.describe('Navbar mobile discoverability', () => {
+test.describe('Navbar mobile docs discoverability', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async () => {
@@ -31,7 +31,9 @@ test.describe('Navbar mobile discoverability', () => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 
+    const desktopNav = page.locator('nav .navbar-links').first()
     const mobileNav = page.locator('nav div.md\\:hidden').first()
+    await expect(desktopNav).toBeHidden()
     await expect(mobileNav).toBeVisible()
 
     const renderedLabels = (await mobileNav.locator('a').allTextContents()).map((label) => label.trim())

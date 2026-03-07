@@ -70,7 +70,8 @@ describe('docs page rendering', () => {
     
     // Check first section title
     const firstSection = overviewPage.sections[0]
-    expect(screen.getByText(firstSection.title)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: new RegExp(`^${firstSection.title}`), level: 2 })).toBeInTheDocument()
+    expect(screen.queryByText(firstSection.summary)).not.toBeInTheDocument()
     
     // Check paragraph block rendering (assuming it exists in overview)
     const paragraphBlock = firstSection.blocks.find(b => b.type === 'paragraph')
@@ -79,6 +80,7 @@ describe('docs page rendering', () => {
     }
 
     expect(screen.queryByTestId('status-banner')).not.toBeInTheDocument()
+    expect(document.querySelectorAll('.docs-reader-callout').length).toBe(0)
   })
 
   it('resolves /docs#overview to a real section anchor on the overview page', async () => {

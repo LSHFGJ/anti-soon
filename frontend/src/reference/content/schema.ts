@@ -1,10 +1,17 @@
+import {
+	collectDocsRoutePathViolations,
+	DOCS_LANDING_PAGE_HREF,
+	DOCS_V1_SCOPE,
+} from "../../lib/docsPolicy";
+
 const DOCS_IDENTIFIER_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const DOCS_HREF_PATTERN = /^\/docs$/;
+const DOCS_LANDING_PAGE_SLUG = "overview";
+const DOCS_EXTERNAL_HTTPS_HREF_PATTERN = /^https:\/\/.+/;
 
 export const DOCS_LOCALES = ["en"] as const;
 export const DOCS_CALLOUT_TONES = ["info", "success", "warning", "error"] as const;
 export const DOCS_LIST_STYLES = ["unordered", "ordered"] as const;
-export const DOCS_BLOCK_TYPES = ["paragraph", "list", "callout", "steps"] as const;
+export const DOCS_BLOCK_TYPES = ["paragraph", "list", "callout", "steps", "code", "table", "link-list", "mermaid"] as const;
 
 export type DocsLocale = (typeof DOCS_LOCALES)[number];
 export type DocsCalloutTone = (typeof DOCS_CALLOUT_TONES)[number];
@@ -44,11 +51,46 @@ export type DocsStepsBlock = {
 	items: readonly DocsStepItem[];
 };
 
+export type DocsCodeBlock = {
+	type: "code";
+	language: string;
+	code: string;
+	caption?: string;
+};
+
+export type DocsTableBlock = {
+	type: "table";
+	columns: readonly string[];
+	rows: readonly (readonly string[])[];
+	caption?: string;
+};
+
+export type DocsLinkListItem = {
+	title: string;
+	href: string;
+	description: string;
+};
+
+export type DocsLinkListBlock = {
+	type: "link-list";
+	items: readonly DocsLinkListItem[];
+};
+
+export type DocsMermaidBlock = {
+	type: "mermaid";
+	diagram: string;
+	caption?: string;
+};
+
 export type DocsContentBlock =
 	| DocsParagraphBlock
 	| DocsListBlock
 	| DocsCalloutBlock
-	| DocsStepsBlock;
+	| DocsStepsBlock
+	| DocsCodeBlock
+	| DocsTableBlock
+	| DocsLinkListBlock
+	| DocsMermaidBlock;
 
 export type DocsSection = {
 	id: string;
@@ -97,6 +139,19 @@ function readNonEmptyString(
 	return normalizedValue;
 }
 
+function readOptionalNonEmptyString(
+	value: unknown,
+	path: string,
+	violations: string[],
+): string | undefined {
+	if (typeof value === "undefined") {
+		return undefined;
+	}
+
+	const normalizedValue = readNonEmptyString(value, path, violations);
+	return normalizedValue === null ? undefined : normalizedValue;
+}
+
 function validateIdentifier(value: string | null, path: string, violations: string[]): void {
 	if (value === null) {
 		return;
@@ -116,9 +171,34 @@ function validateHref(value: string | null, path: string, violations: string[]):
 		return;
 	}
 
-	if (!DOCS_HREF_PATTERN.test(value)) {
-		pushViolation(violations, path, 'must exactly match the single v1 docs route "/docs"');
+	for (const violation of collectDocsRoutePathViolations(value, DOCS_V1_SCOPE)) {
+		pushViolation(violations, path, violation);
 	}
+}
+
+function validateDocsLinkHref(value: string | null, path: string, violations: string[]): void {
+	if (value === null) {
+		return;
+	}
+
+	if (value.startsWith(DOCS_V1_SCOPE.routeBasePath)) {
+		validateHref(value, path, violations);
+		return;
+	}
+
+	if (DOCS_EXTERNAL_HTTPS_HREF_PATTERN.test(value)) {
+		return;
+	}
+
+	pushViolation(violations, path, 'must be "/docs", "/docs/<slug>", or "https://..."');
+}
+
+function getExpectedHrefForSlug(slug: string): string {
+	if (slug === DOCS_LANDING_PAGE_SLUG) {
+		return DOCS_LANDING_PAGE_HREF;
+	}
+
+	return `${DOCS_V1_SCOPE.routeBasePath}/${slug}`;
 }
 
 function validateStringList(
@@ -139,6 +219,72 @@ function validateStringList(
 		const text = readNonEmptyString(item, `${path}[${index}]`, violations);
 		return text === null ? [] : [text];
 	});
+}
+
+function validateTableRows(
+	value: unknown,
+	path: string,
+	columnCount: number,
+	violations: string[],
+): void {
+	if (!Array.isArray(value)) {
+		pushViolation(violations, path, `expected array, received ${typeof value}`);
+		return;
+	}
+
+	for (const [index, row] of value.entries()) {
+		const rowPath = `${path}[${index}]`;
+		if (!Array.isArray(row)) {
+			pushViolation(
+				violations,
+				rowPath,
+				`expected array, received ${Array.isArray(row) ? "array" : typeof row}`,
+			);
+			continue;
+		}
+
+		if (row.length !== columnCount) {
+			pushViolation(
+				violations,
+				rowPath,
+				`must contain exactly ${columnCount} cells to match columns length`,
+			);
+		}
+
+		for (const [cellIndex, cell] of row.entries()) {
+			if (typeof cell !== "string") {
+				pushViolation(violations, `${rowPath}[${cellIndex}]`, `expected string, received ${typeof cell}`);
+			}
+		}
+	}
+}
+
+function validateLinkListItems(value: unknown, path: string, violations: string[]): void {
+	if (!Array.isArray(value)) {
+		pushViolation(violations, path, `expected array, received ${typeof value}`);
+		return;
+	}
+
+	if (value.length === 0) {
+		pushViolation(violations, path, "must contain at least one item");
+	}
+
+	for (const [index, item] of value.entries()) {
+		const itemPath = `${path}[${index}]`;
+		if (!isRecord(item)) {
+			pushViolation(
+				violations,
+				itemPath,
+				`expected object, received ${Array.isArray(item) ? "array" : typeof item}`,
+			);
+			continue;
+		}
+
+		readNonEmptyString(item.title, `${itemPath}.title`, violations);
+		const href = readNonEmptyString(item.href, `${itemPath}.href`, violations);
+		validateDocsLinkHref(href, `${itemPath}.href`, violations);
+		readNonEmptyString(item.description, `${itemPath}.description`, violations);
+	}
 }
 
 function validateAnchor(
@@ -234,7 +380,26 @@ function validateBlock(value: unknown, path: string, violations: string[]): void
 				readNonEmptyString(item.title, `${itemPath}.title`, violations);
 				readNonEmptyString(item.body, `${itemPath}.body`, violations);
 			}
+			return;
 		}
+		case "code":
+			readNonEmptyString(value.language, `${path}.language`, violations);
+			readNonEmptyString(value.code, `${path}.code`, violations);
+			readOptionalNonEmptyString(value.caption, `${path}.caption`, violations);
+			return;
+		case "table": {
+			const columns = validateStringList(value.columns, `${path}.columns`, violations);
+			validateTableRows(value.rows, `${path}.rows`, columns.length, violations);
+			readOptionalNonEmptyString(value.caption, `${path}.caption`, violations);
+			return;
+		}
+		case "link-list":
+			validateLinkListItems(value.items, `${path}.items`, violations);
+			return;
+		case "mermaid":
+			readNonEmptyString(value.diagram, `${path}.diagram`, violations);
+			readOptionalNonEmptyString(value.caption, `${path}.caption`, violations);
+			return;
 	}
 }
 
@@ -328,7 +493,7 @@ export function collectDocsContentCollectionViolations(value: unknown): string[]
 			}
 
 			if (slug !== null) {
-				const expectedHref = "/docs";
+				const expectedHref = getExpectedHrefForSlug(slug);
 				if (href !== expectedHref) {
 					pushViolation(
 						violations,

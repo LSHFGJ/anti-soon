@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockDocsConfig = vi.hoisted(() => ({ docsEnabled: true }))
@@ -62,7 +62,25 @@ vi.mock('../pages/Builder', () => ({
 vi.mock('../pages/Docs', () => ({
   Docs: () => {
     docsRenderSpy()
-    return <div data-testid="docs-page">docs page</div>
+    const pathname = window.location.pathname
+    const normalizedPath = pathname === '/docs/' ? '/docs' : pathname.replace(/\/+$/, '') || '/'
+    const docsPage = normalizedPath === '/docs' ? 'overview' : normalizedPath.slice('/docs/'.length)
+
+    useEffect(() => {
+      if (pathname !== normalizedPath) {
+        window.history.replaceState({}, '', normalizedPath)
+      }
+    }, [normalizedPath, pathname])
+
+    return (
+      <div
+        data-testid="docs-page"
+        data-docs-route="page"
+        data-docs-page={docsPage}
+      >
+        docs page
+      </div>
+    )
   },
 }))
 
@@ -88,11 +106,39 @@ describe('App docs routes', () => {
 
     await screen.findByTestId('docs-page')
     expect(docsRenderSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('docs-page')).toHaveAttribute('data-docs-page', 'overview')
     expect(screen.queryByTestId('landing-page')).not.toBeInTheDocument()
   })
 
-  it('routes unknown /docs/* paths back to /docs before mounting the docs page', async () => {
-    window.history.replaceState({}, '', '/docs/unknown')
+  it.each(['/docs/architecture', '/docs/operations', '/docs/getting-started'])('keeps flat child docs route %s inside the docs shell', async (pathname) => {
+    window.history.replaceState({}, '', pathname)
+
+    render(<App />)
+
+    await screen.findByTestId('docs-page')
+    expect(docsRenderSpy).toHaveBeenCalledTimes(1)
+    expect(window.location.pathname).toBe(pathname)
+    expect(screen.getByTestId('docs-page')).toHaveAttribute('data-docs-page', pathname.slice('/docs/'.length))
+    expect(screen.queryByTestId('landing-page')).not.toBeInTheDocument()
+  })
+
+  it('normalizes valid child docs routes with trailing slashes inside the docs shell', async () => {
+    window.history.replaceState({}, '', '/docs/getting-started/')
+
+    render(<App />)
+
+    await screen.findByTestId('docs-page')
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/docs/getting-started')
+    })
+
+    expect(docsRenderSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('docs-page')).toHaveAttribute('data-docs-page', 'getting-started')
+    expect(screen.queryByTestId('landing-page')).not.toBeInTheDocument()
+  })
+
+  it('routes nested /docs/* paths back to /docs before mounting the docs page', async () => {
+    window.history.replaceState({}, '', '/docs/reference/contracts')
 
     render(<App />)
 
@@ -102,12 +148,26 @@ describe('App docs routes', () => {
     })
 
     expect(docsRenderSpy).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('docs-page')).toHaveAttribute('data-docs-page', 'overview')
     expect(screen.queryByTestId('landing-page')).not.toBeInTheDocument()
   })
 
   it('redirects /docs to home without mounting docs when docs are disabled', async () => {
     mockDocsConfig.docsEnabled = false
     window.history.replaceState({}, '', '/docs')
+
+    render(<App />)
+
+    await screen.findByTestId('landing-page')
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/')
+    })
+    expect(docsRenderSpy).not.toHaveBeenCalled()
+  })
+
+  it('redirects /docs child routes to home without mounting docs when docs are disabled', async () => {
+    mockDocsConfig.docsEnabled = false
+    window.history.replaceState({}, '', '/docs/architecture')
 
     render(<App />)
 

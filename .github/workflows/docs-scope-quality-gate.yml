@@ -104,7 +104,7 @@ jobs:
       - name: Run docs-focused e2e tests
         shell: bash
         working-directory: frontend
-        run: bun run test:e2e -- --grep "docs|navbar-mobile|page-shells"
+        run: bun run test:e2e -- --grep "docs"
 
       - name: Build frontend
         shell: bash

@@ -27,6 +27,14 @@ function DocsRoute() {
   return <Docs />
 }
 
+function DocsFallbackRoute() {
+  if (!DOCS_ENABLED) {
+    return <Navigate to="/" replace />
+  }
+
+  return <Navigate to="/docs" replace />
+}
+
 function AppShell() {
   const location = useLocation()
   const isBuilderRoute = location.pathname.startsWith('/builder')
@@ -57,7 +65,8 @@ function AppShell() {
             )}
           />
           <Route path="/docs" element={<DocsRoute />} />
-          <Route path="/docs/*" element={<Navigate to="/docs" replace />} />
+          <Route path="/docs/:slug" element={<DocsRoute />} />
+          <Route path="/docs/*" element={<DocsFallbackRoute />} />
           <Route path="/explorer" element={<Explorer />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/create-project" element={<CreateProject />} />
