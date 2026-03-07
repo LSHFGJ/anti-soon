@@ -6,102 +6,101 @@ export const exploreProjectsDocsPage = {
 	href: "/docs/explore-projects",
 	locale: "en",
 	title: "Explore Projects",
-	summary: "Finding and evaluating active bounty projects.",
+	summary: "How to use the explorer and project detail screens to choose the right competition and know when to submit.",
 	sections: [
 		{
-			id: "explorer-filters",
-			anchor: {
-				id: "explorer-filters",
-				label: "Explorer Filters",
-			},
-			title: "Explorer Filters",
-			summary: "Using the Explorer to find targets.",
+			id: "project-discovery",
+			anchor: { id: "project-discovery", label: "Use the Explorer" },
+			title: "Use the Explorer",
+			summary: "What to do on `/explorer` before you spend time preparing a submission.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The Explorer page provides a list of all registered projects on the network. You can use dropdown filters to refine the list based on specific criteria:",
+					text: "Start on `/explorer` when you want to find a competition that is both open and worth your effort. The page lets you filter by project status and mode, then compare the core numbers on each card before you open a project detail page.",
 				},
 				{
-					type: "list",
-					style: "unordered",
+					type: "steps",
 					items: [
-						"Status Filter: Toggle between Active (currently accepting PoCs), Inactive, or All projects.",
-						"Mode Filter: Filter by payout mode, either UNIQUE (first valid submission wins) or MULTI (proportional split among valid submissions)."
-					]
-				}
+						{
+							title: "Filter the list first",
+							body: "Use the `Status` filter to focus on active projects first, then use the `Mode` filter to narrow the list to `UNIQUE`, `MULTI`, or `All` depending on the kind of competition you want.",
+						},
+						{
+							title: "Read each project card",
+							body: "Every card shows the project id, mode badge, bounty pool, max payout, target contract, and a status badge. Use those numbers to decide whether the opportunity is large enough and still open enough to justify deeper work.",
+						},
+						{
+							title: "Open the project detail page",
+							body: "Click a card to inspect one project in detail. That page gives you the richer rules, timing information, current submissions, and the `SUBMIT POC` shortcut when the project is active.",
+						},
+					],
+				},
+				{
+					type: "table",
+					columns: ["Card field", "What it tells you", "How to use it"],
+					rows: [
+						["Mode", "Whether the project is `UNIQUE` or `MULTI`.", "Use it to decide whether you want a first-valid style competition or a batch-style competition."],
+						["Bounty / Max payout", "How much funding exists overall and how much one bug can pay.", "Use both numbers together. A large pool with a tiny max payout may still be less attractive than a smaller but better-shaped pool."],
+						["Target", "The target contract address shown on the card.", "Use it as a quick sanity check that you are looking at the correct project before opening the detail page."],
+						["Status", "Whether the project is currently open, in reveal, or closed.", "Treat open projects as the best candidates for new work. Closed projects are better for review than fresh submission preparation."],
+					],
+				},
 			],
 		},
 		{
-			id: "project-statuses",
-			anchor: {
-				id: "project-statuses",
-				label: "Project Statuses",
-			},
-			title: "Project Statuses",
-			summary: "Understanding the timeline of a project.",
+			id: "timeline-and-visibility",
+			anchor: { id: "timeline-and-visibility", label: "Read Status and Timing" },
+			title: "Read Status and Timing",
+			summary: "How to interpret the current status badges you see in the explorer and project detail views.",
 			blocks: [
 				{
-					type: "paragraph",
-					text: "Each project moves through a lifecycle based on its on-chain deadlines:",
+					type: "table",
+					columns: ["What you see", "Meaning for you", "What to do next"],
+					rows: [
+						["`OPEN` on the explorer card", "The project is still open for new commitments.", "Open the project detail page, read the rules, and decide whether to start work now."],
+						["`REVEAL` on the explorer card", "The commit deadline has passed and the project is in a later phase.", "Do not assume you can still enter a new submission. Review the detail page before spending time on a fresh PoC."],
+						["`CLOSED` on the explorer card", "The competition has moved past the active window.", "Treat it as historical context, not a new submission opportunity."],
+						["`COMMIT OPEN` on project detail", "The detail page still considers the project open for new commitments.", "If the project is active and you want to participate, this is the best moment to use the `SUBMIT POC` button."],
+						["`REVEAL PHASE` or `CLOSED` on project detail", "The page is showing a later competition stage.", "Use the submission list and status panels for observation, not as a sign that a new commit is definitely possible."],
+					],
 				},
 				{
 					type: "list",
 					style: "unordered",
 					items: [
-						"COMMIT OPEN: The current time is before the commit deadline. New PoC hashes can be submitted.",
-						"REVEAL PHASE: The commit deadline has passed, but the reveal deadline is still active. Only existing commits can be revealed.",
-						"CLOSED: Both deadlines have passed. No further action can be taken."
-					]
-				}
-			]
+						"The explorer's top-level `Status` filter controls which projects you see before you ever open a detail page.",
+						"Project detail pages add more timing context than the explorer cards, so use the detail page whenever a card looks promising.",
+						"A project can be visible in the UI even when it is no longer a good candidate for a new submission, so always check the status badge before opening the Builder.",
+					],
+				},
+			],
 		},
 		{
-			id: "project-detail-interpretation",
-			anchor: {
-				id: "project-detail-interpretation",
-				label: "Project Detail Interpretation",
-			},
-			title: "Project Detail Interpretation",
-			summary: "Reading project configurations and history.",
+			id: "submission-signal-reading",
+			anchor: { id: "submission-signal-reading", label: "Decide Whether to Submit" },
+			title: "Decide Whether to Submit",
+			summary: "The short checklist to run before you click `SUBMIT POC`.",
 			blocks: [
-				{
-					type: "paragraph",
-					text: "The Project Detail view provides a comprehensive breakdown of the target's parameters, ensuring you understand the rules of engagement before building a PoC. Note that if the application cannot reach the blockchain, it will display a warning and load preview fallback data.",
-				},
 				{
 					type: "list",
 					style: "unordered",
 					items: [
-						"Bounty Information: Total Bounty Pool and Max Payout per bug.",
-						"Timers: Live countdowns for both Commit and Reveal deadlines.",
-						"Rules & Thresholds: The configuration for execution, including Max Attacker Seed, Max Time Warp, and exact ETH drain thresholds required for each severity level (Critical, High, Medium, Low).",
-						"Submissions List: A table of all PoCs submitted against the project, showing auditor addresses, statuses, severities, drain amounts, and any awarded payouts."
-					]
-				}
-			]
-		},
-		{
-			id: "when-to-use-builder-from-project-detail",
-			anchor: {
-				id: "when-to-use-builder-from-project-detail",
-				label: "When to Use Builder from Project Detail",
-			},
-			title: "When to Use Builder from Project Detail",
-			summary: "Seamlessly starting your submission.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "If a project is currently active and you have a valid exploit, you can click the 'SUBMIT POC' button directly on the project's detail page.",
+						"Confirm that the project is active and still shows an open commit state before you invest time in final submission prep.",
+						"Read the detail page's payout numbers and rules so you understand whether the target and reward justify the effort.",
+						"Use the visible target contract and project metadata as a sanity check that you are preparing the PoC for the right competition.",
+						"Start the Builder from the project detail page when possible so the project context is already selected for you.",
+					],
 				},
 				{
 					type: "callout",
-					tone: "success",
-					title: "Context Injection",
+					tone: "info",
+					title: "Not every missing detail is a bug",
 					body: [
-						"Navigating to the Builder from the Project Detail page pre-populates the project context, which can save you a manual selection step. Review the selected project before submitting, because the Builder still exposes editable project-selection paths."
-					]
-				}
-			]
-		}
+						"Project detail pages can show less information than you expect, especially around submission contents or pre-reveal activity.",
+						"If you are browsing as an outsider, limited visibility can be intentional. Use the published rules, status badges, and payout terms to decide whether to participate.",
+					],
+				},
+			],
+		},
 	],
 } as const satisfies DocsPage;
