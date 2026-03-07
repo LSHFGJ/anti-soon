@@ -6,65 +6,52 @@ export const troubleshootingDocsPage = {
 	href: "/docs/troubleshooting",
 	locale: "en",
 	title: "Troubleshooting",
-	summary: "Guides for common issues and failures.",
+	summary: "How to debug the lifecycle model when docs, reads, and protocol progress do not line up.",
 	sections: [
 		{
-			id: "docs-route-not-visible",
-			anchor: { id: "docs-route-not-visible", label: "Docs route not visible" },
-			title: "Docs route not visible",
-			summary: "Symptom: The /docs route returns a 404 or the nav link is missing.",
+			id: "lifecycle-debugging-lens",
+			anchor: { id: "lifecycle-debugging-lens", label: "Lifecycle Debugging Lens" },
+			title: "Lifecycle Debugging Lens",
+			summary: "Start by asking which lifecycle checkpoint failed, not which page looks odd.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "This usually occurs if the `VITE_ENABLE_DOCS` environment variable is not set to true or 1. Verify your environment file or build settings and ensure the flag is active before running the application.",
+					text: "Most AntiSoon issues make more sense when you debug by protocol checkpoint. Ask whether the project activated after registration, whether the submission reached `PoCCommitted`, whether reveal orchestration advanced, whether result write-back happened, and whether the current page is merely lagging behind the real protocol stage. That framing is more reliable than assuming every visible glitch is a UI bug.",
 				},
 			],
 		},
 		{
-			id: "contract-sync-mismatch",
-			anchor: { id: "contract-sync-mismatch", label: "Contract sync mismatch" },
-			title: "Contract sync mismatch",
-			summary: "Symptom: Operations fail due to ABI mismatches or incorrect addresses.",
+			id: "commit-and-visibility-issues",
+			anchor: { id: "commit-and-visibility-issues", label: "Commit and Visibility Issues" },
+			title: "Commit and Visibility Issues",
+			summary: "Symptoms where the researcher path and public read surfaces disagree.",
 			blocks: [
 				{
-					type: "paragraph",
-					text: "If you see legacy submission mode errors or transaction reverts, you likely have an outdated `frontend/src/config.ts`. Run the contract sync script to pull the latest `BountyHub` ABI and address, then rebuild the frontend.",
+					type: "table",
+					columns: ["Symptom", "Likely lifecycle meaning", "What to check"],
+					rows: [
+						["Local UI thinks the submission exists, but the project page does not", "Recovery state was persisted without a trustworthy protocol checkpoint or the read model is still behind", "Look for a real `PoCCommitted` event before trusting local state"],
+						["A non-submitter cannot inspect a committed submission", "This may be expected pre-reveal access control rather than missing data", "Check whether the submission has actually reached the reveal stage"],
+						["Commit succeeded, but later stages do not advance", "Reveal orchestration or verification did not pick up the submission", "Check project mode, commit-window timing, and whether the protocol moved into the correct workflow branch"],
+					],
 				},
 			],
 		},
 		{
-			id: "preview-fallback-or-blockchain-reads-failing",
-			anchor: { id: "preview-fallback-or-blockchain-reads-failing", label: "Preview fallback or blockchain reads failing" },
-			title: "Preview fallback or blockchain reads failing",
-			summary: "Symptom: The dashboard shows demo data (DummyVault) instead of live project state.",
+			id: "read-model-and-routing-issues",
+			anchor: { id: "read-model-and-routing-issues", label: "Read-Model and Routing Issues" },
+			title: "Read-Model and Routing Issues",
+			summary: "Symptoms where the docs or app surface do not match the intended protocol path.",
 			blocks: [
 				{
-					type: "paragraph",
-					text: "The frontend falls back to demo static projects if it cannot successfully fetch live state from the configured RPC. Check the browser console to see if the network request to the viem provider is failing or if the chain is incorrectly configured.",
-				},
-			],
-		},
-		{
-			id: "wallet-connectivity-failures",
-			anchor: { id: "wallet-connectivity-failures", label: "Wallet/connectivity failures" },
-			title: "Wallet/connectivity failures",
-			summary: "Symptom: Unable to connect wallet or transactions fail to broadcast.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "Ensure the user's wallet is set to the correct network (e.g., Sepolia testnet) and they have sufficient ETH for gas. Check if the frontend configuration matches the injected provider's chain ID.",
-				},
-			],
-		},
-		{
-			id: "unknown-docs-path-behavior",
-			anchor: { id: "unknown-docs-path-behavior", label: "Unknown docs path behavior" },
-			title: "Unknown docs path behavior",
-			summary: "Symptom: Deep linking into a child docs route redirects to the main docs index or fails.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "The static routing structure only supports flat child routes (e.g., `/docs/security`). Ensure you are not navigating to nested directories that are not defined in the manifest ordering.",
+					type: "list",
+					style: "unordered",
+					items: [
+						"If `/docs` is missing, verify the docs feature flag and rebuild path before assuming the content itself is wrong.",
+						"If project or dashboard reads fall back to preview data, treat that as a read-model problem first, not as evidence that the protocol lifecycle is empty.",
+						"If a deep docs route behaves unexpectedly, confirm the flat `/docs/<slug>` manifest path instead of testing unsupported nested routes.",
+						"If a page narrative conflicts with the product surface, prefer the lifecycle-aligned docs and then verify whether the product is simply behind the intended architecture.",
+					],
 				},
 			],
 		},

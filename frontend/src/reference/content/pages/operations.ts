@@ -6,65 +6,79 @@ export const operationsDocsPage = {
 	href: "/docs/operations",
 	locale: "en",
 	title: "Operations",
-	summary: "Runbooks and operational procedures.",
+	summary: "Operational checkpoints for the intended workflow-driven AntiSoon protocol path.",
 	sections: [
 		{
-			id: "environment-and-workflow-inventory",
-			anchor: { id: "environment-and-workflow-inventory", label: "Environment and Workflow Inventory" },
-			title: "Environment and Workflow Inventory",
-			summary: "Current environments and workflows.",
+			id: "runtime-topology",
+			anchor: { id: "runtime-topology", label: "Runtime Topology" },
+			title: "Runtime Topology",
+			summary: "The active operational surfaces that must cooperate for the protocol to move forward.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The platform relies on two main Chainlink CRE workflows: `verify-poc` for assessing submissions against a live Tenderly vNet, and `vnet-init` for initializing the environment. A separate `auto-reveal-relayer` runs as a Node.js process to execute queued reveals.",
+					text: "Operations in AntiSoon are organized around a runtime topology, not a single long-running service. Registration-time bootstrap, commit-window scheduling, reveal orchestration, strict verification, result packaging, and settlement-facing write-back all depend on different surfaces working in sequence.",
+				},
+				{
+					type: "table",
+					columns: ["Runtime surface", "Operational responsibility", "Critical dependency"],
+					rows: [
+						["BountyHub", "Emit lifecycle events and persist accepted reports", "Authorized workflow provenance"],
+						["`vnet-init` path", "Activate projects by provisioning or reusing Tenderly state", "Registration events and Tenderly environment health"],
+						["Commit-window scheduler", "Track mode-specific timing after project bootstrap", "Stored project timing rules"],
+						["`verify-poc` path", "Replay revealed submissions and compute strict metrics", "Sapphire payload access plus Tenderly execution"],
+						["Confidential consensus path", "Aggregate hidden jury opinions and final package inputs", "Confidential storage and deadline-aware orchestration"],
+					],
 				},
 			],
 		},
 		{
-			id: "contracts-sync-and-build-gates",
-			anchor: { id: "contracts-sync-and-build-gates", label: "Contracts Sync and Build Gates" },
-			title: "Contracts Sync and Build Gates",
-			summary: "Pre-deployment synchronization.",
+			id: "orchestration-checkpoints",
+			anchor: { id: "orchestration-checkpoints", label: "Orchestration Checkpoints" },
+			title: "Orchestration Checkpoints",
+			summary: "The operator-friendly milestones that prove the protocol is advancing correctly.",
 			blocks: [
 				{
-					type: "paragraph",
-					text: "Prior to deploying the frontend, operators must run the contract sync tasks to ensure the UI has the latest BountyHub ABI and addresses. The pipeline strictly enforces docs quality through GitHub actions (e.g., `docs-scope-quality-gate.yml`) to prevent regression in the offline-first authoring process.",
+					type: "steps",
+					items: [
+						{
+							title: "Bootstrap confirmation",
+							body: "After registration, confirm that the project moved through the pending VNet phase and received a valid activation write-back before treating it as ready for researchers.",
+						},
+						{
+							title: "Commit identity confirmation",
+							body: "Treat `PoCCommitted` as the checkpoint where a submission becomes operationally real; until then, local recovery data is not enough.",
+						},
+						{
+							title: "Reveal orchestration checkpoint",
+							body: "Confirm that UNIQUE submissions or MULTI commit windows are advancing into their correct reveal workflow path rather than assuming a generic manual reveal stage.",
+						},
+						{
+							title: "Verification branch checkpoint",
+							body: "Determine whether the case passed the strict gate directly or moved into confidential consensus or adjudication, because downstream timelines depend on that branch.",
+						},
+						{
+							title: "Result write-back checkpoint",
+							body: "Only treat a case as operationally complete when the final package has been accepted by BountyHub and is visible to settlement-facing readers.",
+						},
+					],
 				},
 			],
 		},
 		{
-			id: "incident-response",
-			anchor: { id: "incident-response", label: "Incident Response" },
-			title: "Incident Response",
-			summary: "Handling operational failures.",
+			id: "release-and-docs-gates",
+			anchor: { id: "release-and-docs-gates", label: "Release and Docs Gates" },
+			title: "Release and Docs Gates",
+			summary: "Minimum verification loops for shipping protocol or docs changes.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "If the `verify-poc` workflow fails due to Tenderly rate limits or RPC issues, the submission will remain in a pending state. Operators should verify workflow status via the CRE CLI and assess event logs. Incidents affecting docs routing can be mitigated by disabling the docs feature flag.",
+					text: "Because the docs are intended to describe the target protocol path, release discipline matters. Contract sync, docs schema validation, preview checks, and build verification should happen together so that protocol-facing language and runtime-facing configuration do not drift apart.",
 				},
-			],
-		},
-		{
-			id: "rollback-and-recovery",
-			anchor: { id: "rollback-and-recovery", label: "Rollback and Recovery" },
-			title: "Rollback and Recovery",
-			summary: "Strategies for safe rollback.",
-			blocks: [
 				{
-					type: "paragraph",
-					text: "The static nature of the documentation means that feature flags control visibility. If bad content or routing is shipped, ops can toggle the `VITE_ENABLE_DOCS` flag to `false` and rebuild the site, effectively hiding the `/docs` path while the underlying issue is resolved.",
-				},
-			],
-		},
-		{
-			id: "operational-limits",
-			anchor: { id: "operational-limits", label: "Operational Limits" },
-			title: "Operational Limits",
-			summary: "Rate limits and system boundaries.",
-			blocks: [
-				{
-					type: "paragraph",
-					text: "The system enforces a 10-minute cooldown per auditor per project for PoC submissions to prevent spam. Workflows are bounded by a strict 5 HTTP request budget to comply with CRE execution limits. Dispute windows restrict payout finalization until the timeout elapses.",
+					type: "code",
+					language: "bash",
+					code: "bun run contracts:check\nbunx vitest run src/__tests__/docs-content.spec.ts src/__tests__/Docs.test.tsx src/__tests__/App.docs-route.spec.tsx\nbun run build",
+					caption: "Minimum verification loop for this docs corpus while the protocol design is still being aligned to the lifecycle diagram.",
 				},
 			],
 		},
