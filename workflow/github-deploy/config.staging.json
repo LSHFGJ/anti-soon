@@ -1,6 +1,0 @@
-{
-  "etherscanApiUrl": "https://api-sepolia.etherscan.io/api",
-  "metadataUploadApiUrl": "https://your-api.example.com/api/metadata/upload",
-  "githubApiUrl": "https://api.github.com",
-  "owner": "0x0000000000000000000000000000000000000000"
-}
