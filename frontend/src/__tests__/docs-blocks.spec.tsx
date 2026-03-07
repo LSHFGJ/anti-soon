@@ -5,6 +5,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 window.scrollTo = vi.fn()
 
+const mermaidInitializeMock = vi.fn()
+const mermaidRenderMock = vi.fn(async (_id: string, diagram: string) => ({
+  svg: `<svg data-testid="mermaid-svg"><text>${diagram.includes('flowchart') ? 'Rendered Mermaid' : 'Rendered'}</text></svg>`,
+}))
+
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: mermaidInitializeMock,
+    render: mermaidRenderMock,
+  },
+}))
+
 vi.mock('../components/shared/ui-primitives', () => ({
   PageHeader: ({ title, subtitle }: { title: ReactNode; subtitle?: ReactNode }) => (
     <div data-testid="page-header">
@@ -21,6 +33,8 @@ vi.mock('../components/shared/ui-primitives', () => ({
 afterEach(() => {
   vi.resetModules()
   vi.doUnmock('../reference/content')
+  mermaidInitializeMock.mockClear()
+  mermaidRenderMock.mockClear()
 })
 
 function LocationProbe() {
@@ -30,7 +44,36 @@ function LocationProbe() {
 }
 
 describe('docs blocks', () => {
-  it('renders code, table, and link-list blocks with router-aware internal docs links', async () => {
+  it('initializes mermaid only once across multiple docs page renders', async () => {
+    const { Docs } = await import('../pages/Docs')
+
+    const firstRender = render(
+      <MemoryRouter initialEntries={['/docs/architecture']}>
+        <Docs />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(mermaidRenderMock).toHaveBeenCalled()
+    })
+
+    firstRender.unmount()
+    mermaidRenderMock.mockClear()
+
+    render(
+      <MemoryRouter initialEntries={['/docs/data-flow']}>
+        <Docs />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(mermaidRenderMock).toHaveBeenCalled()
+    })
+
+    expect(mermaidInitializeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders code, table, mermaid, and link-list blocks with router-aware internal docs links', async () => {
     vi.doMock('../reference/content', async () => {
       const actual = await vi.importActual<typeof import('../reference/content')>('../reference/content')
 
@@ -71,6 +114,11 @@ describe('docs blocks', () => {
                     caption: 'Runtime defaults',
                   },
                   {
+                    type: 'mermaid',
+                    diagram: 'flowchart TD\nA[Commit] --> B[Reveal]\nB --> C[Verify]',
+                    caption: 'Submission lifecycle flow',
+                  },
+                  {
                     type: 'link-list',
                     items: [
                       {
@@ -89,6 +137,10 @@ describe('docs blocks', () => {
                         description: 'Read the external protocol reference.',
                       },
                     ],
+                  },
+                  {
+                    type: 'paragraph',
+                    text: 'Read [Architecture](/docs/architecture) or the [announcement](https://x.com/immunefi/status/1937177377093677247).',
                   },
                 ],
               },
@@ -125,6 +177,13 @@ describe('docs blocks', () => {
     expect(within(table).getAllByText('strict')).toHaveLength(2)
     expect(within(table).getByText('3')).toBeInTheDocument()
 
+    await waitFor(() => {
+      expect(screen.getByText('Submission lifecycle flow')).toBeInTheDocument()
+      expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument()
+    })
+    expect(mermaidInitializeMock).toHaveBeenCalled()
+    expect(mermaidRenderMock).toHaveBeenCalledWith(expect.stringMatching(/^docs-mermaid-/), expect.stringContaining('flowchart TD'))
+
     const docsOverviewItem = screen.getByText('Return to the landing page.').closest('li')
     const architectureItem = screen.getByText('Open the architecture child page.').closest('li')
     const protocolReferenceItem = screen.getByText('Read the external protocol reference.').closest('li')
@@ -136,10 +195,14 @@ describe('docs blocks', () => {
     const docsOverviewLink = within(docsOverviewItem as HTMLLIElement).getByRole('link', { name: 'Docs overview' })
     const architectureLink = within(architectureItem as HTMLLIElement).getByRole('link', { name: 'Architecture' })
     const protocolReferenceLink = within(protocolReferenceItem as HTMLLIElement).getByRole('link', { name: 'Protocol reference' })
+    const inlineArchitectureLinks = screen.getAllByRole('link', { name: 'Architecture' })
+    const inlineAnnouncementLink = screen.getByRole('link', { name: 'announcement' })
 
     expect(docsOverviewLink).toHaveAttribute('href', '/docs')
     expect(architectureLink).toHaveAttribute('href', '/docs/architecture')
     expect(protocolReferenceLink).toHaveAttribute('href', 'https://example.com/reference')
+    expect(inlineArchitectureLinks.some((link) => link.getAttribute('href') === '/docs/architecture')).toBe(true)
+    expect(inlineAnnouncementLink).toHaveAttribute('href', 'https://x.com/immunefi/status/1937177377093677247')
 
     fireEvent.click(docsOverviewLink)
 

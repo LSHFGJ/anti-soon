@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test'
 
 const EXPECTED_PAGE_NAV = [
   ['Docs Overview', '/docs'],
+  ['Why AntiSoon', '/docs/why-antisoon'],
   ['Architecture', '/docs/architecture'],
   ['Data Flow', '/docs/data-flow'],
-  ['API & Contracts', '/docs/api-and-contracts'],
   ['Security', '/docs/security'],
   ['Operations', '/docs/operations'],
   ['Troubleshooting', '/docs/troubleshooting'],
@@ -14,6 +14,7 @@ const EXPECTED_PAGE_NAV = [
   ['Create a Project', '/docs/create-project'],
   ['Dashboard & Leaderboard', '/docs/dashboard-and-leaderboard'],
   ['Glossary', '/docs/glossary'],
+  ['Addresses', '/docs/deployments-and-repositories'],
 ] as const
 
 test.describe('Docs route hardening', () => {
@@ -52,10 +53,15 @@ test.describe('Docs route hardening', () => {
     await expect(page.locator('[data-docs-route="page"]')).toHaveAttribute('data-docs-page', 'operations')
     await expect(page.locator('[data-docs-nav="pages"]')).toBeVisible()
 
-    await page.goto('/docs/api-and-contracts')
-    await expect(page).toHaveURL(/\/docs\/api-and-contracts$/)
-    await expect(page.locator('[data-docs-route="page"]')).toHaveAttribute('data-docs-page', 'api-and-contracts')
+    await page.goto('/docs/deployments-and-repositories')
+    await expect(page).toHaveURL(/\/docs\/deployments-and-repositories$/)
+    await expect(page.locator('[data-docs-route="page"]')).toHaveAttribute('data-docs-page', 'deployments-and-repositories')
     await expect(page.locator('[data-docs-nav="pages"]')).toBeVisible()
+
+    await page.goto('/docs/api-and-contracts')
+    await expect(page).toHaveURL(/\/docs$/)
+    await expect(page.locator('[data-docs-route="page"]')).toHaveAttribute('data-docs-page', 'overview')
+    await expect(page.getByRole('heading', { name: 'Docs Overview' })).toBeVisible()
 
     await page.goto('/docs/getting-started/')
     await expect(page).toHaveURL(/\/docs\/getting-started$/)

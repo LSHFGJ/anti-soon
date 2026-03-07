@@ -70,8 +70,8 @@ describe('docs page rendering', () => {
     
     // Check first section title
     const firstSection = overviewPage.sections[0]
-    expect(screen.getByText(firstSection.title)).toBeInTheDocument()
-    expect(screen.getByText(firstSection.summary)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: new RegExp(`^${firstSection.title}`), level: 2 })).toBeInTheDocument()
+    expect(screen.queryByText(firstSection.summary)).not.toBeInTheDocument()
     
     // Check paragraph block rendering (assuming it exists in overview)
     const paragraphBlock = firstSection.blocks.find(b => b.type === 'paragraph')
@@ -79,11 +79,7 @@ describe('docs page rendering', () => {
       expect(screen.getByText(paragraphBlock.text)).toBeInTheDocument()
     }
 
-    // Check callout rendering if present in the page
-    const hasCallout = overviewPage.sections.some(s => s.blocks.some(b => b.type === 'callout'))
-    if (hasCallout) {
-      expect(screen.getAllByTestId('status-banner').length).toBeGreaterThan(0)
-    }
+    expect(document.querySelectorAll('.docs-reader-callout').length).toBe(0)
   })
 
   it('resolves /docs#overview to a real section anchor on the overview page', async () => {
