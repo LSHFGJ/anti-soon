@@ -117,6 +117,7 @@ export function SubmissionDetail() {
       const preview = await readStoredPoCPreview({
         cipherURI: submission.cipherURI,
         fallbackAuditor: submission.auditor,
+        ethereumProvider: walletClient,
       })
       setPreviewContent(JSON.stringify(preview.poc, null, 2))
     } catch (err) {
@@ -125,7 +126,7 @@ export function SubmissionDetail() {
     } finally {
       setPreviewLoading(false)
     }
-  }, [submission])
+  }, [submission, walletClient])
 
   useEffect(() => {
     if (!id) return

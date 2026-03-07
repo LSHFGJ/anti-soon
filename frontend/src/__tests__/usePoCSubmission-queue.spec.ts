@@ -222,6 +222,23 @@ describe("usePoCSubmission lifecycle", () => {
 			isConnected: true,
 		});
 
+		mockReadContractWithRpcFallback.mockImplementation(({ functionName, args }: { functionName: string; args?: unknown[] }) => {
+			if (functionName === "getAuditorSubmissionIds") {
+				return [[8n], 0n];
+			}
+			if (functionName === "submissions") {
+				const submissionId = Array.isArray(args) ? (args[0] as bigint) : 0n;
+				if (submissionId === 8n) {
+					return buildSubmissionTuple({
+						projectId: 1n,
+						commitHash: MOCK_COMPUTED_COMMIT_HASH,
+					});
+				}
+				return buildSubmissionTuple();
+			}
+			return true;
+		});
+
 		const { result } = renderHook(() => usePoCSubmission(1n));
 
 		let submitPromise!: Promise<
@@ -971,10 +988,75 @@ describe("usePoCSubmission lifecycle", () => {
 			submitResult = await result.current.submitPoC(1n, '{"poc":"json"}');
 		});
 
-		expect(submitResult).toBeUndefined();
-		expect(result.current.state.phase).toBe("failed");
-		expect(result.current.state.error).toContain(
-			"PoCCommitted event was missing",
+	expect(submitResult).toBeUndefined();
+	expect(result.current.state.phase).toBe("failed");
+	expect(result.current.state.error).toContain(
+		"PoCCommitted event was missing",
+	);
+	});
+
+	it("recovers committed state from on-chain indexes when retry hits cooldown after a successful commit", async () => {
+		const walletClient = {
+			writeContract: vi.fn(),
+			signTypedData: vi.fn().mockResolvedValue("0xsigned"),
+		};
+
+		const publicClient = {
+			readContract: vi
+				.fn()
+				.mockImplementation(({ functionName, args }: { functionName: string; args?: unknown[] }) => {
+					if (functionName === "getAuditorSubmissionIds") {
+						return [[8n], 0n];
+					}
+					if (functionName === "submissions") {
+						const submissionId = Array.isArray(args) ? (args[0] as bigint) : 0n;
+						if (submissionId === 8n) {
+							return buildSubmissionTuple({
+								projectId: 1n,
+								commitHash: MOCK_COMPUTED_COMMIT_HASH,
+							});
+						}
+						return buildSubmissionTuple();
+					}
+					if (functionName === "sigNonces") {
+						return 0n;
+					}
+					if (functionName === "queuedReveals") {
+						return buildQueuedRevealTuple();
+					}
+					return true;
+				}),
+			simulateContract: vi.fn().mockRejectedValue(new Error("Cooldown active")),
+			waitForTransactionReceipt: vi.fn(),
+		};
+
+		mockUseWallet.mockReturnValue({
+			address: "0x1111111111111111111111111111111111111111",
+			walletClient,
+			publicClient,
+			isConnected: true,
+		});
+
+		const { result } = renderHook(() => usePoCSubmission(1n));
+
+		let submitResult:
+			| {
+					submissionId?: bigint;
+					commitTxHash?: `0x${string}`;
+			  }
+			| undefined;
+
+		await act(async () => {
+			submitResult = await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(submitResult).toEqual({ submissionId: 8n });
+		expect(result.current.state.phase).toBe("committed");
+		expect(result.current.state.submissionId).toBe(8n);
+		expect(result.current.state.error).toBeUndefined();
+		expect(walletClient.writeContract).not.toHaveBeenCalled();
+		expect(publicClient.readContract).toHaveBeenCalledWith(
+			expect.objectContaining({ functionName: "getAuditorSubmissionIds" }),
 		);
 	});
 });

@@ -20,6 +20,7 @@ import {
 	createOasisEnvelope,
 	type OasisPointer,
 } from "./oasisStorage";
+import { getOrCreateSapphireSiweToken } from "./sapphireSiwe";
 
 interface UploadEncryptedPoCArgs {
 	poc: string;
@@ -73,11 +74,19 @@ type RelayerUploadResponse = {
 	oasisTxHash: `0x${string}`;
 };
 
+type PreviewReadApiResponse =
+	| { ok?: true; payloadJson?: string; poc?: unknown }
+	| { ok?: true; data?: { payloadJson?: string; poc?: unknown } };
+
 const OASIS_STORAGE_ABI = parseAbi([
 	"function write(string slotId, string payload)",
 	"function read(string slotId) view returns (string payload)",
 	"function readMeta(string slotId) view returns (address writer, uint256 storedAt)",
 	"event PoCStored(bytes32 indexed slotKey, address indexed writer, uint256 storedAt, bytes32 payloadHash)",
+]);
+
+const OASIS_STORAGE_TOKEN_READ_ABI = parseAbi([
+	"function read(string slotId, bytes token) view returns (string payload)",
 ]);
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -346,6 +355,35 @@ function getOasisUploadApiUrl(): string | undefined {
 	return raw && raw.length > 0 ? raw : undefined;
 }
 
+function getOasisReadApiUrl(): string | undefined {
+	const globalRuntimeUrl = (
+		globalThis as { __ANTI_SOON_OASIS_READ_API_URL__?: string }
+	).__ANTI_SOON_OASIS_READ_API_URL__;
+	if (
+		typeof globalRuntimeUrl === "string" &&
+		globalRuntimeUrl.trim().length > 0
+	) {
+		return globalRuntimeUrl.trim();
+	}
+
+	const runtimeEnv =
+		(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
+			.env ?? ENV;
+	const directReadUrl = runtimeEnv.VITE_OASIS_READ_API_URL?.trim();
+	if (directReadUrl && directReadUrl.length > 0) {
+		return directReadUrl;
+	}
+
+	const uploadUrl = getOasisUploadApiUrl();
+	if (!uploadUrl) return undefined;
+
+	if (uploadUrl.endsWith("/upload")) {
+		return `${uploadUrl.slice(0, -"/upload".length)}/read`;
+	}
+
+	return `${uploadUrl.replace(/\/$/, "")}/read`;
+}
+
 function getOasisStorageContract(): string | undefined {
 	const globalRuntimeContract = (
 		globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
@@ -462,34 +500,207 @@ async function readSapphirePayloadJson(args: {
 	return payloadJson;
 }
 
+async function readSapphirePayloadJsonWithToken(args: {
+	contract: `0x${string}`;
+	slotId: string;
+	token: `0x${string}`;
+}): Promise<string> {
+	const { data } = await sapphireTxLookupClient.call({
+		to: args.contract,
+		data: encodeFunctionData({
+			abi: OASIS_STORAGE_TOKEN_READ_ABI,
+			functionName: "read",
+			args: [args.slotId, args.token],
+		}),
+	});
+
+	if (!data) {
+		throw new Error(
+			"Sapphire preview read returned no data for the authenticated token call",
+		);
+	}
+
+	const [payloadJson] = decodeAbiParameters(
+		parseAbiParameters("string"),
+		data,
+	);
+	return payloadJson;
+}
+
+function parsePreviewPayloadJson(args: {
+	parsed: ParsedCipherURI;
+	payloadJson: string;
+}): StoredPoCPreview {
+	let payload: unknown;
+	try {
+		payload = JSON.parse(args.payloadJson);
+	} catch {
+		throw new Error(
+			"Sapphire preview payload is not valid JSON after the authenticated read",
+		);
+	}
+
+	if (
+		typeof payload !== "object" ||
+		payload === null ||
+		Array.isArray(payload)
+	) {
+		throw new Error("Sapphire preview payload has an invalid object shape");
+	}
+
+	const payloadRecord = payload as {
+		envelopeHash?: unknown;
+		pointer?: { slotId?: unknown; contract?: unknown };
+		poc?: unknown;
+	};
+	if (payloadRecord.envelopeHash !== args.parsed.envelopeHash) {
+		throw new Error(
+			"Sapphire preview payload envelope hash does not match the cipherURI",
+		);
+	}
+
+	if (payloadRecord.pointer?.slotId !== args.parsed.slotId) {
+		throw new Error(
+			"Sapphire preview payload slot id does not match the cipherURI",
+		);
+	}
+
+	if (
+		typeof payloadRecord.pointer?.contract !== "string" ||
+		payloadRecord.pointer.contract.toLowerCase() !==
+			args.parsed.contract.toLowerCase()
+	) {
+		throw new Error(
+			"Sapphire preview payload contract does not match the cipherURI",
+		);
+	}
+
+	if (!("poc" in payloadRecord)) {
+		throw new Error("Sapphire preview payload does not include PoC content");
+	}
+
+	return {
+		poc: payloadRecord.poc,
+		payloadJson: args.payloadJson,
+		source: 'sapphire',
+	};
+}
+
+async function readStoredPoCPreviewViaService(args: {
+	parsed: ParsedCipherURI;
+	cipherURI: string;
+	readApiUrl: string;
+}): Promise<StoredPoCPreview> {
+	if (typeof globalThis.fetch !== "function") {
+		throw new Error(
+			"Authenticated Sapphire preview service is unavailable: fetch is not defined.",
+		);
+	}
+
+	const response = await globalThis.fetch(args.readApiUrl, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			pointer: {
+				chain: args.parsed.chain,
+				contract: args.parsed.contract,
+				slotId: args.parsed.slotId,
+			},
+			cipherURI: args.cipherURI,
+		}),
+	});
+
+	if (!response.ok) {
+		const message = await response.text();
+		throw new Error(
+			`Authenticated Sapphire preview failed (${response.status}): ${message || "empty response"}`,
+		);
+	}
+
+	const body = (await response.json()) as PreviewReadApiResponse;
+	const directPayloadJson =
+		"payloadJson" in body && typeof body.payloadJson === "string"
+			? body.payloadJson
+			: undefined;
+	const nestedPayloadJson =
+		"data" in body &&
+		body.data &&
+		typeof body.data === "object" &&
+		"payloadJson" in body.data &&
+		typeof body.data.payloadJson === "string"
+			? body.data.payloadJson
+			: undefined;
+	const payloadJson = directPayloadJson ?? nestedPayloadJson;
+	if (payloadJson) {
+		return parsePreviewPayloadJson({
+			parsed: args.parsed,
+			payloadJson,
+		});
+	}
+
+	const directPoC = "poc" in body ? body.poc : undefined;
+	const nestedPoC =
+		"data" in body &&
+		body.data &&
+		typeof body.data === "object" &&
+		"poc" in body.data
+			? body.data.poc
+			: undefined;
+	const previewPoC = directPoC ?? nestedPoC;
+	if (typeof previewPoC === "undefined") {
+		throw new Error("Authenticated Sapphire preview response shape is invalid.");
+	}
+
+	return {
+		poc: previewPoC,
+		payloadJson: JSON.stringify({ poc: previewPoC }),
+		source: 'sapphire',
+	};
+}
+
+
 export async function readStoredPoCPreview(args: {
 	cipherURI: string;
 	fallbackAuditor: `0x${string}`;
 	ethereumProvider?: unknown;
 }): Promise<StoredPoCPreview> {
-	const provider = readProvider(args.ethereumProvider);
 	const parsed = parseCipherURI(args.cipherURI);
+	const readApiUrl = getOasisReadApiUrl();
 
+	let directReadError: unknown;
 	try {
-		await ensureChain(provider, SAPPHIRE_CHAIN_ID_HEX);
-		const from = await resolveProviderAddress(provider, args.fallbackAuditor);
-		const payloadJson = await readSapphirePayloadJson({
-			provider,
+		const token = await getOrCreateSapphireSiweToken({
+			contract: parsed.contract,
+			ethereumProvider: args.ethereumProvider,
+		});
+		const payloadJson = await readSapphirePayloadJsonWithToken({
 			contract: parsed.contract,
 			slotId: parsed.slotId,
-			from,
+			token,
 		});
-		const payload = JSON.parse(payloadJson) as { poc?: unknown };
+		return parsePreviewPayloadJson({ parsed, payloadJson });
+	} catch (error) {
+		directReadError = error;
+	}
 
-		return {
-			poc: payload.poc ?? payload,
-			payloadJson,
-			source: 'sapphire',
-		};
-	} finally {
-		try {
-			await ensureChain(provider, SEPOLIA_CHAIN_ID_HEX);
-		} catch {}
+	if (!readApiUrl) {
+		throw directReadError instanceof Error
+			? directReadError
+			: new Error(extractErrorMessage(directReadError));
+	}
+
+	try {
+		return await readStoredPoCPreviewViaService({
+			parsed,
+			cipherURI: args.cipherURI,
+			readApiUrl,
+		});
+	} catch (serviceError) {
+		throw new Error(
+			`Sapphire preview read failed: direct SIWE read error (${extractErrorMessage(
+				directReadError,
+			)}); authenticated service fallback error (${extractErrorMessage(serviceError)})`,
+		);
 	}
 }
 
@@ -499,6 +710,7 @@ const sapphireTxLookupClient = createPublicClient({
 })
 
 const POC_STORED_EVENT = parseAbiItem('event PoCStored(bytes32 indexed slotKey, address indexed writer, uint256 storedAt, bytes32 payloadHash)')
+const SAPPHIRE_LOG_QUERY_WINDOW = 90n
 
 export async function resolveSapphireTxHash(args: {
 	cipherURI: string;
@@ -506,16 +718,34 @@ export async function resolveSapphireTxHash(args: {
 }): Promise<`0x${string}` | undefined> {
 	const parsed = parseCipherURI(args.cipherURI)
 	const slotKey = keccak256(toBytes(parsed.slotId))
-	const logs = await sapphireTxLookupClient.getLogs({
-		address: parsed.contract,
-		event: POC_STORED_EVENT,
-		args: args.auditor ? { slotKey, writer: args.auditor } : { slotKey },
-		fromBlock: 0n,
-		toBlock: 'latest',
-		strict: false,
-	})
+	const eventArgs = args.auditor ? { slotKey, writer: args.auditor } : { slotKey }
+	let toBlock = await sapphireTxLookupClient.getBlockNumber()
 
-	return logs.at(-1)?.transactionHash
+	while (true) {
+		const fromBlock =
+			toBlock >= SAPPHIRE_LOG_QUERY_WINDOW
+				? toBlock - (SAPPHIRE_LOG_QUERY_WINDOW - 1n)
+				: 0n
+		const logs = await sapphireTxLookupClient.getLogs({
+			address: parsed.contract,
+			event: POC_STORED_EVENT,
+			args: eventArgs,
+			fromBlock,
+			toBlock,
+			strict: false,
+		})
+
+		const transactionHash = logs.at(-1)?.transactionHash
+		if (transactionHash) {
+			return transactionHash
+		}
+
+		if (fromBlock === 0n) {
+			return undefined
+		}
+
+		toBlock = fromBlock - 1n
+	}
 }
 
 async function readSapphireWriter(args: {

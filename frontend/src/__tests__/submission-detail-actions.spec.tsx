@@ -329,6 +329,39 @@ describe('SubmissionDetail lifecycle action alignment', () => {
     )
   })
 
+  it('passes the active wallet provider into Sapphire preview reads', async () => {
+    const walletClient = {
+      writeContract: mockWriteContract,
+      request: vi.fn(),
+    }
+
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient,
+      isConnected: true,
+    })
+    mockReadContract.mockResolvedValue(makeSubmissionTuple())
+
+    renderSubmissionDetail()
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '[ VIEW_POC ]' })).toBeVisible()
+    })
+
+    await user.click(screen.getByRole('button', { name: '[ VIEW_POC ]' }))
+
+    await waitFor(() => {
+      expect(mockReadStoredPoCPreview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cipherURI: 'oasis://mock/cipher',
+          fallbackAuditor: AUDITOR,
+          ethereumProvider: walletClient,
+        }),
+      )
+    })
+  })
+
   it('shows a hard error instead of local补全 when chain read fails', async () => {
     mockUseWallet.mockReturnValue({
       address: AUDITOR,

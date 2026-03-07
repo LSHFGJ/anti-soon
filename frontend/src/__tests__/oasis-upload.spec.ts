@@ -13,11 +13,25 @@ vi.mock("@oasisprotocol/sapphire-paratime", () => ({
 	wrapEthereumProvider: (provider: unknown) => provider,
 }));
 
-import { uploadEncryptedPoC } from "../lib/oasisUpload";
+const { mockGetOrCreateSapphireSiweToken } = vi.hoisted(() => ({
+	mockGetOrCreateSapphireSiweToken: vi.fn(),
+}));
+
+vi.mock("../lib/sapphireSiwe", () => ({
+	getOrCreateSapphireSiweToken: (...args: unknown[]) =>
+		mockGetOrCreateSapphireSiweToken(...args),
+}));
+
+import {
+	readStoredPoCPreview,
+	resolveSapphireTxHash,
+	uploadEncryptedPoC,
+} from "../lib/oasisUpload";
 
 const OASIS_STORAGE_ABI = parseAbi([
 	"function write(string slotId, string payload)",
 	"function read(string slotId) view returns (string payload)",
+	"function read(string slotId, bytes token) view returns (string payload)",
 	"function readMeta(string slotId) view returns (address writer, uint256 storedAt)",
 	"event PoCStored(bytes32 indexed slotKey, address indexed writer, uint256 storedAt, bytes32 payloadHash)",
 ]);
@@ -31,6 +45,7 @@ function createMockProvider(
 	txHash: `0x${string}`,
 	account = "0x1111111111111111111111111111111111111111",
 	options?: {
+		accounts?: `0x${string}`[];
 		readPayloadBySlot?: Record<string, string>;
 		readWriterBySlot?: Record<string, `0x${string}`>;
 		enforceReadAuthorization?: boolean;
@@ -79,8 +94,8 @@ function createMockProvider(
 		request: vi.fn(async ({ method, params }: ProviderRequest) => {
 			calls.push({ method, params });
 			if (method === "eth_chainId") return "0x5aff";
-			if (method === "eth_accounts") return [account];
-			if (method === "eth_requestAccounts") return [account];
+			if (method === "eth_accounts") return options?.accounts ?? [account];
+			if (method === "eth_requestAccounts") return options?.accounts ?? [account];
 			if (method === "eth_sendTransaction") {
 				const txRequest = params?.[0] as
 					| { data?: `0x${string}`; from?: string }
@@ -289,6 +304,7 @@ function setRuntimeStorageContract(value?: string) {
 
 describe("oasis upload helper", () => {
 	afterEach(() => {
+		mockGetOrCreateSapphireSiweToken.mockReset();
 		vi.unstubAllEnvs();
 	});
 
@@ -348,6 +364,165 @@ describe("oasis upload helper", () => {
 				calls.some((call) => call.method === "eth_getTransactionReceipt"),
 			).toBe(true);
 			expect(calls.some((call) => call.method === "eth_call")).toBe(true);
+		} finally {
+			(
+				globalThis as { __ANTI_SOON_OASIS_UPLOAD_API_URL__?: string }
+			).__ANTI_SOON_OASIS_UPLOAD_API_URL__ = previousRuntimeUrl;
+			if (previousFetch) {
+				globalThis.fetch = previousFetch;
+			} else {
+				delete (globalThis as { fetch?: typeof fetch }).fetch;
+			}
+		}
+	});
+
+	it("uses SIWE-authenticated Sapphire reads as the primary preview path", async () => {
+		mockGetOrCreateSapphireSiweToken.mockResolvedValue(`0x${"ab".repeat(32)}`);
+		const previousFetch = globalThis.fetch;
+		const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) !== "https://testnet.sapphire.oasis.io/") {
+				throw new Error(`Unexpected preview URL: ${String(input)}`);
+			}
+
+			const body = JSON.parse(String(init?.body)) as {
+				method: string;
+				params: Array<{ data?: `0x${string}` }>;
+			};
+			expect(body.method).toBe("eth_call");
+
+			const call = body.params[0];
+			if (!call.data) {
+				throw new Error("Missing eth_call data");
+			}
+
+			const decoded = decodeFunctionData({
+				abi: OASIS_STORAGE_ABI,
+				data: call.data,
+			});
+			expect(decoded.functionName).toBe("read");
+			expect(decoded.args?.[0]).toBe("slot-1");
+			expect(decoded.args?.[1]).toBe(`0x${"ab".repeat(32)}`);
+
+			return new Response(
+				JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					result: encodeAbiParameters(parseAbiParameters("string"), [
+						JSON.stringify({
+							envelopeHash: `0x${"a".repeat(64)}`,
+							pointer: {
+								slotId: "slot-1",
+								contract: "0x000000000000000000000000000000000000dead",
+							},
+							poc: { via: "siwe-direct" },
+						}),
+					]),
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			);
+		});
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			const result = await readStoredPoCPreview({
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x000000000000000000000000000000000000dead/slot-1#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				fallbackAuditor: "0x1111111111111111111111111111111111111111",
+				ethereumProvider: { signMessage: vi.fn() },
+			});
+
+			expect(result.poc).toEqual({ via: "siwe-direct" });
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(mockGetOrCreateSapphireSiweToken).toHaveBeenCalledTimes(1);
+		} finally {
+			if (previousFetch) {
+				globalThis.fetch = previousFetch;
+			} else {
+				delete (globalThis as { fetch?: typeof fetch }).fetch;
+			}
+		}
+	});
+
+	it("falls back to the authenticated read API when direct SIWE preview reads fail", async () => {
+		mockGetOrCreateSapphireSiweToken.mockResolvedValue(`0x${"ab".repeat(32)}`);
+		const previousFetch = globalThis.fetch;
+		const previousRuntimeUrl = (
+			globalThis as { __ANTI_SOON_OASIS_UPLOAD_API_URL__?: string }
+		).__ANTI_SOON_OASIS_UPLOAD_API_URL__;
+		(
+			globalThis as { __ANTI_SOON_OASIS_UPLOAD_API_URL__?: string }
+		).__ANTI_SOON_OASIS_UPLOAD_API_URL__ = "https://relay.example/upload";
+
+		const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) === "https://testnet.sapphire.oasis.io/") {
+				return new Response(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						error: { message: "execution reverted: Not authorized" },
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}
+
+			if (String(input) !== "https://relay.example/read") {
+				throw new Error(`Unexpected preview URL: ${String(input)}`);
+			}
+
+			const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+			expect(body).toMatchObject({
+				pointer: {
+					chain: "oasis-sapphire-testnet",
+					contract: "0x000000000000000000000000000000000000dEaD",
+					slotId: "slot-1",
+				},
+			});
+
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					ok: true,
+					payloadJson: JSON.stringify({
+						envelopeHash: `0x${"a".repeat(64)}`,
+						pointer: {
+							slotId: "slot-1",
+							contract: "0x000000000000000000000000000000000000dead",
+						},
+						poc: { via: "read-api" },
+					}),
+				}),
+				text: async () => "",
+			} satisfies Partial<Response> as Response;
+		});
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			const result = await readStoredPoCPreview({
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x000000000000000000000000000000000000dead/slot-1#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				fallbackAuditor: "0x1111111111111111111111111111111111111111",
+			});
+
+			expect(result.poc).toEqual({ via: "read-api" });
+			expect(
+				fetchMock.mock.calls.some(
+					([input]) => String(input) === "https://testnet.sapphire.oasis.io/",
+				),
+			).toBe(true);
+			expect(
+				fetchMock.mock.calls.some(
+					([input]) => String(input) === "https://relay.example/read",
+				),
+			).toBe(true);
 		} finally {
 			(
 				globalThis as { __ANTI_SOON_OASIS_UPLOAD_API_URL__?: string }
@@ -436,6 +611,19 @@ describe("oasis upload helper", () => {
 				delete (globalThis as { fetch?: typeof fetch }).fetch;
 			}
 		}
+	});
+
+	it("fails with the direct read error when neither SIWE nor the preview service is available", async () => {
+		mockGetOrCreateSapphireSiweToken.mockRejectedValue(
+			new Error("No wallet available for Sapphire SIWE authentication"),
+		);
+		await expect(
+			readStoredPoCPreview({
+				cipherURI:
+					"oasis://oasis-sapphire-testnet/0x000000000000000000000000000000000000dead/slot-1#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				fallbackAuditor: "0x1111111111111111111111111111111111111111",
+			}),
+		).rejects.toThrow("No wallet available for Sapphire SIWE authentication");
 	});
 
 	it("falls back to storage writer identity when wallet reports generic Internal JSON-RPC error for read authorization revert", async () => {
@@ -1125,6 +1313,122 @@ describe("oasis upload helper", () => {
 			(
 				globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
 			).__ANTI_SOON_OASIS_STORAGE_CONTRACT__ = previousStorageContract;
+		}
+	});
+
+	it("chunks Sapphire log lookups when resolving a stored tx hash", async () => {
+		const previousFetch = globalThis.fetch;
+		const txHash = `0x${"f".repeat(64)}` as const;
+		const expectedSlotId = "slot-live-check";
+		const expectedSlotKey = keccak256(toBytes(expectedSlotId));
+		const expectedWriter =
+			"0x1111111111111111111111111111111111111111" as const;
+		const getLogsFilters: Array<Record<string, unknown>> = [];
+
+		const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body)) as {
+				id: number;
+				method: string;
+				params?: Array<Record<string, unknown>>;
+			};
+
+			if (body.method === "eth_blockNumber") {
+				return new Response(
+					JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x96" }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}
+
+			if (body.method === "eth_getLogs") {
+				const filter = body.params?.[0] ?? {};
+				getLogsFilters.push(filter);
+
+				if (
+					filter.fromBlock === "0x0" &&
+					filter.toBlock === "latest"
+				) {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: body.id,
+							error: {
+								code: -32602,
+								message:
+									"invalid request: max allowed of rounds in logs query is: 100",
+							},
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+
+				if (filter.fromBlock === "0x0" && filter.toBlock === "0x3c") {
+					return new Response(
+						JSON.stringify({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: [
+								{
+									address: "0x000000000000000000000000000000000000dEaD",
+									blockHash: `0x${"1".repeat(64)}`,
+									blockNumber: "0x3b",
+									data: "0x",
+									logIndex: "0x0",
+									removed: false,
+									topics: [
+										"0x6f8a0af3b119ce4435a80c4e2a167669d4302eac53473919f1942b5538e6f267",
+										expectedSlotKey,
+										`0x000000000000000000000000${expectedWriter.slice(2).toLowerCase()}`,
+									],
+									transactionHash: txHash,
+									transactionIndex: "0x0",
+								},
+							],
+						}),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+
+				return new Response(
+					JSON.stringify({ jsonrpc: "2.0", id: body.id, result: [] }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			}
+
+			throw new Error(`Unexpected method: ${body.method}`);
+		});
+
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			const result = await resolveSapphireTxHash({
+				cipherURI: `oasis://oasis-sapphire-testnet/0x000000000000000000000000000000000000dEaD/${expectedSlotId}#0x${"a".repeat(64)}`,
+				auditor: expectedWriter,
+			});
+
+			expect(result).toBe(txHash);
+			expect(getLogsFilters).toHaveLength(2);
+			expect(getLogsFilters[0]).toMatchObject({
+				fromBlock: "0x3d",
+				toBlock: "0x96",
+			});
+			expect(getLogsFilters[1]).toMatchObject({
+				fromBlock: "0x0",
+				toBlock: "0x3c",
+			});
+		} finally {
+			vi.stubGlobal("fetch", previousFetch as typeof globalThis.fetch);
 		}
 	});
 });
