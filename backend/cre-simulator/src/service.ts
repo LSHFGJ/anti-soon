@@ -42,7 +42,7 @@ function ensureRepoScopedPath(
 }
 
 export function buildDefaultCreSimulatorScenarioPath(repoRoot: string): string {
-	return join(repoRoot, "demo-data/operator/multi-fast-happy-path.json")
+	return join(repoRoot, "backend/cre-simulator/default-scenario.json")
 }
 
 export { buildDefaultCreSimulatorTriggerConfigPath }

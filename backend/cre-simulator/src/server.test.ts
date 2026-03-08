@@ -24,7 +24,7 @@ describe("cre-simulator server", () => {
 				expect(request.command).toBe("status")
 				return {
 					command: "status",
-					scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
 					result: { healthy: true },
 				}
 			},
@@ -76,7 +76,7 @@ describe("cre-simulator server", () => {
 				expect(request.stateFilePath).toBe("/tmp/state.json")
 				return {
 					command: "verify",
-					scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
 					result: { submissionId: "12" },
 				}
 			},
@@ -106,7 +106,7 @@ describe("cre-simulator server", () => {
 				expect(request.command).toBe("run")
 				return {
 					command: "run",
-					scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
 					result: { stages: { register: { projectId: "77" } } },
 				}
 			},
@@ -140,7 +140,7 @@ describe("cre-simulator server", () => {
 					command: "run",
 					result: {
 						command: "run",
-						scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
 						result: { command: "run" },
 					},
 				}
