@@ -12,6 +12,14 @@ ffi = true
 via_ir = true
 optimizer = true
 optimizer_runs = 1000
+additional_compiler_profiles = [
+    {name = "sapphire-paris", evm_version = "paris"},
+    {name = "bountyhub-compact", optimizer_runs = 1}
+]
+compilation_restrictions = [
+    {paths = "script/DeployOasisPoCStore.s.sol", evm_version = "paris"},
+    {paths = "script/DeployBountyHubV4.s.sol", optimizer_runs = 1}
+]
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
