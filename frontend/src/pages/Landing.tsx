@@ -186,7 +186,7 @@ const FeaturedProjectsSection = () => {
       <div className="container">
         <motion.div
           variants={staggerContainer}
-          initial="hidden"
+          initial={false}
           animate="visible"
         >
           <motion.div variants={staggerChild} className="page-header">
@@ -314,7 +314,7 @@ export function Landing() {
     <motion.main
       key="page-content"
       variants={pageTransition}
-      initial="hidden"
+      initial={false}
       animate="visible"
       exit="exit"
       className="landing-main"
