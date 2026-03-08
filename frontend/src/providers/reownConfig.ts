@@ -19,7 +19,7 @@ const ENV =
 const RUNTIME_CONFIG = globalThis as typeof globalThis & RuntimeConfig;
 
 export const DEFAULT_REOWN_PROJECT_ID = "9bfcfddfcd5c1c5381b624d26565cfcf";
-export const DEFAULT_APP_URL = "https://antisoon.com";
+export const DEFAULT_APP_URL = "https://www.antisoon.com";
 
 export function resolveReownProjectId(
 	env: EnvConfig = ENV,
