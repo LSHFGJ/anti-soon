@@ -384,7 +384,9 @@ function getOasisReadApiUrl(): string | undefined {
 	return `${uploadUrl.replace(/\/$/, "")}/read`;
 }
 
-function getOasisStorageContract(): string | undefined {
+export function resolveOasisStorageContract(
+	env?: Record<string, string | undefined>,
+): string | undefined {
 	const globalRuntimeContract = (
 		globalThis as { __ANTI_SOON_OASIS_STORAGE_CONTRACT__?: string }
 	).__ANTI_SOON_OASIS_STORAGE_CONTRACT__;
@@ -396,9 +398,12 @@ function getOasisStorageContract(): string | undefined {
 	}
 
 	const runtimeEnv =
-		(import.meta as ImportMeta & { env?: Record<string, string | undefined> })
-			.env ?? ENV;
-	const raw = runtimeEnv.VITE_OASIS_STORAGE_CONTRACT?.trim();
+		env
+		?? ((import.meta as ImportMeta & { env?: Record<string, string | undefined> })
+			.env ?? ENV);
+	const raw =
+		runtimeEnv.VITE_OASIS_STORAGE_CONTRACT?.trim()
+		|| runtimeEnv.VITE_CRE_SIM_OASIS_STORAGE_CONTRACT?.trim();
 	return raw && raw.length > 0 ? raw : undefined;
 }
 
@@ -1230,7 +1235,7 @@ export async function uploadEncryptedPoC({
 		return relayerResult;
 	}
 
-	const configuredStorageContract = getOasisStorageContract();
+	const configuredStorageContract = resolveOasisStorageContract();
 	const storageContract = normalizeEthereumAddress(configuredStorageContract);
 
 	if (!storageContract) {

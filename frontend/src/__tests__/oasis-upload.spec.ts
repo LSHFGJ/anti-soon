@@ -24,6 +24,7 @@ vi.mock("../lib/sapphireSiwe", () => ({
 
 import {
 	readStoredPoCPreview,
+	resolveOasisStorageContract,
 	resolveSapphireTxHash,
 	uploadEncryptedPoC,
 } from "../lib/oasisUpload";
@@ -1196,6 +1197,7 @@ describe("oasis upload helper", () => {
 	it("fails closed when VITE_OASIS_STORAGE_CONTRACT is missing", async () => {
 		const restoreRuntimeStorage = setRuntimeStorageContract("not-an-address");
 		vi.stubEnv("VITE_OASIS_STORAGE_CONTRACT", "");
+		vi.stubEnv("VITE_CRE_SIM_OASIS_STORAGE_CONTRACT", "");
 		const { provider } = createMockProvider(`0x${"a".repeat(64)}` as const);
 
 		try {
@@ -1217,6 +1219,7 @@ describe("oasis upload helper", () => {
 	it("fails closed when VITE_OASIS_STORAGE_CONTRACT is invalid", async () => {
 		const restoreRuntimeStorage = setRuntimeStorageContract("not-an-address");
 		vi.stubEnv("VITE_OASIS_STORAGE_CONTRACT", "not-an-address");
+		vi.stubEnv("VITE_CRE_SIM_OASIS_STORAGE_CONTRACT", "");
 		const { provider } = createMockProvider(`0x${"d".repeat(64)}` as const);
 
 		try {
@@ -1237,6 +1240,26 @@ describe("oasis upload helper", () => {
 		}
 	});
 
+	it("falls back to the legacy cre-sim Oasis storage contract name", () => {
+		expect(
+			resolveOasisStorageContract({
+				VITE_OASIS_STORAGE_CONTRACT: "",
+				VITE_CRE_SIM_OASIS_STORAGE_CONTRACT:
+					"0x000000000000000000000000000000000000dEaD",
+			}),
+		).toBe("0x000000000000000000000000000000000000dEaD");
+	});
+
+	it("prefers the canonical Oasis storage contract name over the legacy alias", () => {
+		expect(
+			resolveOasisStorageContract({
+				VITE_OASIS_STORAGE_CONTRACT: "0x000000000000000000000000000000000000bEEF",
+				VITE_CRE_SIM_OASIS_STORAGE_CONTRACT:
+					"0x000000000000000000000000000000000000dEaD",
+			}),
+		).toBe("0x000000000000000000000000000000000000bEEF");
+	});
+
 	it("throws when poc json is invalid", async () => {
 		const { provider } = createMockProvider(`0x${"b".repeat(64)}` as const);
 
@@ -1253,6 +1276,7 @@ describe("oasis upload helper", () => {
 	it("does not send a transaction when storage contract is missing", async () => {
 		const restoreRuntimeStorage = setRuntimeStorageContract("not-an-address");
 		vi.stubEnv("VITE_OASIS_STORAGE_CONTRACT", "");
+		vi.stubEnv("VITE_CRE_SIM_OASIS_STORAGE_CONTRACT", "");
 		const { provider } = createMockProvider(`0x${"c".repeat(64)}` as const);
 
 		try {
