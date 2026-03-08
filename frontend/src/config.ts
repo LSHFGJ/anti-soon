@@ -1,7 +1,7 @@
 import { getAddress, isAddress } from "viem";
 import { sepolia } from "viem/chains";
 
-const DEFAULT_BOUNTY_HUB_ADDRESS = "0x76592151f145Dd8c402Ad16202BC94DaF4f8D607";
+const DEFAULT_BOUNTY_HUB_ADDRESS = "0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf";
 
 const ENV =
 	(import.meta as ImportMeta & { env?: Record<string, string | undefined> })

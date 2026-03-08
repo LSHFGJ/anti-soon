@@ -2,25 +2,41 @@
   "schemaVersion": "anti-soon.cre-simulator.trigger-config.v1",
   "stateFilePath": "backend/cre-simulator/.trigger-state.json",
   "httpTriggers": {
-    "manual-run": {
-      "command": "run"
+    "manual-reveal": {
+      "adapter": "auto-reveal-relayer"
     },
     "manual-verify": {
-      "command": "verify"
+      "adapter": "cre-workflow-simulate",
+      "adapterConfig": {
+        "workflowPath": "workflow/verify-poc",
+        "target": "staging-settings",
+        "triggerIndex": 0,
+        "evmInput": "event-coordinates",
+        "idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
+      },
+      "evidenceDir": ".sisyphus/evidence/live-verify"
     }
   },
   "cronTriggers": {
-    "demo-run": {
+    "reveal-relay": {
       "intervalMs": 60000,
-      "command": "run"
+      "adapter": "auto-reveal-relayer"
     }
   },
   "evmLogTriggers": {
     "poc-revealed": {
-      "command": "verify",
-      "wsRpcUrlEnvVar": "DEMO_OPERATOR_WS_RPC_URL",
-      "contractAddress": "0x17797b473864806072186f6997801d4473aaf6e8",
-      "topic0": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "adapter": "cre-workflow-simulate",
+      "adapterConfig": {
+        "workflowPath": "workflow/verify-poc",
+        "target": "staging-settings",
+        "triggerIndex": 0,
+        "evmInput": "event-coordinates",
+        "idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
+      },
+      "evidenceDir": ".sisyphus/evidence/live-verify",
+      "wsRpcUrlEnvVar": "CRE_SIM_WS_RPC_URL",
+      "contractAddress": "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf",
+      "topic0": "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
     }
   }
 }
