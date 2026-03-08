@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// ANTISOON
 pragma solidity ^0.8.30;
 
 import {CompatSiweAuth} from "./CompatSiweAuth.sol";
