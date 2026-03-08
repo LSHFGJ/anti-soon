@@ -17,6 +17,8 @@ describe("frontend env layout", () => {
 		const frontendEnvExample = readFileSync(frontendEnvExamplePath, "utf8");
 		expect(frontendEnvExample).toContain("VITE_BOUNTY_HUB_ADDRESS=");
 		expect(frontendEnvExample).toContain("VITE_RPC_URL=");
+		expect(frontendEnvExample).toContain("VITE_REOWN_PROJECT_ID=");
+		expect(frontendEnvExample).toContain("VITE_PUBLIC_APP_URL=");
 		expect(frontendEnvExample).toContain("VITE_OASIS_STORAGE_CONTRACT=");
 		expect(frontendEnvExample).not.toContain(
 			"VITE_CRE_SIM_OASIS_STORAGE_CONTRACT=",

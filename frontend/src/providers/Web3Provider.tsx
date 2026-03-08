@@ -1,48 +1,47 @@
-import { WagmiAdapter } from '@reown/appkit-adapter-wagmi'
-import { sepolia, type AppKitNetwork } from '@reown/appkit/networks'
-import { createAppKit } from '@reown/appkit/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { injected } from '@wagmi/connectors'
-import { WagmiProvider } from 'wagmi'
+import { type AppKitNetwork, sepolia } from "@reown/appkit/networks";
+import { createAppKit } from "@reown/appkit/react";
+import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { injected } from "@wagmi/connectors";
+import { WagmiProvider } from "wagmi";
+import { resolveAppUrl, resolveReownProjectId } from "./reownConfig";
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient();
 
-const projectId = '9bfcfddfcd5c1c5381b624d26565cfcf'
+const projectId = resolveReownProjectId();
 
 const metadata = {
-  name: 'AntiSoon',
-  description: 'Decentralized Vulnerability Verification Network',
-  url: 'https://antisoon.xyz',
-  icons: ['https://avatars.githubusercontent.com/u/179229932']
-}
+	name: "AntiSoon",
+	description: "Decentralized Vulnerability Verification Network",
+	url: resolveAppUrl(),
+	icons: ["https://avatars.githubusercontent.com/u/179229932"],
+};
 
-const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia]
+const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia];
 
 const wagmiAdapter = new WagmiAdapter({
-  networks,
-  projectId,
-  connectors: [injected({ target: 'metaMask' })],
-  ssr: false
-})
+	networks,
+	projectId,
+	connectors: [injected({ target: "metaMask" })],
+	ssr: false,
+});
 
 createAppKit({
-  adapters: [wagmiAdapter],
-  networks,
-  projectId,
-  metadata,
-  allowUnsupportedChain: true,
-  enableNetworkSwitch: false,
-  features: {
-    analytics: false
-  }
-})
+	adapters: [wagmiAdapter],
+	networks,
+	projectId,
+	metadata,
+	allowUnsupportedChain: true,
+	enableNetworkSwitch: false,
+	features: {
+		analytics: false,
+	},
+});
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
-  return (
-    <WagmiProvider config={wagmiAdapter.wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    </WagmiProvider>
-  )
+	return (
+		<WagmiProvider config={wagmiAdapter.wagmiConfig}>
+			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		</WagmiProvider>
+	);
 }

@@ -15,11 +15,16 @@ contract BountyHubVNetTest is Test {
     uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 constant REPORT_TYPE_VNET_FAILED = 2;
     bytes4 constant INVALID_SENDER_SELECTOR = bytes4(keccak256("InvalidSender(address,address)"));
+    bytes4 constant INVALID_AUTHOR_SELECTOR = bytes4(keccak256("InvalidAuthor(address,address)"));
     bytes32 constant WORKFLOW_VERIFY_POC_ID = keccak256("verify-poc");
+    bytes32 constant WORKFLOW_JURY_ORCHESTRATOR_ID = keccak256("jury-orchestrator");
     bytes32 constant WORKFLOW_VNET_INIT_ID = keccak256("vnet-init");
     bytes10 constant WORKFLOW_NAME = bytes10("vnetinit01");
+    bytes10 constant SIMULATED_WORKFLOW_NAME = bytes10("9e2f99b69f");
+    bytes32 constant SIMULATED_WORKFLOW_ID = bytes32(uint256(0x1111));
     address owner = address(this);
     address otherUser = address(0xA2);
+    address constant SIMULATED_WORKFLOW_OWNER = 0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa;
 
     function setUp() public {
         vm.warp(1000);
@@ -231,6 +236,7 @@ contract BountyHubVNetTest is Test {
 
     function test_rejectsForwarderZeroInProductionConfigPath() public {
         hub.setForwarderAddress(address(0));
+        hub.transferOwnership(address(deployScript));
 
         vm.expectRevert("Unsafe forwarder config");
         deployScript.configureProductionPins(hub, WORKFLOW_OWNER);
@@ -244,6 +250,65 @@ contract BountyHubVNetTest is Test {
 
     function test_productionInit_revertsOnUnsafePinning() public {
         test_rejectsForwarderZeroInProductionConfigPath();
+    }
+
+    function test_configureStagingSimulationPins_clearsProductionGuardrails() public {
+        hub.transferOwnership(address(deployScript));
+        deployScript.configureProductionPins(hub, WORKFLOW_OWNER);
+
+        deployScript.configureStagingSimulationPins(hub);
+
+        assertEq(hub.getExpectedAuthor(), address(0), "staging pins should clear expected author");
+        assertEq(hub.getExpectedWorkflowId(), bytes32(0), "staging pins should clear workflow id pin");
+        assertEq(hub.getExpectedWorkflowName(), bytes10(0), "staging pins should clear workflow name pin");
+        assertFalse(hub.isAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID), "verify-poc should be deauthorized");
+        assertFalse(hub.isAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID), "jury-orchestrator should be deauthorized");
+        assertFalse(hub.isAuthorizedWorkflow(WORKFLOW_VNET_INIT_ID), "vnet-init should be deauthorized");
+    }
+
+    function test_onReport_mockSimulationMetadata_requiresStagingSimulationPins() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
+
+        uint256 projectId = hub.registerProjectV2{value: 1 ether}(
+            TARGET,
+            0.5 ether,
+            12345,
+            BountyHub.CompetitionMode.MULTI,
+            block.timestamp + 7 days,
+            block.timestamp + 14 days,
+            3 days,
+            rules
+        );
+
+        string memory vnetRpcUrl = "https://rpc.tenderly.co/mock-sim";
+        bytes32 baseSnapshotId = keccak256("mock-sim-snapshot");
+        bytes memory payload = abi.encode(projectId, vnetRpcUrl, baseSnapshotId);
+        bytes memory report = _buildTypedReport(REPORT_TYPE_VNET_SUCCESS, payload);
+        bytes memory metadata = _simulationMetadata();
+
+        hub.transferOwnership(address(deployScript));
+        deployScript.configureProductionPins(hub, WORKFLOW_OWNER);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                INVALID_AUTHOR_SELECTOR,
+                SIMULATED_WORKFLOW_OWNER,
+                WORKFLOW_OWNER
+            )
+        );
+        vm.prank(FORWARDER);
+        hub.onReport(metadata, report);
+
+        deployScript.configureStagingSimulationPins(hub);
+
+        vm.prank(FORWARDER);
+        hub.onReport(metadata, report);
+
+        BountyHub.Project memory p = hub.projects(projectId);
+        assertEq(uint8(p.vnetStatus), uint8(BountyHub.VnetStatus.Active), "staging pins should allow mock-forwarder writes");
+        assertEq(p.vnetRpcUrl, vnetRpcUrl, "mock-forwarder write should store rpc url");
+        assertEq(p.baseSnapshotId, baseSnapshotId, "mock-forwarder write should store snapshot id");
     }
 
     function test_onReport_revertsForUnauthorizedSender_beforeProvenanceChecks() public {
@@ -420,5 +485,9 @@ contract BountyHubVNetTest is Test {
 
     function _metadataForWorkflow(bytes32 workflowId) internal pure returns (bytes memory) {
         return abi.encodePacked(workflowId, WORKFLOW_NAME, WORKFLOW_OWNER);
+    }
+
+    function _simulationMetadata() internal pure returns (bytes memory) {
+        return abi.encodePacked(SIMULATED_WORKFLOW_ID, SIMULATED_WORKFLOW_NAME, SIMULATED_WORKFLOW_OWNER);
     }
 }
