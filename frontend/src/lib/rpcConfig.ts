@@ -1,5 +1,6 @@
 interface RpcEnv {
   VITE_RPC_URL?: string
+  VITE_CRE_SIM_SEPOLIA_RPC_URL?: string
   VITE_SEPOLIA_RPC_URL?: string
   VITE_PRIVATE_RPC_URL?: string
   [key: string]: string | undefined
@@ -7,6 +8,7 @@ interface RpcEnv {
 
 const RPC_KEYS: readonly (keyof RpcEnv)[] = [
   'VITE_RPC_URL',
+  'VITE_CRE_SIM_SEPOLIA_RPC_URL',
   'VITE_SEPOLIA_RPC_URL',
   'VITE_PRIVATE_RPC_URL',
 ]
