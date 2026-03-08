@@ -5,9 +5,9 @@ import {
   type AutoRevealCursorStore,
   type AutoRevealPendingCommittedCandidate,
   upsertDurablePendingAutoRevealCommittedCandidate,
-} from "./cursor-store"
+} from "./cursor-state"
 import { deriveAutoRevealCommittedCandidateIdempotencyKey } from "./idempotency"
-import type { RunOnceConfig, RunOncePlan } from "./run-once"
+import type { RunOnceConfig, RunOncePlan } from "./run-once-core"
 
 export type UniqueCommittedLog = {
   submissionId: bigint

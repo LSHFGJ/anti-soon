@@ -1,0 +1,32 @@
+[
+  {
+    "jurorId": "human:alice",
+    "finalValidity": "HIGH",
+    "rationale": "Replay and evidence trace support a high-severity outcome.",
+    "testimony": "Manual review confirms the exploit path is reproducible and payout-eligible."
+  },
+  {
+    "jurorId": "human:bob",
+    "finalValidity": "HIGH",
+    "rationale": "Impact reaches direct fund-drain territory.",
+    "testimony": "The disclosed execution path is consistent with the verified evidence package."
+  },
+  {
+    "jurorId": "human:carol",
+    "finalValidity": "HIGH",
+    "rationale": "The case clears the threshold for a high-severity adjudication.",
+    "testimony": "No contradictory evidence surfaced during manual review."
+  },
+  {
+    "jurorId": "human:dora",
+    "finalValidity": "HIGH",
+    "rationale": "Risk and exploitability both remain material after review.",
+    "testimony": "The strict-fail handoff still supports a positive jury verdict."
+  },
+  {
+    "jurorId": "human:erin",
+    "finalValidity": "HIGH",
+    "rationale": "The combined evidence package supports acceptance.",
+    "testimony": "The adjudication record remains internally consistent."
+  }
+]

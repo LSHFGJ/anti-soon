@@ -8,31 +8,17 @@ import {
 } from "./cursor-store"
 import { deriveAutoRevealQueueItemIdempotencyKey } from "./idempotency"
 import {
-  runMultiDeadlineScanner,
-  type MultiDeadlineRuntime,
-  type MultiDeadlineScannerResult,
-} from "./multi-deadline"
-import {
-  runUniqueCommittedCandidateScanner,
-  type UniqueCandidateRuntime,
-  type UniqueCandidateScannerResult,
-} from "./unique-orchestration"
-import type { AutoRevealCursorStore } from "./cursor-store"
-import type {
-  AutoRevealFailureMetricEvent,
-  AutoRevealRetryPolicy,
-} from "./retry-policy"
-
-const EVM_ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/
-const PRIVATE_KEY_REGEX = /^0x[0-9a-fA-F]{64}$/
-
-const DEFAULT_CHAIN_ID = 11155111
-const DEFAULT_LOOKBACK_BLOCKS = 5000
-const DEFAULT_REPLAY_OVERLAP_BLOCKS = 12
-const DEFAULT_LOG_CHUNK_BLOCKS = 5000
-const DEFAULT_MAX_EXECUTION_BATCH_SIZE = 25
-const DEFAULT_CURSOR_FILE =
-  "workflow/auto-reveal-relayer/.auto-reveal-cursor.json"
+  buildRunOncePlan,
+  executeAutoRevealRelayerCycle,
+  loadRunOnceConfig,
+  type EnvRecord,
+  type RunOnceCliArgs,
+  type RunOnceConfig,
+  type RunOnceExecutionResult,
+  type RunOncePlan,
+} from "./run-once-core"
+import type { AutoRevealCursorStore } from "./cursor-state"
+import type { RunOnceExecutionDeps as CoreRunOnceExecutionDeps } from "./run-once-core"
 
 const HELP_TEXT = [
   "Usage: bun run run-once [options]",
@@ -55,70 +41,13 @@ const HELP_TEXT = [
   "  AUTO_REVEAL_BOUNTY_HUB_ADDRESS   BountyHub contract address",
   "",
   "Optional environment:",
-  `  AUTO_REVEAL_CHAIN_ID             Defaults to ${DEFAULT_CHAIN_ID}`,
-  `  AUTO_REVEAL_LOOKBACK_BLOCKS      Defaults to ${DEFAULT_LOOKBACK_BLOCKS}`,
-  `  AUTO_REVEAL_REPLAY_OVERLAP_BLOCKS Defaults to ${DEFAULT_REPLAY_OVERLAP_BLOCKS}`,
-  `  AUTO_REVEAL_LOG_CHUNK_BLOCKS     Defaults to ${DEFAULT_LOG_CHUNK_BLOCKS}`,
-  `  AUTO_REVEAL_MAX_EXECUTION_BATCH_SIZE Defaults to ${DEFAULT_MAX_EXECUTION_BATCH_SIZE}`,
-  `  AUTO_REVEAL_CURSOR_FILE          Defaults to ${DEFAULT_CURSOR_FILE}`,
+  "  AUTO_REVEAL_CHAIN_ID             Defaults to 11155111",
+  "  AUTO_REVEAL_LOOKBACK_BLOCKS      Defaults to 5000",
+  "  AUTO_REVEAL_REPLAY_OVERLAP_BLOCKS Defaults to 12",
+  "  AUTO_REVEAL_LOG_CHUNK_BLOCKS     Defaults to 5000",
+  "  AUTO_REVEAL_MAX_EXECUTION_BATCH_SIZE Defaults to 25",
+  "  AUTO_REVEAL_CURSOR_FILE          Defaults to workflow/auto-reveal-relayer/.auto-reveal-cursor.json",
 ].join("\n")
-
-export type EnvRecord = Record<string, string | undefined>
-
-export type RunOnceCliArgs = {
-  help: boolean
-  cursorFile?: string
-  lookbackBlocks?: string
-  replayOverlapBlocks?: string
-  logChunkBlocks?: string
-  maxExecutionBatchSize?: string
-}
-
-export type RunOnceConfig = {
-  publicRpcUrl: string
-  adminRpcUrl: string
-  privateKey: string
-  bountyHubAddress: `0x${string}`
-  chainId: number
-  lookbackBlocks: number
-  replayOverlapBlocks: number
-  logChunkBlocks: number
-  maxExecutionBatchSize: number
-  cursorFile: string
-}
-
-export type RunOncePlan = {
-  mode: "run-once"
-  chainId: number
-  publicRpcUrl: string
-  adminRpcUrl: string
-  bountyHubAddress: `0x${string}`
-  cursorFile: string
-  cursorLastFinalizedBlock: bigint
-  recoveredProcessingCount: number
-  quarantinedItemCount: number
-  replayOverlapBlocks: number
-  logChunkBlocks: number
-  maxExecutionBatchSize: number
-  fromBlock: bigint
-  toBlock: bigint
-}
-
-export type RunOnceExecutionDeps = {
-  uniqueRuntime: UniqueCandidateRuntime
-  multiRuntime: MultiDeadlineRuntime
-  store?: AutoRevealCursorStore
-  nowMs?: number
-  retryPolicy?: AutoRevealRetryPolicy
-  sleep?: (ms: number) => Promise<void> | void
-  recordMetric?: (event: AutoRevealFailureMetricEvent) => void
-}
-
-export type RunOnceExecutionResult = {
-  plan: RunOncePlan
-  unique: UniqueCandidateScannerResult
-  multi: MultiDeadlineScannerResult
-}
 
 type Io = {
   stdout: (line: string) => void
@@ -128,6 +57,10 @@ type Io = {
 const defaultIo: Io = {
   stdout: (line) => console.log(line),
   stderr: (line) => console.error(line),
+}
+
+export type RunOnceExecutionDeps = Omit<CoreRunOnceExecutionDeps, "store"> & {
+  store?: AutoRevealCursorStore
 }
 
 function readFlagValue(
@@ -191,219 +124,6 @@ export function parseRunOnceCliArgs(argv: string[]): RunOnceCliArgs {
   return parsed
 }
 
-function requiredEnv(env: EnvRecord, key: string): string {
-  const value = env[key]
-  if (!value || value.trim().length === 0) {
-    throw new Error(`Missing required environment variable: ${key}`)
-  }
-  return value
-}
-
-function parseUrl(rawValue: string, label: string): string {
-  let parsed: URL
-  try {
-    parsed = new URL(rawValue)
-  } catch {
-    throw new Error(`${label} must be a valid URL`)
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`${label} must use http or https`)
-  }
-
-  return parsed.toString()
-}
-
-function parsePositiveInt(value: string, label: string): number {
-  const normalized = value.trim()
-  if (!/^[0-9]+$/.test(normalized)) {
-    throw new Error(`${label} must be a positive integer`)
-  }
-
-  const numeric = Number.parseInt(normalized, 10)
-  if (!Number.isSafeInteger(numeric) || numeric <= 0) {
-    throw new Error(`${label} must be a positive integer`)
-  }
-
-  return numeric
-}
-
-function parseAddress(value: string, label: string): `0x${string}` {
-  if (!EVM_ADDRESS_REGEX.test(value)) {
-    throw new Error(`${label} must be a valid EVM address`)
-  }
-
-  return value as `0x${string}`
-}
-
-function parsePrivateKey(value: string): string {
-  if (!PRIVATE_KEY_REGEX.test(value)) {
-    throw new Error("AUTO_REVEAL_PRIVATE_KEY must be a 32-byte hex private key")
-  }
-
-  return value
-}
-
-export function loadRunOnceConfig(
-  env: EnvRecord,
-  cliArgs: RunOnceCliArgs = { help: false },
-): RunOnceConfig {
-  const publicRpcUrl = parseUrl(
-    requiredEnv(env, "AUTO_REVEAL_PUBLIC_RPC_URL"),
-    "AUTO_REVEAL_PUBLIC_RPC_URL",
-  )
-  const adminRpcUrl = parseUrl(
-    requiredEnv(env, "AUTO_REVEAL_ADMIN_RPC_URL"),
-    "AUTO_REVEAL_ADMIN_RPC_URL",
-  )
-  const privateKey = parsePrivateKey(
-    requiredEnv(env, "AUTO_REVEAL_PRIVATE_KEY"),
-  )
-  const bountyHubAddress = parseAddress(
-    requiredEnv(env, "AUTO_REVEAL_BOUNTY_HUB_ADDRESS"),
-    "AUTO_REVEAL_BOUNTY_HUB_ADDRESS",
-  )
-
-  if (publicRpcUrl === adminRpcUrl) {
-    throw new Error(
-      "AUTO_REVEAL_ADMIN_RPC_URL must be different from AUTO_REVEAL_PUBLIC_RPC_URL",
-    )
-  }
-
-  const chainId = parsePositiveInt(
-    env.AUTO_REVEAL_CHAIN_ID ?? String(DEFAULT_CHAIN_ID),
-    "AUTO_REVEAL_CHAIN_ID",
-  )
-
-  const lookbackBlocks = parsePositiveInt(
-    cliArgs.lookbackBlocks
-      ?? env.AUTO_REVEAL_LOOKBACK_BLOCKS
-      ?? String(DEFAULT_LOOKBACK_BLOCKS),
-    "AUTO_REVEAL_LOOKBACK_BLOCKS",
-  )
-
-  const replayOverlapBlocks = parsePositiveInt(
-    cliArgs.replayOverlapBlocks
-      ?? env.AUTO_REVEAL_REPLAY_OVERLAP_BLOCKS
-      ?? String(DEFAULT_REPLAY_OVERLAP_BLOCKS),
-    "AUTO_REVEAL_REPLAY_OVERLAP_BLOCKS",
-  )
-
-  const logChunkBlocks = parsePositiveInt(
-    cliArgs.logChunkBlocks
-      ?? env.AUTO_REVEAL_LOG_CHUNK_BLOCKS
-      ?? String(DEFAULT_LOG_CHUNK_BLOCKS),
-    "AUTO_REVEAL_LOG_CHUNK_BLOCKS",
-  )
-
-  const maxExecutionBatchSize = parsePositiveInt(
-    cliArgs.maxExecutionBatchSize
-      ?? env.AUTO_REVEAL_MAX_EXECUTION_BATCH_SIZE
-      ?? String(DEFAULT_MAX_EXECUTION_BATCH_SIZE),
-    "AUTO_REVEAL_MAX_EXECUTION_BATCH_SIZE",
-  )
-
-  const cursorFile =
-    cliArgs.cursorFile
-      ?? env.AUTO_REVEAL_CURSOR_FILE
-      ?? DEFAULT_CURSOR_FILE
-
-  if (cursorFile.trim().length === 0) {
-    throw new Error("AUTO_REVEAL_CURSOR_FILE must be a non-empty path")
-  }
-
-  return {
-    publicRpcUrl,
-    adminRpcUrl,
-    privateKey,
-    bountyHubAddress,
-    chainId,
-    lookbackBlocks,
-    replayOverlapBlocks,
-    logChunkBlocks,
-    maxExecutionBatchSize,
-    cursorFile,
-  }
-}
-
-export function buildRunOncePlan(
-  config: RunOnceConfig,
-  lastProcessedBlock: bigint = 0n,
-  cursorState: {
-    recoveredProcessingCount?: number
-    quarantinedItemCount?: number
-  } = {},
-): RunOncePlan {
-  const overlap = BigInt(config.replayOverlapBlocks)
-
-  const safeAnchor =
-    lastProcessedBlock > overlap
-      ? lastProcessedBlock - overlap
-      : 0n
-
-  const fromBlock = safeAnchor + 1n
-  const toBlock =
-    fromBlock
-      + BigInt(config.lookbackBlocks)
-      - 1n
-
-  return {
-    mode: "run-once",
-    chainId: config.chainId,
-    publicRpcUrl: config.publicRpcUrl,
-    adminRpcUrl: config.adminRpcUrl,
-    bountyHubAddress: config.bountyHubAddress,
-    cursorFile: config.cursorFile,
-    cursorLastFinalizedBlock: lastProcessedBlock,
-    recoveredProcessingCount: cursorState.recoveredProcessingCount ?? 0,
-    quarantinedItemCount: cursorState.quarantinedItemCount ?? 0,
-    replayOverlapBlocks: config.replayOverlapBlocks,
-    logChunkBlocks: config.logChunkBlocks,
-    maxExecutionBatchSize: config.maxExecutionBatchSize,
-    fromBlock,
-    toBlock,
-  }
-}
-
-export async function runAutoRevealRelayerCycle(
-  config: RunOnceConfig,
-  deps: RunOnceExecutionDeps,
-): Promise<RunOnceExecutionResult> {
-  const nowMs = deps.nowMs ?? Date.now()
-  const store = deps.store ?? loadAutoRevealCursorStore(config.cursorFile, nowMs)
-
-  assertAutoRevealCursorStoreHealthy(store)
-
-  const plan = buildRunOncePlan(config, store.cursorLastFinalizedBlock, {
-    recoveredProcessingCount: store.recoveredProcessingCount,
-    quarantinedItemCount: store.quarantinedItemCount,
-  })
-
-  const unique = await runUniqueCommittedCandidateScanner({
-    config,
-    plan,
-    store,
-    runtime: deps.uniqueRuntime,
-    nowMs,
-  })
-  const multi = await runMultiDeadlineScanner({
-    config,
-    plan,
-    store,
-    runtime: deps.multiRuntime,
-    nowMs,
-    retryPolicy: deps.retryPolicy,
-    sleep: deps.sleep,
-    recordMetric: deps.recordMetric,
-  })
-
-  return {
-    plan,
-    unique,
-    multi,
-  }
-}
-
 function stringifyWithBigInt(value: unknown): string {
   return JSON.stringify(
     value,
@@ -435,6 +155,22 @@ function getDefaultEnv(): EnvRecord {
   return runtime.process?.env ?? {}
 }
 
+export async function runAutoRevealRelayerCycle(
+  config: RunOnceConfig,
+  deps: RunOnceExecutionDeps,
+): Promise<RunOnceExecutionResult> {
+  const nowMs = deps.nowMs ?? Date.now()
+  const store = deps.store ?? loadAutoRevealCursorStore(config.cursorFile, nowMs)
+
+  assertAutoRevealCursorStoreHealthy(store)
+
+  return await executeAutoRevealRelayerCycle(config, {
+    ...deps,
+    store,
+    nowMs,
+  })
+}
+
 export async function runOnceCommand(
   argv: string[] = getDefaultArgv(),
   env: EnvRecord = getDefaultEnv(),
@@ -464,30 +200,21 @@ export async function runOnceCommand(
   }
 }
 
+export type {
+  EnvRecord,
+  RunOnceCliArgs,
+  RunOnceConfig,
+  RunOnceExecutionResult,
+  RunOncePlan,
+}
+
 export {
   advanceDurableAutoRevealCursor,
+  buildRunOncePlan,
   claimDurableAutoRevealQueueItem,
   deriveAutoRevealQueueItemIdempotencyKey,
   loadAutoRevealCursorStore,
+  loadRunOnceConfig,
   markDurableAutoRevealQueueItemCompleted,
   markDurableAutoRevealQueueItemQuarantined,
-}
-
-function isMainModule(): boolean {
-  const moduleMeta = import.meta as { main?: boolean }
-  return moduleMeta.main === true
-}
-
-if (isMainModule()) {
-  void runOnceCommand().then((exitCode) => {
-    const runtime = globalThis as {
-      process?: {
-        exitCode?: number
-      }
-    }
-
-    if (runtime.process) {
-      runtime.process.exitCode = exitCode
-    }
-  })
 }

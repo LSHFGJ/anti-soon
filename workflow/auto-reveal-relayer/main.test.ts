@@ -59,7 +59,10 @@ describe("auto-reveal-relayer workflow config", () => {
       new URL("./config.production.json", import.meta.url),
     ).json()
 
-    expect(parseWorkflowConfig(stagingConfig)).toEqual(validWorkflowConfig)
+    expect(parseWorkflowConfig(stagingConfig)).toEqual({
+      ...validWorkflowConfig,
+      bountyHubAddress: "0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf",
+    })
     expect(parseWorkflowConfig(productionConfig)).toEqual(validWorkflowConfig)
   })
 
@@ -82,7 +85,7 @@ describe("auto-reveal-relayer workflow config", () => {
     ).toThrow("gasLimit")
   })
 
-  it("registered main entrypoint executes real relayer orchestration", async () => {
+  it("parameterized main API executes real relayer orchestration", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "auto-reveal-relayer-main-entrypoint-"))
     const cursorPath = join(tempDir, "cursor.json")
 

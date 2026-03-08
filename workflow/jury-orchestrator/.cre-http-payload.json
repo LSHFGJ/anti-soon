@@ -1,0 +1,13 @@
+{
+  "verifiedReport": {
+    "magic": "ASRP",
+    "reportType": "verified-report/v1",
+    "payload": {
+      "submissionId": "9",
+      "projectId": "2",
+      "isValid": true,
+      "drainAmountWei": "1300000000000000000",
+      "observedCalldata": ["0xdeadbeef"]
+    }
+  }
+}

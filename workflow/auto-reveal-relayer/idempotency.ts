@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { sha256, toBytes } from "viem"
 
 export const AUTO_REVEAL_QUEUE_ITEM_IDEMPOTENCY_VERSION =
   "anti-soon.auto-reveal.idempotency.v1" as const
@@ -75,9 +75,7 @@ export function deriveAutoRevealQueueItemIdempotencyKey(
     toBigInt(item.projectId, "projectId").toString(),
     toBigInt(item.submissionId, "submissionId").toString(),
   ].join("|")
-  const digest = createHash("sha256").update(payload).digest("hex")
-
-  return `0x${digest}` as `0x${string}`
+  return sha256(toBytes(payload)) as `0x${string}`
 }
 
 export function deriveAutoRevealCommittedCandidateIdempotencyKey(
@@ -93,9 +91,7 @@ export function deriveAutoRevealCommittedCandidateIdempotencyKey(
     toBigInt(item.projectId, "projectId").toString(),
     toBigInt(item.submissionId, "submissionId").toString(),
   ].join("|")
-  const digest = createHash("sha256").update(payload).digest("hex")
-
-  return `0x${digest}` as `0x${string}`
+  return sha256(toBytes(payload)) as `0x${string}`
 }
 
 export function claimAutoRevealIdempotencySlot(

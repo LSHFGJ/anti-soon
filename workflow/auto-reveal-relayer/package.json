@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "run-once": "bun ./run-once.ts"
+    "run-once": "bun ./run-once-cli.ts"
   },
   "dependencies": {
     "@chainlink/cre-sdk": "1.0.9",

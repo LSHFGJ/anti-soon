@@ -4358,6 +4358,15 @@ function formatTargetStateOpinionSupport(args: {
   return `${args.finalValidity}=${args.bucket.total} (LLM=${args.bucket.LLM}, HUMAN=${args.bucket.HUMAN})`
 }
 
+function selectDeterministicConsensusSupport(
+  records: SealedJurorOpinionRecord[],
+): SealedJurorOpinionRecord[] {
+  return sortOpinionRecordsDeterministically(records).slice(
+    0,
+    TARGET_STATE_REQUIRED_CONSENSUS_COUNT,
+  )
+}
+
 function buildJuryConsensusEnvelope(
   payload: JuryConsensusPayload,
 ): JuryConsensusEnvelope {
@@ -4462,6 +4471,11 @@ export function aggregateTargetStateOpinionRecords(args: {
         ? "MEDIUM"
         : "INVALID"
     const winner = support[finalValidity]
+    const consensusRecords = selectDeterministicConsensusSupport(winner.records)
+    const llmAgreeingVoteCount = consensusRecords.filter(
+      (record) => record.cohort === "LLM",
+    ).length
+    const humanAgreeingVoteCount = consensusRecords.length - llmAgreeingVoteCount
 
     return buildJuryConsensusEnvelope({
       submissionId: casePackage.payload.submissionId,
@@ -4474,14 +4488,14 @@ export function aggregateTargetStateOpinionRecords(args: {
       adjudicationDeadlineTimestampSec:
         casePackage.payload.adjudicationDeadlineTimestampSec,
       scopeKey: deriveOpinionLedgerScopeKey(casePackage),
-      consensusVoteCount: winner.total,
-      llmAgreeingVoteCount: winner.LLM,
-      humanAgreeingVoteCount: winner.HUMAN,
-      supportingOpinionRecordKeys: winner.records.map((record) => record.recordKey),
-      supportingRationaleDigests: winner.records.map(
+      consensusVoteCount: consensusRecords.length,
+      llmAgreeingVoteCount,
+      humanAgreeingVoteCount,
+      supportingOpinionRecordKeys: consensusRecords.map((record) => record.recordKey),
+      supportingRationaleDigests: consensusRecords.map(
         (record) => record.rationaleDigest,
       ),
-      supportingTestimonyDigests: winner.records.map(
+      supportingTestimonyDigests: consensusRecords.map(
         (record) => record.testimonyDigest,
       ),
       rationale: `Jury reached the 8/10 + 3-per-cohort consensus threshold for ${finalValidity}. Counts: ${formatTargetStateOpinionSupport({ finalValidity: "HIGH", bucket: support.HIGH })}, ${formatTargetStateOpinionSupport({ finalValidity: "MEDIUM", bucket: support.MEDIUM })}, ${formatTargetStateOpinionSupport({ finalValidity: "INVALID", bucket: support.INVALID })}.`,
@@ -4938,4 +4952,10 @@ export async function main(
   input: JuryPipelineInput,
 ): Promise<JuryPipelineOutput> {
   return runJuryRecommendationPipeline(input as never)
+}
+
+export function executeJuryPipeline(
+  input: JuryPipelineInput,
+): JuryPipelineOutput {
+  return runJuryRecommendationPipeline(input)
 }

@@ -7,7 +7,7 @@ import {
   markDurableAutoRevealQueueItemQuarantined,
   removeDurablePendingAutoRevealQueueItem,
   upsertDurablePendingAutoRevealQueueItem,
-} from "./cursor-store"
+} from "./cursor-state"
 import { deriveAutoRevealQueueItemIdempotencyKey } from "./idempotency"
 import {
   runAutoRevealWithRetry,
@@ -17,8 +17,8 @@ import {
 import type {
   AutoRevealCursorStore,
   AutoRevealPendingQueueItem,
-} from "./cursor-store"
-import type { RunOnceConfig, RunOncePlan } from "./run-once"
+} from "./cursor-state"
+import type { RunOnceConfig, RunOncePlan } from "./run-once-core"
 
 export type MultiQueuedRevealLog = {
   submissionId: bigint
