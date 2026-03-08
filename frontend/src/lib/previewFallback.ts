@@ -46,6 +46,8 @@ export function buildPreviewProject(projectId: bigint): Project {
     commitDeadline: now + 86_400n,
     revealDeadline: now + 172_800n,
     disputeWindow: 43_200n,
+    juryWindow: 43_200n,
+    adjudicationWindow: 43_200n,
     rulesHash: ZERO_HASH,
     vnetStatus: 2,
     vnetRpcUrl: '',

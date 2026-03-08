@@ -79,6 +79,8 @@ function buildProjectRow(params: {
 		commitDeadline: 0n,
 		revealDeadline: 0n,
 		disputeWindow: 0n,
+		juryWindow: 0n,
+		adjudicationWindow: 0n,
 		rulesHash: `0x${"0".repeat(64)}` as `0x${string}`,
 		vnetStatus: 2,
 		vnetRpcUrl: "https://rpc.tenderly.co/fork/mock",
