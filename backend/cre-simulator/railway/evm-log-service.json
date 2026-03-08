@@ -1,0 +1,6 @@
+{
+  "name": "cre-simulator-evm-log",
+  "root": ".",
+  "startCommand": "cd backend/cre-simulator && bun run start:evm-log",
+  "preflightCommand": "cd backend/cre-simulator && bun run preflight:evm-log"
+}
