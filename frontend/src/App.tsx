@@ -1,4 +1,6 @@
 import { Suspense, lazy } from 'react'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Layout/Navbar'
 import { ToastProvider } from './components/ToastProvider'
@@ -88,6 +90,8 @@ function App() {
     <Web3Provider>
       <BrowserRouter>
         <AppShell />
+        <Analytics />
+        <SpeedInsights />
       </BrowserRouter>
     </Web3Provider>
   )
