@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-	type Address,
-	formatEther,
-	type GetLogsReturnType,
-	parseAbiItem,
-} from "viem";
+import { type Address, formatEther } from "viem";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,18 +22,10 @@ import {
 	StatusBanner,
 } from "../components/shared/ui-primitives";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
-import {
-	discoverDeploymentBlockWithFallback,
-	getLogsWithRangeFallback,
-} from "../lib/chainLogs";
 import { readProjectById } from "../lib/projectReads";
-import {
-	getBlockNumberWithRpcFallback,
-	getLogsWithRpcFallback,
-	multicallWithRpcFallback,
-	readContractWithRpcFallback,
-} from "../lib/publicClient";
+import { multicallWithRpcFallback, readContractWithRpcFallback } from "../lib/publicClient";
 import { getActualStatus } from "../lib/status";
+import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
 import {
 	type ExtendedSubmission,
 	type Project,
@@ -46,15 +33,6 @@ import {
 	STATUS_LABELS,
 	VERDICT_SOURCE_LABELS,
 } from "../types";
-
-const POC_COMMITTED_EVENT = parseAbiItem(
-	"event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)",
-);
-type PoCCommittedLog = GetLogsReturnType<
-	typeof POC_COMMITTED_EVENT,
-	[typeof POC_COMMITTED_EVENT],
-	true
->[number];
 
 type RulesTuple = readonly [
 	maxAttackerSeedWei: bigint,
@@ -110,7 +88,35 @@ type SubmissionGroupingTuple = readonly [
 	groupSize: bigint,
 ];
 
+type MulticallEntry<T> =
+	| { status: "success"; result: T }
+	| { status: "failure"; error?: unknown };
+
 const SUBMISSION_LOAD_ERROR = "Failed to load submissions from blockchain";
+
+function readRequiredMulticallEntry<T>(entry: unknown): T {
+	if (entry && typeof entry === "object" && "status" in entry) {
+		const typedEntry = entry as MulticallEntry<T>;
+		if (typedEntry.status === "success") {
+			return typedEntry.result;
+		}
+
+		throw typedEntry.error instanceof Error
+			? typedEntry.error
+			: new Error("Required multicall entry failed");
+	}
+
+	return entry as T;
+}
+
+function readOptionalMulticallEntry<T>(entry: unknown): T | null {
+	if (entry && typeof entry === "object" && "status" in entry) {
+		const typedEntry = entry as MulticallEntry<T>;
+		return typedEntry.status === "success" ? typedEntry.result : null;
+	}
+
+	return (entry as T | null) ?? null;
+}
 
 function mapSubmissionWithMetadata(
 	id: bigint,
@@ -338,6 +344,7 @@ export function ProjectDetail() {
 			setError(null);
 			setProject(null);
 			setRules(null);
+			submissionsRequestIdRef.current += 1;
 			setSubmissions([]);
 
 			const [fetchedProject, rulesData] = await Promise.all([
@@ -423,31 +430,7 @@ export function ProjectDetail() {
 	const fetchSubmissions = useCallback(async () => {
 		const requestId = ++submissionsRequestIdRef.current;
 		try {
-			const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
-				fetchLogs: (range) =>
-					getLogsWithRpcFallback({
-						address: BOUNTY_HUB_ADDRESS,
-						event: POC_COMMITTED_EVENT,
-						strict: true,
-						args: { projectId },
-						...(range ?? {}),
-						toBlock: range?.toBlock ?? "latest",
-					}) as Promise<PoCCommittedLog[]>,
-				getLatestBlock: () => getBlockNumberWithRpcFallback(),
-				getStartBlock: async (latestBlock) =>
-					discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
-			});
-
-			const submissionIds = Array.from(
-				new Set(
-					logs
-						.map((log) => log.args.submissionId)
-						.filter(
-							(submissionId): submissionId is bigint =>
-								submissionId !== undefined,
-						),
-				),
-			);
+			const submissionIds = await readAllProjectSubmissionIds(projectId);
 
 			if (submissionIds.length === 0) {
 				if (submissionsRequestIdRef.current !== requestId) {
@@ -486,26 +469,30 @@ export function ProjectDetail() {
 
 			const results = (await multicallWithRpcFallback({
 				contracts: submissionContracts,
-				allowFailure: false,
+				allowFailure: true,
 			})) as readonly unknown[];
 
 			const fetchedSubmissions: ExtendedSubmission[] = submissionIds.map(
 				(id, index) => {
-					const data = results[index * 4] as SubmissionTuple;
-					const lifecycleData = results[
-						index * 4 + 1
-					] as SubmissionLifecycleTuple;
-					const juryData = results[index * 4 + 2] as SubmissionJuryTuple;
-					const groupingData = results[
-						index * 4 + 3
-					] as SubmissionGroupingTuple;
+					const data = readRequiredMulticallEntry<SubmissionTuple>(
+						results[index * 4],
+					);
+					const lifecycleData = readOptionalMulticallEntry<SubmissionLifecycleTuple>(
+						results[index * 4 + 1],
+					);
+					const juryData = readOptionalMulticallEntry<SubmissionJuryTuple>(
+						results[index * 4 + 2],
+					);
+					const groupingData = readOptionalMulticallEntry<SubmissionGroupingTuple>(
+						results[index * 4 + 3],
+					);
 
 					return mapSubmissionWithMetadata(
 						id,
 						data,
-						lifecycleData,
-						juryData,
-						groupingData,
+						lifecycleData ?? [data[7], 0n, 0n, 0, 0, "0x0", "0x0"],
+						juryData ?? [false, "", ""],
+						groupingData ?? [false, "", "", 0n, 0n],
 					);
 				},
 			);
@@ -532,10 +519,10 @@ export function ProjectDetail() {
 	}, [fetchProject]);
 
 	useEffect(() => {
-		if (project) {
+		if (project && !error?.includes("Preview mode active")) {
 			fetchSubmissions();
 		}
-	}, [project, fetchSubmissions]);
+	}, [project, error, fetchSubmissions]);
 
 	const getDeadlineStatus = () => {
 		if (!project) return { text: "UNKNOWN", variant: "outline" as const };

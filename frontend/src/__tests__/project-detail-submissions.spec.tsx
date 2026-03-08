@@ -6,14 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDetail } from "../pages/ProjectDetail";
 
-const { readProjectByIdMock, publicClientMock } = vi.hoisted(() => ({
+const { readProjectByIdMock, readAllProjectSubmissionIdsMock, publicClientMock } = vi.hoisted(() => ({
 	readProjectByIdMock: vi.fn(),
+	readAllProjectSubmissionIdsMock: vi.fn(),
 	publicClientMock: {
 		readContract: vi.fn(),
-		getLogs: vi.fn(),
-		getBlockNumber: vi.fn(),
 		multicall: vi.fn(),
-		getCode: vi.fn(),
 	},
 }));
 
@@ -21,18 +19,16 @@ vi.mock("../lib/projectReads", () => ({
 	readProjectById: (...args: unknown[]) => readProjectByIdMock(...args),
 }));
 
+vi.mock("../lib/submissionIndex", () => ({
+	readAllProjectSubmissionIds: (...args: unknown[]) =>
+		readAllProjectSubmissionIdsMock(...args),
+}));
+
 vi.mock("../lib/publicClient", () => ({
-	publicClient: publicClientMock,
 	readContractWithRpcFallback: (...args: unknown[]) =>
 		publicClientMock.readContract(...args),
-	getLogsWithRpcFallback: (...args: unknown[]) =>
-		publicClientMock.getLogs(...args),
-	getBlockNumberWithRpcFallback: (...args: unknown[]) =>
-		publicClientMock.getBlockNumber(...args),
 	multicallWithRpcFallback: (...args: unknown[]) =>
 		publicClientMock.multicall(...args),
-	getCodeWithRpcFallback: (...args: unknown[]) =>
-		publicClientMock.getCode(...args),
 }));
 
 const mockProject = {
@@ -122,6 +118,7 @@ describe("ProjectDetail submission visibility", () => {
 		vi.clearAllMocks();
 
 		readProjectByIdMock.mockResolvedValue(mockProject);
+		readAllProjectSubmissionIdsMock.mockResolvedValue([42n]);
 		publicClientMock.readContract.mockResolvedValue(mockRulesTuple);
 		publicClientMock.multicall.mockResolvedValue([
 			mockSubmissionTuple,
@@ -129,21 +126,9 @@ describe("ProjectDetail submission visibility", () => {
 			[false, "", ""], // jury
 			[false, "", "", 0n, 0n], // grouping
 		]);
-		publicClientMock.getBlockNumber.mockResolvedValue(20_000n);
-		publicClientMock.getCode.mockRejectedValue(new Error("missing trie node"));
 	});
 
-	it("falls back to chunked log reads and still renders committed submission", async () => {
-		let logCallCount = 0;
-		publicClientMock.getLogs.mockImplementation(async () => {
-			logCallCount += 1;
-			if (logCallCount === 1) {
-				throw new Error("eth_getLogs is limited to a 10,000 range");
-			}
-
-			return [{ args: { submissionId: 42n } }];
-		});
-
+	it("uses indexed project submission ids and still renders committed submission", async () => {
 		renderProjectDetailRoute();
 
 		await waitFor(() => {
@@ -151,11 +136,11 @@ describe("ProjectDetail submission visibility", () => {
 		});
 
 		expect(screen.getByText("#42")).toBeDefined();
-		expect(publicClientMock.getLogs.mock.calls.length).toBeGreaterThan(1);
+		expect(readAllProjectSubmissionIdsMock).toHaveBeenCalledWith(1n);
 	});
 
-	it("shows explicit submissions load error when log query fails", async () => {
-		publicClientMock.getLogs.mockRejectedValue(new Error("rpc unavailable"));
+	it("shows explicit submissions load error when indexed submission lookup fails", async () => {
+		readAllProjectSubmissionIdsMock.mockRejectedValue(new Error("rpc unavailable"));
 
 		renderProjectDetailRoute();
 
@@ -166,11 +151,22 @@ describe("ProjectDetail submission visibility", () => {
 		});
 	});
 
-	it("renders the enforced-rules panel copy from main", async () => {
-		publicClientMock.getLogs.mockResolvedValue([
-			{ args: { submissionId: 42n } },
-		]);
+	it("preserves preview submissions without retrying live reads in preview fallback mode", async () => {
+		readProjectByIdMock.mockRejectedValue(new Error("project rpc down"));
+		readAllProjectSubmissionIdsMock.mockRejectedValue(new Error("submission rpc down"));
 
+		renderProjectDetailRoute();
+
+		await waitFor(() => {
+			expect(screen.getByText(/Preview mode active/)).toBeVisible();
+		});
+
+		expect(screen.getByText("#3001")).toBeVisible();
+		expect(screen.getByText("#3002")).toBeVisible();
+		expect(readAllProjectSubmissionIdsMock).not.toHaveBeenCalled();
+	});
+
+	it("renders the enforced-rules panel copy from main", async () => {
 		renderProjectDetailRoute();
 
 		await waitFor(() => {
@@ -218,14 +214,7 @@ describe("ProjectDetail submission visibility", () => {
 	});
 
 	it("renders verdict source and deadlines for adjudicated submissions", async () => {
-		publicClientMock.getLogs.mockResolvedValue([
-			{
-				args: {
-					submissionId: 1n,
-					auditor: "0x1111111111111111111111111111111111111111",
-				},
-			},
-		]);
+		readAllProjectSubmissionIdsMock.mockResolvedValue([1n]);
 
 		publicClientMock.multicall.mockResolvedValue([
 			mockSubmissionTuple,
@@ -236,11 +225,121 @@ describe("ProjectDetail submission visibility", () => {
 
 		renderProjectDetailRoute();
 
+			await waitFor(() => {
+				expect(screen.getByText("JuryPending")).toBeDefined();
+				expect(screen.getByText("Source: Jury")).toBeDefined();
+				expect(screen.getByText(/Jury DL:/)).toBeDefined();
+				expect(screen.getByText(/Adj DL:/)).toBeDefined();
+			});
+	});
+
+	it("keeps rendering indexed submissions when optional lifecycle metadata reverts", async () => {
+		publicClientMock.multicall.mockResolvedValue([
+			{ status: "success", result: mockSubmissionTuple },
+			{ status: "failure", error: new Error("legacy submission lifecycle unavailable") },
+			{ status: "success", result: [false, "", ""] },
+			{ status: "success", result: [false, "", "", 0n, 0n] },
+		]);
+
+		renderProjectDetailRoute();
+
 		await waitFor(() => {
-			expect(screen.getByText("JuryPending")).toBeDefined();
-			expect(screen.getByText("Source: Jury")).toBeDefined();
-			expect(screen.getByText(/Jury DL:/)).toBeDefined();
-			expect(screen.getByText(/Adj DL:/)).toBeDefined();
+			expect(screen.getByText("#42")).toBeVisible();
+		});
+
+		expect(
+			screen.queryByText(/Failed to load submissions from blockchain/),
+		).toBeNull();
+	});
+
+	it("keeps rendering indexed submissions when optional jury and grouping metadata revert", async () => {
+		publicClientMock.multicall.mockResolvedValue([
+			{ status: "success", result: mockSubmissionTuple },
+			{ status: "success", result: [2, 0n, 0n, 1, 1, "0x0", "0x0"] },
+			{ status: "failure", error: new Error("legacy jury metadata unavailable") },
+			{ status: "failure", error: new Error("legacy grouping metadata unavailable") },
+		]);
+
+		renderProjectDetailRoute();
+
+		await waitFor(() => {
+			expect(screen.getByText("#42")).toBeVisible();
+		});
+
+		expect(
+			screen.queryByText(/Failed to load submissions from blockchain/),
+		).toBeNull();
+	});
+
+	it("ignores stale submission responses after route changes", async () => {
+		const projectOneSubmissionsDeferred = deferred<bigint[]>();
+		const projectTwoDeferred = deferred<typeof mockProject>();
+		const projectTwoSubmissionsDeferred = deferred<bigint[]>();
+
+		readProjectByIdMock.mockImplementation((projectId: bigint) => {
+			if (projectId === 1n) {
+				return Promise.resolve(mockProject);
+			}
+
+			return projectTwoDeferred.promise;
+		});
+		readAllProjectSubmissionIdsMock.mockImplementation((projectId: bigint) => {
+			if (projectId === 1n) {
+				return projectOneSubmissionsDeferred.promise;
+			}
+
+			return projectTwoSubmissionsDeferred.promise;
+		});
+		publicClientMock.multicall.mockImplementation(async ({ contracts }) => {
+			const submissionId = contracts[0]?.args?.[0];
+			const submissionTuple = [
+				mockSubmissionTuple[0],
+				submissionId === 84n ? 2n : 1n,
+				mockSubmissionTuple[2],
+				mockSubmissionTuple[3],
+				mockSubmissionTuple[4],
+				mockSubmissionTuple[5],
+				mockSubmissionTuple[6],
+				mockSubmissionTuple[7],
+				mockSubmissionTuple[8],
+				mockSubmissionTuple[9],
+				mockSubmissionTuple[10],
+				mockSubmissionTuple[11],
+				mockSubmissionTuple[12],
+				mockSubmissionTuple[13],
+				mockSubmissionTuple[14],
+			] as const;
+
+			return [
+				submissionTuple,
+				[2, 0n, 0n, 1, 1, "0x0", "0x0"],
+				[false, "", ""],
+				[false, "", "", 0n, 0n],
+			];
+		});
+
+		const user = userEvent.setup();
+		renderRoutableProjectDetail("/project/1");
+
+		await user.click(screen.getByRole("link", { name: "Go to project 2" }));
+		projectOneSubmissionsDeferred.resolve([42n]);
+		projectTwoDeferred.resolve({
+			...mockProject,
+			id: 2n,
+			targetContract: "0x3333333333333333333333333333333333333333" as Address,
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("PROJECT #2")).toBeVisible();
+			expect(screen.queryByText("#42")).toBeNull();
+		});
+
+		projectTwoSubmissionsDeferred.resolve([84n]);
+
+		await waitFor(() => {
+			expect(screen.getByText("PROJECT #2")).toBeVisible();
+			expect(screen.getByText("#84")).toBeVisible();
+			expect(screen.queryByText("#42")).toBeNull();
 		});
 	});
 });
