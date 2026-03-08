@@ -12,6 +12,8 @@ const {
   mockGetLogsWithRangeFallback,
   mockGetLogsWithRpcFallback,
   mockMulticallWithRpcFallback,
+  mockReadAllAuditorSubmissionIds,
+  mockReadAllProjectSubmissionIds,
   mockReadContractWithRpcFallback,
   mockReadProjectById,
   mockReadStoredPoCPreview,
@@ -21,6 +23,8 @@ const {
   mockGetLogsWithRangeFallback: vi.fn(),
   mockGetLogsWithRpcFallback: vi.fn(),
   mockMulticallWithRpcFallback: vi.fn(),
+  mockReadAllAuditorSubmissionIds: vi.fn(),
+  mockReadAllProjectSubmissionIds: vi.fn(),
   mockReadContractWithRpcFallback: vi.fn(),
   mockReadProjectById: vi.fn(),
   mockReadStoredPoCPreview: vi.fn(),
@@ -50,6 +54,11 @@ vi.mock('../lib/publicClient', () => ({
 
 vi.mock('../lib/projectReads', () => ({
   readProjectById: (...args: unknown[]) => mockReadProjectById(...args),
+}))
+
+vi.mock('../lib/submissionIndex', () => ({
+  readAllAuditorSubmissionIds: (...args: unknown[]) => mockReadAllAuditorSubmissionIds(...args),
+  readAllProjectSubmissionIds: (...args: unknown[]) => mockReadAllProjectSubmissionIds(...args),
 }))
 
 vi.mock('../lib/oasisUpload', () => ({
@@ -149,6 +158,8 @@ describe('Submission Grouping & Jury Visibility Alignment', () => {
     mockGetLogsWithRangeFallback.mockResolvedValue([])
     mockGetLogsWithRpcFallback.mockResolvedValue([])
     mockMulticallWithRpcFallback.mockResolvedValue([])
+    mockReadAllAuditorSubmissionIds.mockResolvedValue([])
+    mockReadAllProjectSubmissionIds.mockResolvedValue([])
     mockReadProjectById.mockResolvedValue(mockProject)
     mockReadStoredPoCPreview.mockResolvedValue({ poc: { ok: true } })
     mockResolveSapphireTxHash.mockResolvedValue(undefined)
@@ -158,12 +169,12 @@ describe('Submission Grouping & Jury Visibility Alignment', () => {
       if (functionName === 'getSubmissionLifecycle') return Promise.resolve(makeLifecycleTuple())
       if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', ''])
       if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n])
-      if (functionName === 'nextSubmissionId') return Promise.resolve(0n)
       return Promise.resolve(null)
     })
   })
 
   it('Dashboard renders grouping and jury metadata gracefully', async () => {
+    mockReadAllAuditorSubmissionIds.mockResolvedValue([1001n])
     mockGetLogsWithRangeFallback.mockResolvedValue([
       {
         args: { submissionId: 1001n },
@@ -194,6 +205,7 @@ describe('Submission Grouping & Jury Visibility Alignment', () => {
   })
 
   it('ProjectDetail renders grouping and jury metadata gracefully', async () => {
+    mockReadAllProjectSubmissionIds.mockResolvedValue([3001n])
     mockGetLogsWithRangeFallback.mockResolvedValue([
       {
         args: { submissionId: 3001n },
