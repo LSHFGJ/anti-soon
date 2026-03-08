@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import type { EnvRecord } from "../operator/config"
 import type { CreSimulatorExecuteCommand } from "../types"
 import { loadCreSimulatorTriggerConfig } from "./config"
@@ -30,7 +32,7 @@ export async function runCronTriggerTick(
 	executed: Array<{ triggerName: string; command: string }>
 	skipped: string[]
 }> {
-	const repoRoot = request.repoRoot ?? new URL("../../..", import.meta.url).pathname
+	const repoRoot = request.repoRoot ?? resolve(import.meta.dir, "../../../..")
 	const configPath = request.configPath
 		? ensureRepoScopedPath(repoRoot, request.configPath, "configPath")
 		: `${repoRoot}/backend/cre-simulator/triggers.json`

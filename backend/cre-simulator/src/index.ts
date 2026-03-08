@@ -21,9 +21,15 @@ function parseArgValue(argv: string[], index: number, flag: string): string {
 	return value
 }
 
-function parseArgs(argv: string[]) {
-	let host = "127.0.0.1"
-	let port = 8787
+export function parseCreSimulatorArgs(
+	argv: string[],
+	env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+) {
+	let host = env.HOST?.trim() || "127.0.0.1"
+	let port = Number.parseInt(env.PORT ?? "8787", 10)
+	if (!Number.isInteger(port) || port <= 0) {
+		port = 8787
+	}
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const token = argv[index]
@@ -54,7 +60,7 @@ export function getCreSimulatorHelpText(): string {
 }
 
 export function startCreSimulatorServer(argv: string[] = process.argv.slice(2)) {
-	const args = parseArgs(argv)
+	const args = parseCreSimulatorArgs(argv)
 	if (args.help) {
 		console.log(HELP_TEXT)
 		return null

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
+import { getCreSimulatorModeRequiredEnv } from "./deploy-preflight"
 import { startCreSimulatorEvmLogWorker } from "./evm-log-worker"
 
 describe("cre-simulator EVM-log worker", () => {
@@ -49,5 +50,11 @@ describe("cre-simulator EVM-log worker", () => {
 		expect(dispatched).toBe(1)
 		worker?.stop()
 		expect(messages).toContain("closed")
+	})
+
+	it("requires the ws rpc env in deployment mode", () => {
+		expect(getCreSimulatorModeRequiredEnv("evm-log")).toContain(
+			"DEMO_OPERATOR_WS_RPC_URL",
+		)
 	})
 })

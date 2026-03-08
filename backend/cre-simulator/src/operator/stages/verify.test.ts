@@ -21,7 +21,7 @@ import {
 const REAL_REPO_ROOT = resolve(import.meta.dir, "../../../../..")
 const REAL_SCENARIO_PATH = resolve(
 	REAL_REPO_ROOT,
-	"demo-data/operator/multi-fast-happy-path.json",
+	"backend/cre-simulator/default-scenario.json",
 )
 const AUDITOR_ADDRESS =
 	"0x5555555555555555555555555555555555555555" as const

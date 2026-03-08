@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import type { EnvRecord } from "../operator/config"
 import { executeCreSimulatorCommand } from "../service"
 import type { CreSimulatorExecuteCommand } from "../types"
@@ -57,7 +59,7 @@ export async function dispatchEvmLogTriggerEvent(
 	deduped: boolean
 	result?: Awaited<ReturnType<typeof dispatchCreSimulatorTrigger>>["result"]
 }> {
-	const repoRoot = request.repoRoot ?? new URL("../../..", import.meta.url).pathname
+	const repoRoot = request.repoRoot ?? resolve(import.meta.dir, "../../../..")
 	const configPath = request.configPath
 		? ensureRepoScopedPath(repoRoot, request.configPath, "configPath")
 		: `${repoRoot}/backend/cre-simulator/triggers.json`

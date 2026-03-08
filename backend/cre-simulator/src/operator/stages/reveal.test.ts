@@ -15,8 +15,17 @@ import {
 const REAL_REPO_ROOT = resolve(import.meta.dir, "../../../../..")
 const REAL_SCENARIO_PATH = resolve(
   REAL_REPO_ROOT,
-  "demo-data/operator/multi-fast-happy-path.json",
+  "backend/cre-simulator/default-scenario.json",
 )
+const REAL_AUTO_REVEAL_CONFIG_PATH = resolve(
+  REAL_REPO_ROOT,
+  "workflow/auto-reveal-relayer/config.staging.json",
+)
+const REAL_AUTO_REVEAL_BOUNTY_HUB_ADDRESS = (
+  JSON.parse(readFileSync(REAL_AUTO_REVEAL_CONFIG_PATH, "utf8")) as {
+    bountyHubAddress: string
+  }
+).bountyHubAddress.toLowerCase()
 const OPERATOR_PRIVATE_KEY =
   "0x6666666666666666666666666666666666666666666666666666666666666666" as const
 const REVEAL_TX_HASH =
@@ -350,7 +359,7 @@ describe("runRevealStage", () => {
           publicRpcUrl: "https://rpc.public.test/",
           adminRpcUrl: "https://rpc.admin.test/",
           privateKey: OPERATOR_PRIVATE_KEY,
-          bountyHubAddress: "0x17797b473864806072186f6997801d4473aaf6e8",
+          bountyHubAddress: REAL_AUTO_REVEAL_BOUNTY_HUB_ADDRESS,
           chainId: 11155111,
           lookbackBlocks: 5000,
           replayOverlapBlocks: 12,

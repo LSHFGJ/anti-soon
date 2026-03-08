@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import { loadCreSimulatorTriggerConfig } from "./triggers/config"
 import { dispatchEvmLogTriggerEvent } from "./triggers/evmLog"
 import type { CreSimulatorEvmLogEvent, CreSimulatorTriggerConfig } from "./triggers/types"
@@ -160,7 +162,7 @@ export async function startCreSimulatorEvmLogWorker(
 	if (!Number.isInteger(args.reconnectMs) || args.reconnectMs <= 0) {
 		throw new Error("--reconnect-ms must be a positive integer")
 	}
-	const repoRoot = new URL("../../..", import.meta.url).pathname
+	const repoRoot = resolve(import.meta.dir, "../../..")
 	const configPath = args.configPath ?? `${repoRoot}/backend/cre-simulator/triggers.json`
 	const env = deps.env ?? (process.env as Record<string, string | undefined>)
 	const config = deps.loadConfig

@@ -19,6 +19,7 @@ function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<vo
 
 const CONFIG_SCHEMA_VERSION = "anti-soon.cre-simulator.trigger-config.v1"
 const TOPIC0 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const ACTUAL_REPO_ROOT = join(import.meta.dir, "../../../..")
 
 describe("cre-simulator EVM-log triggers", () => {
 	it("dispatches a matching log event once and ignores duplicates after persistence", async () => {
@@ -209,5 +210,69 @@ describe("cre-simulator EVM-log triggers", () => {
 				),
 			).rejects.toThrow("Cre-simulator trigger state store is not healthy")
 		})
+	})
+
+	it("loads the checked-in listener config when no repoRoot override is provided", async () => {
+		const configPath = join(
+			ACTUAL_REPO_ROOT,
+			"backend/cre-simulator/.evm-default-config.test.json",
+		)
+		writeFileSync(
+			configPath,
+			`${JSON.stringify(
+				{
+					schemaVersion: CONFIG_SCHEMA_VERSION,
+					stateFilePath: "backend/cre-simulator/.evm-default-state.test.json",
+					httpTriggers: {},
+					cronTriggers: {},
+					evmLogTriggers: {
+						"poc-revealed": {
+							command: "verify",
+							wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
+							contractAddress: "0x17797b473864806072186f6997801d4473aaf6e8",
+							topic0: TOPIC0,
+						},
+					},
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		)
+
+		try {
+			const result = await dispatchEvmLogTriggerEvent(
+				{
+					triggerName: "poc-revealed",
+					configPath: "backend/cre-simulator/.evm-default-config.test.json",
+					event: {
+						address: "0x17797b473864806072186f6997801d4473aaf6e8",
+						topic0: TOPIC0,
+						txHash:
+							"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+						logIndex: 2,
+						blockNumber: 99n,
+					},
+				},
+				{},
+				{
+					nowMs: () => 20_000,
+					executeCommand: async (request) => ({
+						command: request.command,
+						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
+						result: { command: request.command },
+					}),
+				},
+			)
+
+			expect(result.command).toBe("verify")
+			expect(result.deduped).toBe(false)
+		} finally {
+			rmSync(configPath, { force: true })
+			rmSync(
+				join(ACTUAL_REPO_ROOT, "backend/cre-simulator/.evm-default-state.test.json"),
+				{ force: true },
+			)
+		}
 	})
 })

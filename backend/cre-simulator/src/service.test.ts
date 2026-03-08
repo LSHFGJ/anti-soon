@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync } from "node:fs"
+import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import {
@@ -14,10 +14,55 @@ const REPO_ROOT = resolve(import.meta.dir, "../../..")
 const LEGACY_DEMO_OPERATOR_PATH = join(REPO_ROOT, "workflow", "demo-operator")
 const LEGACY_PATH_FRAGMENT = ["workflow", "demo-operator"].join("/")
 
+function withTempTriggerConfig(
+	run: (configPath: string) => Promise<void> | void,
+): Promise<void> {
+	const configPath = join(
+		REPO_ROOT,
+		"backend/cre-simulator/.service-trigger-config.test.json",
+	)
+	const stateFilePath = "backend/cre-simulator/.service-trigger-state.test.json"
+	writeFileSync(
+		configPath,
+		`${JSON.stringify(
+			{
+				schemaVersion: "anti-soon.cre-simulator.trigger-config.v1",
+				stateFilePath,
+				httpTriggers: {
+					"manual-run": { command: "run" },
+					"manual-verify": { command: "verify" },
+				},
+				cronTriggers: {
+					"demo-run": { intervalMs: 60000, command: "run" },
+				},
+				evmLogTriggers: {
+					"poc-revealed": {
+						command: "verify",
+						wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
+						contractAddress: "0x17797b473864806072186f6997801d4473aaf6e8",
+						topic0:
+							"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					},
+				},
+			},
+			null,
+			2,
+		)}\n`,
+		"utf8",
+	)
+
+	return Promise.resolve()
+		.then(() => run(configPath))
+		.finally(() => {
+			rmSync(configPath, { force: true })
+			rmSync(join(REPO_ROOT, stateFilePath), { force: true })
+		})
+}
+
 describe("cre-simulator service", () => {
 	it("defaults to the checked-in async demo scenario path", () => {
 		expect(buildDefaultCreSimulatorScenarioPath(REPO_ROOT)).toBe(
-			join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
+			join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
 		)
 	})
 
@@ -38,7 +83,7 @@ describe("cre-simulator service", () => {
 				executeDemoOperator: async ({ request }) => {
 					expect(request.command).toBe("status")
 					expect(request.scenario).toBe(
-						join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
+						join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
 					)
 					return { command: "status", healthy: true }
 				},
@@ -47,7 +92,7 @@ describe("cre-simulator service", () => {
 
 		expect(result).toEqual({
 			command: "status",
-			scenarioPath: join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
+			scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
 			result: { command: "status", healthy: true },
 		})
 	})
@@ -69,59 +114,64 @@ describe("cre-simulator service", () => {
 
 		expect(result).toEqual({
 			command: "run",
-			scenarioPath: join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
+			scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
 			result: { command: "run", stages: { register: { projectId: "77" } } },
 		})
 	})
 
 	it("dispatches configured manual triggers through the shared backend service", async () => {
-		const result = await executeCreSimulatorTrigger(
-			{
-				triggerName: "manual-run",
-				repoRoot: REPO_ROOT,
-				configPath: join(REPO_ROOT, "backend/cre-simulator/triggers.json"),
-			},
-			{},
-			{
-				executeCommand: async (request) => {
-					expect(request.command).toBe("run")
-					return {
-						command: "run",
-						scenarioPath: join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
-						result: { command: "run", stages: { register: { projectId: "77" } } },
-					}
+		await withTempTriggerConfig(async (configPath) => {
+			const result = await executeCreSimulatorTrigger(
+				{
+					triggerName: "manual-run",
+					repoRoot: REPO_ROOT,
+					configPath,
 				},
-			},
-		)
+				{},
+				{
+					executeCommand: async (request) => {
+						expect(request.command).toBe("run")
+						return {
+							command: "run",
+							scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
+							result: { command: "run", stages: { register: { projectId: "77" } } },
+						}
+					},
+				},
+			)
 
-		expect(result).toMatchObject({
-			triggerType: "http",
-			triggerName: "manual-run",
-			command: "run",
+			expect(result).toMatchObject({
+				triggerType: "http",
+				triggerName: "manual-run",
+				command: "run",
+			})
 		})
 	})
 
 	it("builds trigger status through the shared backend service layer", async () => {
-		const result = await getCreSimulatorTriggerStatus(
-			{
-				repoRoot: REPO_ROOT,
-				configPath: join(REPO_ROOT, "backend/cre-simulator/triggers.json"),
-			},
-			{},
-		)
+		await withTempTriggerConfig(async (configPath) => {
+			const result = await getCreSimulatorTriggerStatus(
+				{
+					repoRoot: REPO_ROOT,
+					configPath,
+				},
+				{},
+			)
 
-		expect(result).toMatchObject({
-			healthy: true,
-			configPath: join(REPO_ROOT, "backend/cre-simulator/triggers.json"),
-			httpTriggers: {
-				0: { triggerName: "manual-run", command: "run" },
-			},
-			cronTriggers: {
-				0: { triggerName: "demo-run", command: "run" },
-			},
-			evmLogTriggers: {
-				0: { triggerName: "poc-revealed", command: "verify" },
-			},
+			expect(result).toMatchObject({
+				healthy: true,
+				configPath,
+				httpTriggers: {
+					0: { triggerName: "manual-run", command: "run" },
+					1: { triggerName: "manual-verify", command: "verify" },
+				},
+				cronTriggers: {
+					0: { triggerName: "demo-run", command: "run" },
+				},
+				evmLogTriggers: {
+					0: { triggerName: "poc-revealed", command: "verify" },
+				},
+			})
 		})
 	})
 
@@ -158,7 +208,7 @@ describe("cre-simulator service", () => {
 		expect(existsSync(LEGACY_DEMO_OPERATOR_PATH)).toBe(false)
 
 		const scenario = (await Bun.file(
-			join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json"),
+			join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
 		).json()) as { stateFilePath: string }
 
 		expect(scenario.stateFilePath).toBe(

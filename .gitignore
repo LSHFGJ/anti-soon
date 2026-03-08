@@ -5,6 +5,7 @@ node_modules/
 dist/
 out/
 cache/
+artifacts/
 *.wasm
 
 # TypeScript build cache
@@ -15,6 +16,7 @@ node_modules/.tmp/
 .env
 .env.*
 !.env.example
+!backend/cre-simulator/.env.railway.example
 
 # Markdown (only README.md is committed)
 *.md

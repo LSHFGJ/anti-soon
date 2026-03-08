@@ -1,0 +1,6 @@
+{
+  "name": "cre-simulator-http",
+  "root": ".",
+  "startCommand": "cd backend/cre-simulator && HOST=0.0.0.0 PORT=$PORT bun run start:http",
+  "preflightCommand": "cd backend/cre-simulator && bun run preflight:http"
+}

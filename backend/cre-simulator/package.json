@@ -5,6 +5,12 @@
   "type": "module",
   "scripts": {
     "start": "bun ./src/index.ts",
+    "start:http": "bun ./src/index.ts",
+    "start:cron": "bun ./src/cron-worker.ts",
+    "start:evm-log": "bun ./src/evm-log-worker.ts",
+    "preflight:http": "bun ./src/deploy-preflight-cli.ts --mode http",
+    "preflight:cron": "bun ./src/deploy-preflight-cli.ts --mode cron",
+    "preflight:evm-log": "bun ./src/deploy-preflight-cli.ts --mode evm-log",
     "test": "bun test"
   }
 }

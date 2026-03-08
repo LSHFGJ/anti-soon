@@ -11,7 +11,7 @@ import {
 import { DEMO_OPERATOR_STATE_STORE_SCHEMA_VERSION } from "./stateStore"
 
 const REPO_ROOT = resolve(import.meta.dir, "../../../..")
-const SCENARIO_PATH = join(REPO_ROOT, "demo-data/operator/multi-fast-happy-path.json")
+const SCENARIO_PATH = join(REPO_ROOT, "backend/cre-simulator/default-scenario.json")
 const AUDITOR_ADDRESS = "0x1111111111111111111111111111111111111111"
 
 function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<void> {

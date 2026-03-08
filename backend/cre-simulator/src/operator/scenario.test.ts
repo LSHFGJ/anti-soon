@@ -9,7 +9,7 @@ import { loadScenarioFromFile, SCENARIO_SCHEMA_VERSION } from "./scenario"
 const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url))
 const checkedInScenarioPath = resolve(
   repoRoot,
-  "demo-data/operator/multi-fast-happy-path.json",
+  "backend/cre-simulator/default-scenario.json",
 )
 
 function buildValidScenarioRecord(): Record<string, unknown> {
@@ -158,7 +158,7 @@ describe("demo operator scenario contract", () => {
         ...buildValidScenarioRecord(),
         pocFixture: {
           ...((buildValidScenarioRecord().pocFixture as Record<string, unknown>)),
-          sourcePath: "demo-data/missing-poc.json",
+				sourcePath: "backend/missing-poc.json",
         },
       },
       (scenarioPath) => {

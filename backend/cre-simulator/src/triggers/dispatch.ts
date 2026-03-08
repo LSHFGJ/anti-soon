@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import type { EnvRecord } from "../operator/config"
 import { executeCreSimulatorCommand } from "../service"
 import type { CreSimulatorExecuteCommand } from "../types"
@@ -28,7 +30,7 @@ type ResolvedTrigger =
 	| { triggerType: "evm-log"; trigger: CreSimulatorEvmLogTriggerConfig }
 
 function resolvePathFromImportMeta(): string {
-	return new URL("../../..", import.meta.url).pathname
+	return resolve(import.meta.dir, "../../../..")
 }
 
 function ensureRepoScopedPath(repoRoot: string, rawPath: string, label: string): string {

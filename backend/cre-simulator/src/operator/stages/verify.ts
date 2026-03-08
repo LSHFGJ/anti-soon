@@ -10,6 +10,10 @@ import { dirname, join, resolve } from "node:path";
 
 import type { DemoOperatorConfig, EnvRecord } from "../config";
 import {
+	assertCreWorkflowSecretsAvailable,
+	prepareCreWorkflowExecution,
+} from "../creWorkflowRuntime";
+import {
 	BOUNTY_HUB_SUBMISSION_STATUS,
 	type AddressString,
 	type BountyHubAuditorStats,
@@ -481,6 +485,11 @@ function validateBroadcastPrerequisites(
 		requiredEnv(env, config.scenario.identities.auditor.addressEnvVar),
 		config.scenario.identities.auditor.addressEnvVar,
 	);
+	assertCreWorkflowSecretsAvailable({
+		repoRoot: config.repoRoot,
+		workflowPath: config.scenario.commandDefaults.verify.workflowPath,
+		env,
+	});
 }
 
 function parseJsonObject(raw: string, label: string): Record<string, unknown> {
@@ -667,11 +676,12 @@ function readVerifyWorkflowConfig(config: DemoOperatorConfig): VerifyWorkflowCon
 function buildVerifyCommand(
 	config: DemoOperatorConfig,
 	revealResult: { revealTxHash: HexString; revealEventIndex: number },
+	workflowPath: string = config.scenario.commandDefaults.verify.workflowPath,
 ): VerifyStageCommandSpec {
 	const args = [
 		"workflow",
 		"simulate",
-		config.scenario.commandDefaults.verify.workflowPath,
+		workflowPath,
 		"--target",
 		config.scenario.commandDefaults.creTarget,
 		"--non-interactive",
@@ -984,9 +994,25 @@ export async function runVerifyStage(args: {
 					env: args.env,
 					workflowConfig,
 				});
-		const commandSpec = buildVerifyCommand(args.config, revealResult);
+		const workflowRuntime = prepareCreWorkflowExecution({
+			repoRoot: args.config.repoRoot,
+			workflowPath: args.config.scenario.commandDefaults.verify.workflowPath,
+			env: args.env,
+		});
+		const displayCommandSpec = buildVerifyCommand(args.config, revealResult);
 		const commandRunner = args.deps?.runCommand ?? runLocalCommand;
-		const commandResult = await commandRunner(commandSpec);
+		const commandResult = await (async () => {
+			try {
+				const commandSpec = buildVerifyCommand(
+					args.config,
+					revealResult,
+					workflowRuntime.workflowPath,
+				);
+				return await commandRunner(commandSpec);
+			} finally {
+				workflowRuntime.cleanup();
+			}
+		})();
 		if (commandResult.exitCode !== 0) {
 			throw new Error(
 				`cre workflow simulate failed with exitCode=${commandResult.exitCode}: ${commandResult.stderr.trim() || commandResult.stdout.trim() || "no output"}`,
@@ -1029,7 +1055,7 @@ export async function runVerifyStage(args: {
 
 		const result: VerifyStageResult = {
 			submissionId: submissionId.toString(),
-			simulateCommand: [commandSpec.command, ...commandSpec.args],
+			simulateCommand: [displayCommandSpec.command, ...displayCommandSpec.args],
 			outputPath: join(args.config.evidenceDir, "output.txt"),
 			resultPath: join(args.config.evidenceDir, "verify-result.json"),
 			terminalSubmission,
@@ -1050,7 +1076,7 @@ export async function runVerifyStage(args: {
 		persistVerifyResult(args.config.stateFilePath, result);
 		writeVerifyEvidenceFiles({
 			config: args.config,
-			commandSpec,
+			commandSpec: displayCommandSpec,
 			commandResult,
 			verifyResult: result,
 		});

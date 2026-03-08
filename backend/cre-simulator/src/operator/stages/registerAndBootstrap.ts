@@ -10,6 +10,10 @@ import { dirname, join, resolve } from "node:path"
 
 import type { DemoOperatorConfig, EnvRecord } from "../config"
 import {
+	assertCreWorkflowSecretsAvailable,
+	prepareCreWorkflowExecution,
+} from "../creWorkflowRuntime"
+import {
   buildReadProjectRequest,
   buildRegisterProjectV2Request,
   extractRegistrationWorkflowTrigger,
@@ -36,8 +40,6 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 const VNET_STATUS_ACTIVE = 2
 const REGISTER_TRIGGER_INDEX = 0
-const TENDERLY_SECRET_NAME = "TENDERLY_API_KEY"
-
 const PROJECT_REGISTERED_V2_EVENT_ABI = {
   anonymous: false,
   type: "event",
@@ -289,7 +291,7 @@ function validateBroadcastPrerequisites(
   config: DemoOperatorConfig,
   env: EnvRecord,
 ): RegisterAndBootstrapPrerequisites {
-  const workflowFixtures = readWorkflowFixtureText(config)
+	const workflowFixtures = readWorkflowFixtureText(config)
 
   if (config.scenario.commandDefaults.creTarget !== "staging-settings") {
     throw new Error(
@@ -364,18 +366,11 @@ function validateBroadcastPrerequisites(
     )
   }
 
-  if (!existsSync(workflowFixtures.secretsPath)) {
-    throw new Error(
-      `Missing broadcast prerequisite: ${workflowFixtures.workflowPath} target ${config.scenario.commandDefaults.creTarget} requires ../../secrets.yaml`,
-    )
-  }
-
-  const secretsYaml = readFileSync(workflowFixtures.secretsPath, "utf8")
-  if (!secretsYaml.includes(`${TENDERLY_SECRET_NAME}:`)) {
-    throw new Error(
-      `Missing broadcast prerequisite: ${workflowFixtures.workflowPath} target ${config.scenario.commandDefaults.creTarget} requires ${TENDERLY_SECRET_NAME} in ../../secrets.yaml`,
-    )
-  }
+	assertCreWorkflowSecretsAvailable({
+		repoRoot: config.repoRoot,
+		workflowPath: workflowFixtures.workflowPath,
+		env,
+	})
 
   return {
     publicRpcUrl,
@@ -418,13 +413,14 @@ function buildRegisterProjectInput(
 }
 
 function buildSimulateCommand(
-  config: DemoOperatorConfig,
-  trigger: RegistrationWorkflowTrigger,
+	config: DemoOperatorConfig,
+	trigger: RegistrationWorkflowTrigger,
+	workflowPath: string = config.scenario.commandDefaults.register.workflowPath,
 ): SimulateCommandSpec {
-  const args = [
-    "workflow",
-    "simulate",
-    config.scenario.commandDefaults.register.workflowPath,
+	const args = [
+		"workflow",
+		"simulate",
+		workflowPath,
     "--target",
     config.scenario.commandDefaults.creTarget,
     "--non-interactive",
@@ -609,7 +605,7 @@ function normalizeRegistrationReceipt(receipt: unknown): BountyHubReceipt {
     ),
     logs: logs
       .map((log) => {
-        try {
+	try {
           return decodeProjectRegisteredEvent(log)
         } catch {
           return null
@@ -803,14 +799,30 @@ export async function registerAndBootstrap(
           config: args.config,
           prerequisites,
         })
-    const simulateRunner = args.deps?.runCommand ?? runLocalCommand
-    const registerInput = buildRegisterProjectInput(args.config, nowMs)
-    const trigger = await client.registerProjectV2(registerInput)
-    const simulateSpec = buildSimulateCommand(args.config, trigger)
-    const simulateResult = await simulateRunner(simulateSpec)
+		const simulateRunner = args.deps?.runCommand ?? runLocalCommand
+		const registerInput = buildRegisterProjectInput(args.config, nowMs)
+		const trigger = await client.registerProjectV2(registerInput)
+		const workflowRuntime = prepareCreWorkflowExecution({
+			repoRoot: args.config.repoRoot,
+			workflowPath: args.config.scenario.commandDefaults.register.workflowPath,
+			env: args.env,
+		})
+		const displaySimulateSpec = buildSimulateCommand(args.config, trigger)
+		const simulateResult = await (async () => {
+			try {
+				const simulateSpec = buildSimulateCommand(
+					args.config,
+					trigger,
+					workflowRuntime.workflowPath,
+				)
+				return await simulateRunner(simulateSpec)
+			} finally {
+				workflowRuntime.cleanup()
+			}
+		})()
 
-    if (simulateResult.exitCode !== 0) {
-      throw new Error(
+		if (simulateResult.exitCode !== 0) {
+			throw new Error(
         `cre workflow simulate failed with exitCode=${simulateResult.exitCode}: ${simulateResult.stderr.trim() || simulateResult.stdout.trim() || "no output"}`,
       )
     }
@@ -818,14 +830,14 @@ export async function registerAndBootstrap(
     const project = await client.readProject(trigger.projectId)
     assertVnetActivated(project, trigger.projectId)
 
-    const result: RegisterAndBootstrapResult = {
-      projectId: trigger.projectId.toString(),
-      registrationTxHash: trigger.txHash,
-      registrationEventIndex: trigger.eventIndex,
-      simulateCommand: [simulateSpec.command, ...simulateSpec.args],
-      vnetStatus: project.vnetStatus,
-      vnetRpcUrl: project.vnetRpcUrl,
-    }
+		const result: RegisterAndBootstrapResult = {
+			projectId: trigger.projectId.toString(),
+			registrationTxHash: trigger.txHash,
+			registrationEventIndex: trigger.eventIndex,
+			simulateCommand: [displaySimulateSpec.command, ...displaySimulateSpec.args],
+			vnetStatus: project.vnetStatus,
+			vnetRpcUrl: project.vnetRpcUrl,
+		}
 
     markDurableDemoOperatorStageCompleted(store, "register", nowMs)
     persistRegisterResult(args.config.stateFilePath, result)

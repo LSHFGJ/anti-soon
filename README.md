@@ -81,6 +81,34 @@ The package now also includes separate worker-style entrypoints for the other CR
 
 That split is intentional: WebSocket listening is kept in the EVM-log worker only, while HTTP and CRON continue to adapt into the same backend execution core.
 
+For a full staging demo on Railway, deploy `backend/cre-simulator` as three processes that share the same working tree and runtime env:
+
+- HTTP service: `HOST=0.0.0.0 PORT=$PORT bun run start:http`
+- CRON worker: `bun run start:cron -- --once` for smoke checks, then `bun run start:cron`
+- EVM-log worker: `bun run start:evm-log`
+
+Minimum runtime env for a full `run` demo includes:
+
+- `DEMO_OPERATOR_PUBLIC_RPC_URL`
+- `DEMO_OPERATOR_ADMIN_RPC_URL`
+- `DEMO_PROJECT_OWNER_ADDRESS`
+- `DEMO_PROJECT_OWNER_PRIVATE_KEY`
+- `DEMO_OPERATOR_ADDRESS`
+- `DEMO_OPERATOR_PRIVATE_KEY`
+- `DEMO_AUDITOR_ADDRESS`
+- `DEMO_AUDITOR_PRIVATE_KEY`
+- `CRE_ETH_PRIVATE_KEY`
+
+Additional deployment env depends on your PoC upload and trigger mode:
+
+- `TENDERLY_API_KEY` for generated workflow secrets during Railway-style deploys
+- `VITE_OASIS_STORAGE_CONTRACT` for direct Sapphire writes, or `DEMO_OPERATOR_OASIS_UPLOAD_API_URL` / `VITE_OASIS_UPLOAD_API_URL` for upload-API mode
+- `DEMO_OPERATOR_WS_RPC_URL` when running the EVM-log worker
+
+The HTTP server now honors `HOST` and `PORT` env defaults, and the workflow-simulate stages can generate a runtime `secrets.yaml` from `TENDERLY_API_KEY` instead of requiring a hand-managed repo-root secret file during deploy.
+
+Deployment templates and a Railway-specific runbook now live under `backend/cre-simulator/railway/`, and the env template lives at `backend/cre-simulator/.env.railway.example`.
+
 Once the app is running, the best first route depends on your job right now:
 
 - Researcher looking for a target: open `/explorer`.
