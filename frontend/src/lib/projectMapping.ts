@@ -12,6 +12,8 @@ export interface ProjectV4OnChain {
   commitDeadline: bigint
   revealDeadline: bigint
   disputeWindow: bigint
+  juryWindow: bigint
+  adjudicationWindow: bigint
   rulesHash: `0x${string}`
   vnetStatus: number
   vnetRpcUrl: string
@@ -33,6 +35,8 @@ export function mapProjectTupleV4(projectId: bigint, data: ProjectV4OnChain): Pr
     commitDeadline: data.commitDeadline,
     revealDeadline: data.revealDeadline,
     disputeWindow: data.disputeWindow,
+    juryWindow: data.juryWindow,
+    adjudicationWindow: data.adjudicationWindow,
     rulesHash: data.rulesHash,
     vnetStatus: data.vnetStatus,
     vnetRpcUrl: data.vnetRpcUrl,

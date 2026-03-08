@@ -44,6 +44,8 @@ export interface Project {
   commitDeadline: bigint
   revealDeadline: bigint
   disputeWindow: bigint
+  juryWindow: bigint
+  adjudicationWindow: bigint
   rulesHash: `0x${string}`
   vnetStatus: number
   vnetRpcUrl: string

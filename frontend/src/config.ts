@@ -88,6 +88,8 @@ export const BOUNTY_HUB_PROJECTS_V4_ABI = [
 					{ name: "commitDeadline", type: "uint256" },
 					{ name: "revealDeadline", type: "uint256" },
 					{ name: "disputeWindow", type: "uint256" },
+					{ name: "juryWindow", type: "uint256" },
+					{ name: "adjudicationWindow", type: "uint256" },
 					{ name: "rulesHash", type: "bytes32" },
 					{ name: "vnetStatus", type: "uint8" },
 					{ name: "vnetRpcUrl", type: "string" },
