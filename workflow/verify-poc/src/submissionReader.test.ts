@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
-import { encodeAbiParameters, parseAbiParameters } from "viem"
+import { encodeAbiParameters, hexToBytes, parseAbiParameters } from "viem"
 import {
+  decodeSubmissionReadBytes,
   UNSUPPORTED_SUBMISSION_LAYOUT_ERROR,
   decodeSubmissionReadResult,
   encodeSubmissionReadCall,
@@ -50,6 +51,35 @@ describe("submissionReader", () => {
     expect(record.status).toBe(2)
     expect(record.drainAmountWei).toBe(7n)
     expect(record.challenged).toBe(false)
+  })
+
+  it("decodes submission call bytes from EVMClient data without dropping cipherURI", () => {
+    const encoded = encodeAbiParameters(
+      aclSubmissionReadParams,
+      [
+        "0x1111111111111111111111111111111111111111",
+        9n,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "oasis://oasis-sapphire-testnet/0x2222222222222222222222222222222222222222/slot-1#0xbb",
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        100n,
+        101n,
+        2,
+        7n,
+        1,
+        3n,
+        999n,
+        false,
+        "0x3333333333333333333333333333333333333333",
+        0n,
+      ]
+    )
+
+    const record = decodeSubmissionReadBytes(hexToBytes(encoded))
+    expect(record.projectId).toBe(9n)
+    expect(record.cipherURI).toBe(
+      "oasis://oasis-sapphire-testnet/0x2222222222222222222222222222222222222222/slot-1#0xbb",
+    )
   })
 
   it("rejects non-ACL tuple layouts with deterministic error", () => {

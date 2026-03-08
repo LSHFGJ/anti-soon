@@ -4,6 +4,7 @@ import {
   decodeTypedReportEnvelope,
   encodeVnetFailedTypedReport,
   encodeVnetSuccessTypedReport,
+  parseTenderlyVnetEntries,
   parseConfig,
 } from "./main"
 
@@ -80,5 +81,29 @@ describe("vnet-init config validation", () => {
         owner: "not-an-address",
       }),
     ).toThrow("owner must be a non-zero EVM address")
+  })
+})
+
+describe("vnet-init Tenderly VNet parsing", () => {
+  it("accepts top-level array responses from the Tenderly VNet API", () => {
+    const entries = parseTenderlyVnetEntries([
+      {
+        slug: "antisoon-project-0",
+        rpcs: [{ name: "Admin RPC", url: "https://virtual.sepolia.example/admin" }],
+      },
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.slug).toBe("antisoon-project-0")
+  })
+})
+
+describe("vnet-init workflow entrypoint", () => {
+  it("uses a CRE-safe wrapper entrypoint", async () => {
+    const workflowYaml = await Bun.file(
+      new URL("./workflow.yaml", import.meta.url),
+    ).text()
+
+    expect(workflowYaml).toContain('workflow-path: "./entrypoint.ts"')
   })
 })

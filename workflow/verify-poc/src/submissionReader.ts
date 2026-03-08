@@ -1,4 +1,11 @@
-import { decodeAbiParameters, encodeAbiParameters, keccak256, parseAbiParameters, toBytes } from "viem"
+import {
+  bytesToHex,
+  decodeAbiParameters,
+  encodeAbiParameters,
+  keccak256,
+  parseAbiParameters,
+  toBytes,
+} from "viem"
 
 const aclSubmissionReadParams = parseAbiParameters(
   "address auditor, uint256 projectId, bytes32 commitHash, string cipherURI, bytes32 salt, uint256 commitTimestamp, uint256 revealTimestamp, uint8 status, uint256 drainAmountWei, uint8 severity, uint256 payoutAmount, uint256 disputeDeadline, bool challenged, address challenger, uint256 challengeBond"
@@ -86,4 +93,8 @@ export function decodeSubmissionReadResult(rawHexResult: string): ChainSubmissio
     const reason = error instanceof Error ? error.message : String(error)
     throw new Error(`${INVALID_SUBMISSION_PAYLOAD_ERROR}: ${reason}`)
   }
+}
+
+export function decodeSubmissionReadBytes(rawBytes: Uint8Array): ChainSubmissionRecord {
+  return decodeSubmissionReadResult(bytesToHex(rawBytes))
 }

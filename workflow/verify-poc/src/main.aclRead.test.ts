@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test"
 import { encodeFunctionResult, parseAbi } from "viem"
-import { buildAuthorizedReadCallParams, decodeAuthorizedReadCaller } from "../main"
+import {
+  buildAuthorizedReadCallParams,
+  decodeAuthorizedReadCaller,
+  hasMatchingOasisReadSigner,
+} from "../main"
 
 const oasisPoCStoreAbi = parseAbi([
   "function readMeta(string slotId) view returns (address writer, uint256 storedAt)",
@@ -45,5 +49,15 @@ describe("verify-poc ACL read caller enforcement", () => {
       })
     )
     expect(params[1]).toBe("latest")
+  })
+
+  it("detects when the configured SIWE signer already matches the stored writer", () => {
+    expect(
+      hasMatchingOasisReadSigner({
+        authorizedCaller: "0x3eae25eac885aD094f16C846B4cbb60BA67FC549",
+        oasisReadPrivateKey:
+          "0x59c6995e998f97a5a0044966f0945382dbb4d5b2f2f8c5b7c82f38a9f89f5b5d",
+      }),
+    ).toBe(true)
   })
 })

@@ -49,6 +49,8 @@ type SeededFixture = {
   submissionId: bigint
   cipherURI: string
   severity: number
+  juryWindow: bigint
+  adjudicationWindow: bigint
   commitTimestampSec: bigint
   revealTimestampSec: bigint
   envelopeHash: `0x${string}`
@@ -96,6 +98,8 @@ function makeFixture(overrides?: Partial<SeededFixture>): SeededFixture {
     cipherURI:
       "oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-17#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     severity: 3,
+    juryWindow: 3600n,
+    adjudicationWindow: 3600n,
     commitTimestampSec: 1700000000n,
     revealTimestampSec: 1700000060n,
     envelopeHash: hex32("a"),
@@ -257,6 +261,8 @@ function processRevealedEvent(
         projectId: bigint
         cipherURI: string
         severity: number
+        juryWindow: bigint
+        adjudicationWindow: bigint
         commitTimestampSec: bigint
         revealTimestampSec: bigint
         syncId: `0x${string}`
@@ -287,6 +293,8 @@ function processRevealedEvent(
       projectId: fixture.projectId,
       cipherURI: fixture.cipherURI,
       severity: fixture.severity,
+      juryWindow: fixture.juryWindow,
+      adjudicationWindow: fixture.adjudicationWindow,
       commitTimestampSec: fixture.commitTimestampSec,
       revealTimestampSec: fixture.revealTimestampSec,
       syncId,

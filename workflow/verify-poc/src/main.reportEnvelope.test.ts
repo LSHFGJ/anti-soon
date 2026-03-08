@@ -8,6 +8,12 @@ import {
   type VerifyPocTypedReportEnvelope,
 } from "../main"
 
+declare const Bun: {
+  file(path: URL | string): {
+    text(): Promise<string>
+  }
+}
+
 const verifyPocResultParams = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei"
 )
@@ -517,5 +523,15 @@ describe("verify-poc report encoding", () => {
     expect(decoded.payload.submissionId).toBe(submissionId)
     expect(decoded.payload.isValid).toBe(false)
     expect(decoded.payload.drainAmountWei).toBe(0n)
+  })
+})
+
+describe("verify-poc workflow entrypoint", () => {
+  it("uses a CRE-safe wrapper entrypoint", async () => {
+    const workflowYaml = await Bun.file(
+      new URL("../workflow.yaml", import.meta.url),
+    ).text()
+
+    expect(workflowYaml).toContain('workflow-path: "./entrypoint.ts"')
   })
 })

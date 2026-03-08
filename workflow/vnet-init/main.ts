@@ -180,7 +180,11 @@ function resolveAdminRpcUrl(rpcs: TenderlyRpcEntry[], fallback?: string): string
   return preferredUrl ?? firstUrl ?? fallbackUrl
 }
 
-function parseTenderlyVnetEntries(payload: unknown): TenderlyVnetEntry[] {
+export function parseTenderlyVnetEntries(payload: unknown): TenderlyVnetEntry[] {
+  if (Array.isArray(payload)) {
+    return payload as TenderlyVnetEntry[]
+  }
+
   if (!payload || typeof payload !== "object") {
     return []
   }

@@ -35,11 +35,40 @@ type VerifyPocIdempotencyStoreFile = {
 
 export type VerifyPocIdempotencyStore = {
   filePath: string
+  fileOps: VerifyPocIdempotencyStoreFileOps
   syncStatusBySyncId: Map<string, VerifyPocIdempotencyStatus>
   syncStatusUpdatedAtMsBySyncId: Map<string, number>
   sourceEventMappingByFingerprint: Map<string, VerifyPocIdempotencyMappingState>
   sourceEventMappingUpdatedAtMsByFingerprint: Map<string, number>
   recoveredProcessingCount: number
+}
+
+export type VerifyPocIdempotencyStoreFileOps = {
+  existsSync?: typeof existsSync
+  mkdirSync?: typeof mkdirSync
+  readFileSync?: typeof readFileSync
+  renameSync?: typeof renameSync
+  writeFileSync?: typeof writeFileSync
+}
+
+const defaultFileOps: VerifyPocIdempotencyStoreFileOps = {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+}
+
+function hasUsableFileOps(
+  fileOps: VerifyPocIdempotencyStoreFileOps,
+): fileOps is Required<VerifyPocIdempotencyStoreFileOps> {
+  return (
+    typeof fileOps.existsSync === "function" &&
+    typeof fileOps.mkdirSync === "function" &&
+    typeof fileOps.readFileSync === "function" &&
+    typeof fileOps.renameSync === "function" &&
+    typeof fileOps.writeFileSync === "function"
+  )
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -50,14 +79,21 @@ function toSortedEntries<T>(map: Map<string, T>): Array<[string, T]> {
   return [...map.entries()].sort(([left], [right]) => left.localeCompare(right))
 }
 
-function ensureParentDirectory(filePath: string): void {
+function ensureParentDirectory(
+  filePath: string,
+  fileOps: Required<VerifyPocIdempotencyStoreFileOps>,
+): void {
   const parent = dirname(filePath)
   if (parent.length > 0 && parent !== ".") {
-    mkdirSync(parent, { recursive: true })
+    fileOps.mkdirSync(parent, { recursive: true })
   }
 }
 
 function persistVerifyPocIdempotencyStore(store: VerifyPocIdempotencyStore): void {
+  if (!hasUsableFileOps(store.fileOps)) {
+    return
+  }
+
   const syncStatusBySyncId: Record<string, VerifyPocPersistedSyncRecord> = {}
   for (const [syncId, status] of toSortedEntries(store.syncStatusBySyncId)) {
     syncStatusBySyncId[syncId] = {
@@ -86,14 +122,17 @@ function persistVerifyPocIdempotencyStore(store: VerifyPocIdempotencyStore): voi
     sourceEventMappingByFingerprint,
   }
 
-  ensureParentDirectory(store.filePath)
+  ensureParentDirectory(store.filePath, store.fileOps)
   const tempPath = `${store.filePath}.tmp`
-  writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8")
-  renameSync(tempPath, store.filePath)
+  store.fileOps.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8")
+  store.fileOps.renameSync(tempPath, store.filePath)
 }
 
-function parsePersistedStore(filePath: string): VerifyPocIdempotencyStoreFile {
-  const raw = readFileSync(filePath, "utf8")
+function parsePersistedStore(
+  filePath: string,
+  fileOps: Required<VerifyPocIdempotencyStoreFileOps>,
+): VerifyPocIdempotencyStoreFile {
+  const raw = fileOps.readFileSync(filePath, "utf8")
   const parsed = JSON.parse(raw) as unknown
   if (!isObject(parsed)) {
     throw new Error("Invalid verify-poc idempotency store payload")
@@ -115,9 +154,13 @@ function parsePersistedStore(filePath: string): VerifyPocIdempotencyStoreFile {
   return parsed as VerifyPocIdempotencyStoreFile
 }
 
-function buildEmptyStore(filePath: string): VerifyPocIdempotencyStore {
+function buildEmptyStore(
+  filePath: string,
+  fileOps: VerifyPocIdempotencyStoreFileOps,
+): VerifyPocIdempotencyStore {
   return {
     filePath,
+    fileOps,
     syncStatusBySyncId: new Map<string, VerifyPocIdempotencyStatus>(),
     syncStatusUpdatedAtMsBySyncId: new Map<string, number>(),
     sourceEventMappingByFingerprint: new Map<
@@ -132,15 +175,20 @@ function buildEmptyStore(filePath: string): VerifyPocIdempotencyStore {
 export function loadVerifyPocIdempotencyStore(
   filePath: string,
   nowMs: number = Date.now(),
+  fileOps: VerifyPocIdempotencyStoreFileOps = defaultFileOps,
 ): VerifyPocIdempotencyStore {
-  const store = buildEmptyStore(filePath)
+  const store = buildEmptyStore(filePath, fileOps)
 
-  if (!existsSync(filePath)) {
+  if (!hasUsableFileOps(fileOps)) {
+    return store
+  }
+
+  if (!fileOps.existsSync(filePath)) {
     persistVerifyPocIdempotencyStore(store)
     return store
   }
 
-  const persisted = parsePersistedStore(filePath)
+  const persisted = parsePersistedStore(filePath, fileOps)
   let recoveredProcessingCount = 0
   const recoveredSyncIds = new Set<string>()
 
@@ -210,8 +258,13 @@ export function loadVerifyPocIdempotencyStore(
 
 export function readVerifyPocIdempotencyStoreFile(
   filePath: string,
+  fileOps: VerifyPocIdempotencyStoreFileOps = defaultFileOps,
 ): VerifyPocIdempotencyStoreFile {
-  return parsePersistedStore(filePath)
+  if (!hasUsableFileOps(fileOps)) {
+    throw new Error("File-backed idempotency store is unavailable")
+  }
+
+  return parsePersistedStore(filePath, fileOps)
 }
 
 export function assertDurableVerifyPocIdempotencyMappingStable(

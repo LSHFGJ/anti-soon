@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "anti-soon.verify-poc.idempotency-store.v1",
+  "syncStatusBySyncId": {
+    "0x0e060fac13ba4d3a92b0f9f4f10de268cfdaaef18039147e03703e2f31e42db1": {
+      "status": "completed",
+      "updatedAtMs": 130
+    }
+  },
+  "sourceEventMappingByFingerprint": {
+    "0x8fd002d3c90cfd5feaa7178c3fdbbef7a5f8137e9d0ebf2f94f9c1eeef4113f6": {
+      "mappingFingerprint": "0xb33c3abf0b5f9f6f6aef995a28f509af3c277a873dfc90d0c4bed0a577914e13",
+      "idempotencyKey": "0x9629551ea5a22c917ae981b5b882339a2b217d9a3701ab6d6945cea847a32e99",
+      "updatedAtMs": 110
+    }
+  }
+}

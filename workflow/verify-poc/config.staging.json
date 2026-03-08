@@ -4,6 +4,7 @@
   "gasLimit": "800000",
   "tenderlyAccountSlug": "LSHFGJ",
   "tenderlyProjectSlug": "anti-soon",
+  "oasisSiweDomain": "localhost:5173",
   "oasisRpcUrl": "https://testnet.sapphire.oasis.io",
   "oasisRpcFallbackUrls": [],
   "sepoliaRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",

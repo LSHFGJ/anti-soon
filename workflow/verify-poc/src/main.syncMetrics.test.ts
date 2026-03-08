@@ -78,6 +78,13 @@ describe("verify-poc sync metrics", () => {
     )
     expect(fallbackBinding).toBe(SYNC_REASON_BINDING_MISMATCH)
 
+    const callLimitRetry = classifyVerifyPocSyncReasonCode(
+      new Error(
+        "PerWorkflow.HTTPAction.CallLimit limited for workflow[1111]: cannot use 6, limit is 5",
+      ),
+    )
+    expect(callLimitRetry).toBe(SYNC_REASON_RETRYABLE_RPC)
+
     const event = buildVerifyPocSyncMetricEvent({
       syncId: "0xdef",
       transition: "RPC_READ_FAILED",

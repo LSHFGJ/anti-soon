@@ -1,16 +1,18 @@
 import {
   bytesToHex,
   consensusIdenticalAggregation,
+  encodeCallMsg,
   EVMClient,
   getNetwork,
   handler,
   hexToBase64,
   HTTPClient,
+  LATEST_BLOCK_NUMBER,
   Runner,
   TxStatus,
   type EVMLog,
-  type Runtime,
   type NodeRuntime,
+  type Runtime,
 } from "@chainlink/cre-sdk"
 import {
   decodeAbiParameters,
@@ -22,6 +24,8 @@ import {
   parseAbiParameters,
   toBytes,
 } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { generateSiweNonce } from "viem/siwe"
 import { z } from "zod"
 import { encodeJsonBodyBase64 } from "./src/httpBody"
 import {
@@ -50,6 +54,13 @@ import {
   validateOasisRpcPayload,
 } from "./src/oasisRpcRead"
 import {
+  OASIS_READ_PRIVATE_KEY_SECRET_ID,
+  SAPPHIRE_SIWE_TTL_MS,
+  buildSapphireSiweMessage,
+  resolveOasisReadPrivateKey,
+  signSapphireSiweMessage,
+} from "./src/oasisSiwe"
+import {
   reconcileVerifyPocOrphans,
   type VerifyPocReconciliationAction,
   type VerifyPocReconciliationRecord,
@@ -62,7 +73,7 @@ import {
   type RpcReadRetryPolicy,
 } from "./src/rpcReadRetry"
 import {
-  decodeSubmissionReadResult,
+  decodeSubmissionReadBytes,
   encodeSubmissionReadCall,
   type ChainSubmissionRecord,
 } from "./src/submissionReader"
@@ -82,6 +93,7 @@ const configSchema = z.object({
   gasLimit: z.string(),
   tenderlyAccountSlug: z.string(),
   tenderlyProjectSlug: z.string(),
+  oasisSiweDomain: z.string().optional(),
   oasisRpcUrl: z.string().optional(),
   oasisRpcFallbackUrls: z.array(z.string()).default([]),
   sepoliaRpcUrl: z.string().optional(),
@@ -113,6 +125,18 @@ type VerificationResult = {
   drainAmountWei: bigint
   reasonCode?: VerifyPocSyncReasonCode
   sapphireWriteTimestampSec?: bigint
+}
+
+function buildVerificationResult(args: VerificationResult): VerificationResult {
+  if (args.sapphireWriteTimestampSec === undefined) {
+    return {
+      isValid: args.isValid,
+      drainAmountWei: args.drainAmountWei,
+      reasonCode: args.reasonCode,
+    }
+  }
+
+  return args
 }
 
 export const SYNC_REASON_RETRYABLE_RPC = "RETRYABLE_RPC" as const
@@ -275,6 +299,8 @@ export function classifyVerifyPocSyncReasonCode(
     normalized.includes("timeout") ||
     normalized.includes("temporarily unavailable") ||
     normalized.includes("upstream busy") ||
+    normalized.includes("calllimit") ||
+    normalized.includes("httpaction.calllimit") ||
     normalized.includes("network")
   ) {
     return SYNC_REASON_RETRYABLE_RPC
@@ -347,6 +373,119 @@ type PoCData = {
     type: string
     estimatedLoss: string
     description: string
+  }
+}
+
+const FRONTEND_POC_VERSION = "anti-soon.frontend-poc.v1" as const
+const POC_CHAIN_NAME_TO_ID = {
+  ethereum: 1,
+  mainnet: 1,
+  sepolia: 11155111,
+} as const
+
+function normalizePoCChainId(chain: unknown): number | undefined {
+  if (typeof chain === "number" && Number.isInteger(chain) && chain >= 0) {
+    return chain
+  }
+
+  if (typeof chain !== "string") {
+    return undefined
+  }
+
+  const normalized = chain.trim().toLowerCase()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return Number(normalized)
+  }
+
+  return POC_CHAIN_NAME_TO_ID[normalized as keyof typeof POC_CHAIN_NAME_TO_ID]
+}
+
+function normalizeFrontendPoCData(value: Record<string, unknown>): PoCData | undefined {
+  const chainId = normalizePoCChainId(value.chain)
+  const forkBlock = value.forkBlock
+  const target = value.target
+  const conditions = value.conditions
+  const transactions = value.transactions
+  const impact = value.impact
+
+  if (
+    typeof target !== "string" ||
+    typeof forkBlock !== "number" ||
+    !Number.isInteger(forkBlock) ||
+    chainId === undefined ||
+    !Array.isArray(conditions) ||
+    !Array.isArray(transactions) ||
+    typeof impact !== "object" ||
+    impact === null
+  ) {
+    return undefined
+  }
+
+  const normalizedSetup = conditions.map(condition => {
+    if (typeof condition !== "object" || condition === null) {
+      throw new Error("PoC condition must be an object")
+    }
+
+    const candidate = condition as Record<string, unknown>
+    if (typeof candidate.type !== "string" || typeof candidate.value !== "string") {
+      throw new Error("PoC condition shape is invalid")
+    }
+
+    return {
+      type: candidate.type,
+      address: typeof candidate.target === "string" ? candidate.target : undefined,
+      value: candidate.value,
+    }
+  })
+
+  const normalizedTransactions = transactions.map(transaction => {
+    if (typeof transaction !== "object" || transaction === null) {
+      throw new Error("PoC transaction must be an object")
+    }
+
+    const candidate = transaction as Record<string, unknown>
+    if (
+      typeof candidate.to !== "string" ||
+      typeof candidate.data !== "string" ||
+      typeof candidate.value !== "string"
+    ) {
+      throw new Error("PoC transaction shape is invalid")
+    }
+
+    return {
+      to: candidate.to,
+      data: candidate.data,
+      value: candidate.value,
+    }
+  })
+
+  const impactRecord = impact as Record<string, unknown>
+  if (
+    typeof impactRecord.type !== "string" ||
+    typeof impactRecord.estimatedLoss !== "string" ||
+    typeof impactRecord.description !== "string"
+  ) {
+    throw new Error("PoC impact shape is invalid")
+  }
+
+  return {
+    version: FRONTEND_POC_VERSION,
+    target: {
+      contract: target,
+      chain: chainId,
+      forkBlock,
+    },
+    setup: normalizedSetup,
+    transactions: normalizedTransactions,
+    expectedImpact: {
+      type: impactRecord.type,
+      estimatedLoss: impactRecord.estimatedLoss,
+      description: impactRecord.description,
+    },
   }
 }
 
@@ -1851,7 +1990,6 @@ const VERIFY_POC_IDEMPOTENCY_STORE_PATH_ENV =
   "VERIFY_POC_IDEMPOTENCY_STORE_PATH"
 const DEFAULT_VERIFY_POC_IDEMPOTENCY_STORE_PATH =
   ".verify-poc-idempotency-store.json"
-const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 let verifyPocIdempotencyStore: VerifyPocIdempotencyStore | undefined
 
 const ProjectStructAbi = parseAbiParameters(
@@ -1866,6 +2004,11 @@ const OasisPoCStoreReadAbi = parseAbi([
   "function read(string slotId) view returns (string payload)",
   "function readMeta(string slotId) view returns (address writer, uint256 storedAt)",
 ])
+const OasisPoCStoreSiweAbi = parseAbi([
+  "function domain() view returns (string)",
+  "function login(string siweMsg, (bytes32 r, bytes32 s, uint256 v) sig) view returns (bytes token)",
+  "function read(string slotId, bytes token) view returns (string payload)",
+])
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
@@ -1876,12 +2019,36 @@ type AuthorizedReadMeta = {
 
 type OasisStoredPayload = {
   payload: unknown
-  sapphireWriteTimestampSec: bigint
+  sapphireWriteTimestampSec?: bigint
 }
 
 type OasisReadResult = {
   poc: PoCData
-  sapphireWriteTimestampSec: bigint
+  sapphireWriteTimestampSec?: bigint
+}
+
+export function decodeOasisSiweDomainResult(result: `0x${string}`): string {
+  return decodeFunctionResult({
+    abi: OasisPoCStoreSiweAbi,
+    functionName: "domain",
+    data: result,
+  })
+}
+
+export function decodeOasisSiweLoginToken(result: `0x${string}`): `0x${string}` {
+  return decodeFunctionResult({
+    abi: OasisPoCStoreSiweAbi,
+    functionName: "login",
+    data: result,
+  }) as `0x${string}`
+}
+
+export function decodeOasisStoredPayloadJson(result: `0x${string}`): string {
+  return decodeFunctionResult({
+    abi: OasisPoCStoreReadAbi,
+    functionName: "read",
+    data: result,
+  })
 }
 
 export function decodeAuthorizedReadMeta(
@@ -1906,6 +2073,20 @@ export function decodeAuthorizedReadMeta(
 
 export function decodeAuthorizedReadCaller(metaResult: `0x${string}`): `0x${string}` {
   return decodeAuthorizedReadMeta(metaResult).authorizedCaller
+}
+
+export function hasMatchingOasisReadSigner(args: {
+  authorizedCaller: `0x${string}`
+  oasisReadPrivateKey?: `0x${string}`
+}): boolean {
+  if (!args.oasisReadPrivateKey) {
+    return false
+  }
+
+  return (
+    privateKeyToAccount(args.oasisReadPrivateKey).address.toLowerCase()
+    === args.authorizedCaller.toLowerCase()
+  )
 }
 
 export function buildAuthorizedReadCallParams(
@@ -1975,6 +2156,18 @@ function readProcessEnv(name: string): string | undefined {
   return runtimeGlobal.process?.env?.[name]
 }
 
+function readProcessEnvRecord(): Record<string, string | undefined> {
+  const runtimeGlobal = globalThis as {
+    process?: { env?: Record<string, string | undefined> }
+  }
+  return runtimeGlobal.process?.env ?? {}
+}
+
+function isOasisUnauthorizedReadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes("not authorized")
+}
+
 function getVerifyPocIdempotencyStore(
   runtime: Runtime<Config>,
 ): VerifyPocIdempotencyStore {
@@ -1995,10 +2188,10 @@ function getVerifyPocIdempotencyStore(
   return verifyPocIdempotencyStore
 }
 
-function encodeProjectCall(projectId: bigint): string {
+function encodeProjectCall(projectId: bigint): `0x${string}` {
   const selector = keccak256(toBytes("projects(uint256)")).slice(0, 10)
   const encodedId = encodeAbiParameters(parseAbiParameters("uint256"), [projectId])
-  return selector + encodedId.slice(2)
+  return `${selector}${encodedId.slice(2)}` as `0x${string}`
 }
 
 function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
@@ -2011,10 +2204,10 @@ function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
   }
 }
 
-function encodeProjectAdjudicationWindowsCall(projectId: bigint): string {
+function encodeProjectAdjudicationWindowsCall(projectId: bigint): `0x${string}` {
   const selector = keccak256(toBytes("getProjectAdjudicationWindows(uint256)")).slice(0, 10)
   const encodedId = encodeAbiParameters(parseAbiParameters("uint256"), [projectId])
-  return selector + encodedId.slice(2)
+  return `${selector}${encodedId.slice(2)}` as `0x${string}`
 }
 
 function decodeProjectAdjudicationWindows(
@@ -2032,33 +2225,64 @@ function decodeProjectAdjudicationWindows(
   }
 }
 
-function readProjectAdjudicationWindowsInNode(
-  nodeRuntime: NodeRuntime<Config>,
+function readSubmissionWithEvmClient(
+  runtime: Runtime<Config>,
+  evmClient: EVMClient,
+  submissionId: bigint,
+): ChainSubmissionRecord {
+  const callData = encodeSubmissionReadCall(submissionId)
+  const callResult = evmClient
+    .callContract(runtime, {
+      call: encodeCallMsg({
+        from: ZERO_ADDRESS,
+        to: runtime.config.bountyHubAddress as `0x${string}`,
+        data: callData,
+      }),
+      blockNumber: LATEST_BLOCK_NUMBER,
+    })
+    .result()
+
+  return decodeSubmissionReadBytes(callResult.data)
+}
+
+function readProjectVnetInfoWithEvmClient(
+  runtime: Runtime<Config>,
+  evmClient: EVMClient,
+  projectId: bigint,
+): ProjectVnetInfo {
+  const callData = encodeProjectCall(projectId)
+  const callResult = evmClient
+    .callContract(runtime, {
+      call: encodeCallMsg({
+        from: ZERO_ADDRESS,
+        to: runtime.config.bountyHubAddress as `0x${string}`,
+        data: callData,
+      }),
+      blockNumber: LATEST_BLOCK_NUMBER,
+    })
+    .result()
+
+  return decodeProjectVnetInfo(bytesToHex(callResult.data))
+}
+
+function readProjectAdjudicationWindowsWithEvmClient(
+  runtime: Runtime<Config>,
+  evmClient: EVMClient,
   projectId: bigint,
 ): ProjectAdjudicationWindows {
   const callData = encodeProjectAdjudicationWindowsCall(projectId)
-  const callResult = runEthCallReadWithRetry(nodeRuntime, {
-    network: "sepolia",
-    operation: "sepolia.projectAdjudicationWindows.read",
-    endpoints: getSepoliaReadEndpoints(nodeRuntime.config),
-    retryPolicy: nodeRuntime.config.rpcReadRetry,
-    callParams: [
-      {
-        to: nodeRuntime.config.bountyHubAddress,
+  const callResult = evmClient
+    .callContract(runtime, {
+      call: encodeCallMsg({
+        from: ZERO_ADDRESS,
+        to: runtime.config.bountyHubAddress as `0x${string}`,
         data: callData,
-      },
-      "latest",
-    ],
-    requestId: 8,
-    httpErrorPrefix: `Failed to read project adjudication windows for ${projectId}`,
-    rpcErrorPrefix: `Failed to read project adjudication windows for ${projectId}`,
-    invalidResponseMessage:
-      `Failed to read project adjudication windows for ${projectId}: invalid eth_call response`,
-    emptyResponseMessage:
-      `Failed to read project adjudication windows for ${projectId}: returned empty payload`,
-  })
+      }),
+      blockNumber: LATEST_BLOCK_NUMBER,
+    })
+    .result()
 
-  return decodeProjectAdjudicationWindows(callResult)
+  return decodeProjectAdjudicationWindows(bytesToHex(callResult.data))
 }
 
 function normalizeProjectReadResult(hexResult: string): `0x${string}` {
@@ -2076,7 +2300,7 @@ function normalizeProjectReadResult(hexResult: string): `0x${string}` {
   return normalized as `0x${string}`
 }
 
-function parsePoCData(value: unknown): PoCData {
+export function parsePoCData(value: unknown): PoCData {
   if (typeof value !== "object" || value === null) {
     throw new Error("PoC payload must be an object")
   }
@@ -2094,7 +2318,14 @@ function parsePoCData(value: unknown): PoCData {
     typeof candidate.expectedImpact.estimatedLoss !== "string" ||
     typeof candidate.expectedImpact.description !== "string"
   ) {
-    throw new Error("PoC payload shape is invalid")
+    const normalizedFrontendPoC = normalizeFrontendPoCData(
+      value as Record<string, unknown>,
+    )
+    if (!normalizedFrontendPoC) {
+      throw new Error("PoC payload shape is invalid")
+    }
+
+    return normalizedFrontendPoC
   }
 
   return candidate as PoCData
@@ -2112,13 +2343,6 @@ function createHttpStatusError(message: string, statusCode: number): Error {
   const error = new Error(message) as Error & { statusCode: number }
   error.statusCode = statusCode
   return error
-}
-
-function getSepoliaReadEndpoints(config: Config): string[] {
-  return buildRpcEndpointPool(
-    config.sepoliaRpcUrl ?? SEPOLIA_RPC_URL,
-    config.sepoliaRpcFallbackUrls,
-  )
 }
 
 function getOasisReadEndpoints(config: Config): string[] {
@@ -2198,66 +2422,200 @@ function runEthCallReadWithRetry(
   })
 }
 
+function buildOasisSiweReadToken(
+  nodeRuntime: NodeRuntime<Config>,
+  contract: string,
+  oasisReadPrivateKey?: `0x${string}`,
+  authorizedCaller?: `0x${string}`,
+): `0x${string}` | undefined {
+  const privateKey = oasisReadPrivateKey
+  if (!privateKey) {
+    nodeRuntime.log("No Oasis read private key available for SIWE-authenticated fallback")
+    return undefined
+  }
+
+  const account = privateKeyToAccount(privateKey)
+  if (
+    authorizedCaller !== undefined &&
+    !hasMatchingOasisReadSigner({ authorizedCaller, oasisReadPrivateKey })
+  ) {
+    nodeRuntime.log(
+      `Skipping SIWE-authenticated Oasis read fallback: signer ${account.address} does not match writer ${authorizedCaller}`,
+    )
+    return undefined
+  }
+
+  const oasisReadEndpoints = getOasisReadEndpoints(nodeRuntime.config)
+  const retryPolicy = nodeRuntime.config.rpcReadRetry
+  const configuredDomain = nodeRuntime.config.oasisSiweDomain?.trim()
+  const domain = configuredDomain && configuredDomain.length > 0
+    ? configuredDomain
+    : decodeOasisSiweDomainResult(
+        runEthCallReadWithRetry(nodeRuntime, {
+          network: "sapphire",
+          operation: "oasis.domain",
+          endpoints: oasisReadEndpoints,
+          retryPolicy,
+          callParams: [{
+            to: contract,
+            data: encodeFunctionData({
+              abi: OasisPoCStoreSiweAbi,
+              functionName: "domain",
+            }),
+          }, "latest"],
+          requestId: 30,
+          httpErrorPrefix: "Oasis SIWE domain eth_call failed",
+          rpcErrorPrefix: "Oasis SIWE domain lookup failed",
+          invalidResponseMessage: "Oasis SIWE domain lookup returned invalid payload",
+          emptyResponseMessage: "Oasis SIWE domain lookup returned empty payload",
+        }),
+      )
+
+  const issuedAt = nodeRuntime.now()
+  const expiresAt = new Date(issuedAt.getTime() + SAPPHIRE_SIWE_TTL_MS)
+  const siweMessage = buildSapphireSiweMessage({
+    address: account.address,
+    domain,
+    nonce: generateSiweNonce(),
+    issuedAt,
+    expiresAt,
+  })
+  const signed = signSapphireSiweMessage({
+    privateKey,
+    message: siweMessage,
+  })
+  const loginCallData = encodeFunctionData({
+    abi: OasisPoCStoreSiweAbi,
+    functionName: "login",
+    args: [siweMessage, signed.signature],
+  })
+  const loginResult = runEthCallReadWithRetry(nodeRuntime, {
+    network: "sapphire",
+    operation: "oasis.login",
+    endpoints: oasisReadEndpoints,
+    retryPolicy,
+    callParams: [{ to: contract, data: loginCallData }, "latest"],
+    requestId: 31,
+    httpErrorPrefix: "Oasis SIWE login eth_call failed",
+    rpcErrorPrefix: "Oasis SIWE login failed",
+    invalidResponseMessage: "Oasis SIWE login returned invalid payload",
+    emptyResponseMessage: "Oasis SIWE login returned empty payload",
+  })
+  const token = decodeOasisSiweLoginToken(loginResult)
+
+  return token as `0x${string}`
+}
+
 function readStoredPayloadFromOasisContract(
   nodeRuntime: NodeRuntime<Config>,
   reference: OasisReference,
+  oasisReadPrivateKey?: `0x${string}`,
 ): OasisStoredPayload {
   const config = nodeRuntime.config
   const retryPolicy = config.rpcReadRetry
   const oasisReadEndpoints = getOasisReadEndpoints(config)
-  const metaCallData = encodeFunctionData({
-    abi: OasisPoCStoreReadAbi,
-    functionName: "readMeta",
-    args: [reference.pointer.slotId],
-  })
-
-  const metaResult = runEthCallReadWithRetry(nodeRuntime, {
-    network: "sapphire",
-    operation: "oasis.readMeta",
-    endpoints: oasisReadEndpoints,
-    retryPolicy,
-    callParams: [{ to: reference.pointer.contract, data: metaCallData }, "latest"],
-    requestId: 28,
-    httpErrorPrefix: "Oasis RPC readMeta eth_call failed",
-    rpcErrorPrefix: "Oasis storage readMeta failed",
-    invalidResponseMessage: "Oasis storage readMeta returned invalid payload",
-    emptyResponseMessage: "Oasis storage readMeta returned empty payload",
-  })
-
-  const authorizedReadMeta = decodeAuthorizedReadMeta(metaResult)
-
-  const callData = encodeFunctionData({
-    abi: OasisPoCStoreReadAbi,
-    functionName: "read",
-    args: [reference.pointer.slotId],
-  })
-
-  const callResult = runEthCallReadWithRetry(nodeRuntime, {
-    network: "sapphire",
-    operation: "oasis.read",
-    endpoints: oasisReadEndpoints,
-    retryPolicy,
-    callParams: buildAuthorizedReadCallParams(
+  let callResult: `0x${string}`
+  let sapphireWriteTimestampSec: bigint | undefined
+  const runAuthenticatedRead = (authorizedCaller?: `0x${string}`): `0x${string}` => {
+    const siweToken = buildOasisSiweReadToken(
+      nodeRuntime,
       reference.pointer.contract,
-      callData,
-      authorizedReadMeta.authorizedCaller,
-    ),
-    requestId: 29,
-    httpErrorPrefix: "Oasis RPC eth_call failed",
-    rpcErrorPrefix: "Oasis storage read failed",
-    invalidResponseMessage: "Oasis storage read returned invalid payload",
-    emptyResponseMessage: "Oasis storage read returned empty payload",
-  })
+      oasisReadPrivateKey,
+      authorizedCaller,
+    )
+    if (!siweToken) {
+      throw new Error(
+        "No matching SIWE-authenticated Oasis read token was available for the stored writer",
+      )
+    }
 
-  const [payloadJson] = decodeFunctionResult({
-    abi: OasisPoCStoreReadAbi,
-    functionName: "read",
-    data: callResult,
-  })
+    const tokenReadData = encodeFunctionData({
+      abi: OasisPoCStoreSiweAbi,
+      functionName: "read",
+      args: [reference.pointer.slotId, siweToken],
+    })
+    return runEthCallReadWithRetry(nodeRuntime, {
+      network: "sapphire",
+      operation: "oasis.read.token",
+      endpoints: oasisReadEndpoints,
+      retryPolicy,
+      callParams: [{ to: reference.pointer.contract, data: tokenReadData }, "latest"],
+      requestId: 32,
+      httpErrorPrefix: "Oasis SIWE-authenticated eth_call failed",
+      rpcErrorPrefix: "Oasis SIWE-authenticated storage read failed",
+      invalidResponseMessage: "Oasis SIWE-authenticated storage read returned invalid payload",
+      emptyResponseMessage: "Oasis SIWE-authenticated storage read returned empty payload",
+    })
+  }
+
+  if (oasisReadPrivateKey) {
+    nodeRuntime.log(
+      "Using SIWE-authenticated Oasis read first for the configured signer",
+    )
+    callResult = runAuthenticatedRead()
+  } else {
+    const metaCallData = encodeFunctionData({
+      abi: OasisPoCStoreReadAbi,
+      functionName: "readMeta",
+      args: [reference.pointer.slotId],
+    })
+
+    const metaResult = runEthCallReadWithRetry(nodeRuntime, {
+      network: "sapphire",
+      operation: "oasis.readMeta",
+      endpoints: oasisReadEndpoints,
+      retryPolicy,
+      callParams: [{ to: reference.pointer.contract, data: metaCallData }, "latest"],
+      requestId: 28,
+      httpErrorPrefix: "Oasis RPC readMeta eth_call failed",
+      rpcErrorPrefix: "Oasis storage readMeta failed",
+      invalidResponseMessage: "Oasis storage readMeta returned invalid payload",
+      emptyResponseMessage: "Oasis storage readMeta returned empty payload",
+    })
+
+    const authorizedReadMeta = decodeAuthorizedReadMeta(metaResult)
+    sapphireWriteTimestampSec = authorizedReadMeta.storedAtSec
+
+    const callData = encodeFunctionData({
+      abi: OasisPoCStoreReadAbi,
+      functionName: "read",
+      args: [reference.pointer.slotId],
+    })
+
+    try {
+      callResult = runEthCallReadWithRetry(nodeRuntime, {
+        network: "sapphire",
+        operation: "oasis.read",
+        endpoints: oasisReadEndpoints,
+        retryPolicy,
+        callParams: buildAuthorizedReadCallParams(
+          reference.pointer.contract,
+          callData,
+          authorizedReadMeta.authorizedCaller,
+        ),
+        requestId: 29,
+        httpErrorPrefix: "Oasis RPC eth_call failed",
+        rpcErrorPrefix: "Oasis storage read failed",
+        invalidResponseMessage: "Oasis storage read returned invalid payload",
+        emptyResponseMessage: "Oasis storage read returned empty payload",
+      })
+    } catch (directReadError) {
+      if (!isOasisUnauthorizedReadError(directReadError)) {
+        throw directReadError
+      }
+
+      nodeRuntime.log(
+        "Direct Oasis read was unauthorized; retrying with SIWE-authenticated read token",
+      )
+      callResult = runAuthenticatedRead(authorizedReadMeta.authorizedCaller)
+    }
+  }
+
+  const payloadJson = decodeOasisStoredPayloadJson(callResult)
 
   return {
     payload: JSON.parse(payloadJson),
-    sapphireWriteTimestampSec: authorizedReadMeta.storedAtSec,
+    sapphireWriteTimestampSec,
   }
 }
 
@@ -2265,8 +2623,13 @@ function readPoCFromOasisRpc(
   nodeRuntime: NodeRuntime<Config>,
   reference: OasisReference,
   submissionId: bigint,
+  oasisReadPrivateKey?: `0x${string}`,
 ): OasisReadResult {
-  const parsedPayload = readStoredPayloadFromOasisContract(nodeRuntime, reference)
+  const parsedPayload = readStoredPayloadFromOasisContract(
+    nodeRuntime,
+    reference,
+    oasisReadPrivateKey,
+  )
 
   const validated = validateOasisRpcPayload({
     reference,
@@ -2419,9 +2782,10 @@ function verifyForkState(
 const verifyPoC = (
   nodeRuntime: NodeRuntime<Config>,
   submissionId: bigint,
-  projectId: bigint,
   cipherURI: string,
   rules: ProjectRules,
+  oasisReadPrivateKey?: `0x${string}`,
+  projectVnetInfo?: ProjectVnetInfo,
 ): VerificationResult => {
   const httpClient = new HTTPClient()
   const config = nodeRuntime.config
@@ -2429,20 +2793,20 @@ const verifyPoC = (
 
   if (!cipherURI.startsWith("oasis://")) {
     nodeRuntime.log("Rejected non-oasis cipherURI in oasis-only mode")
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
-    }
+    })
   }
 
   if (!config.oasisRpcUrl) {
     nodeRuntime.log("Oasis reference provided but oasisRpcUrl is not configured")
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
-    }
+    })
   }
 
   let reference: OasisReference
@@ -2450,11 +2814,11 @@ const verifyPoC = (
     reference = parseOasisReferenceUri(cipherURI)
   } catch (e) {
     nodeRuntime.log(`Invalid Oasis reference: ${String(e)}`)
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
-    }
+    })
   }
 
   let pocJson: PoCData
@@ -2463,20 +2827,22 @@ const verifyPoC = (
       nodeRuntime,
       reference,
       submissionId,
+      oasisReadPrivateKey,
     )
     pocJson = oasisRead.poc
     sapphireWriteTimestampSec = oasisRead.sapphireWriteTimestampSec
   } catch (e) {
     const reasonCode = classifyVerifyPocSyncReasonCode(e)
+    const errorMessage = e instanceof Error ? e.message : String(e)
     nodeRuntime.log(
-      `Failed to read Oasis PoC payload from Sapphire RPC: reasonCode=${reasonCode}`,
+      `Failed to read Oasis PoC payload from Sapphire RPC: reasonCode=${reasonCode}, detail=${errorMessage}`,
     )
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode,
       sapphireWriteTimestampSec,
-    }
+    })
   }
 
   nodeRuntime.log(`PoC ready: ${pocJson.transactions.length} txs targeting ${pocJson.target.contract}`)
@@ -2485,85 +2851,47 @@ const verifyPoC = (
   const validation = validateSetupOps(pocJson.setup, rules)
   if (!validation.valid) {
     nodeRuntime.log(`POC rejected: ${validation.reason}`)
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
       sapphireWriteTimestampSec,
-    }
+    })
   }
   nodeRuntime.log(`Setup validation passed`)
 
-  // ═══ Read project VNet info from contract ═══
-  // The VNet is created once per project by vnet-init workflow, reused for all POCs
-
-  const projectCallData = encodeProjectCall(projectId)
-  let projectCallResult: `0x${string}`
-  try {
-    projectCallResult = runEthCallReadWithRetry(nodeRuntime, {
-      network: "sepolia",
-      operation: "sepolia.projects.read",
-      endpoints: getSepoliaReadEndpoints(config),
-      retryPolicy: config.rpcReadRetry,
-      callParams: [
-        {
-          to: config.bountyHubAddress,
-          data: projectCallData,
-        },
-        "latest",
-      ],
-      requestId: 1,
-      httpErrorPrefix: "Failed to read project VNet info",
-      rpcErrorPrefix: "Failed to read project VNet info",
-      invalidResponseMessage: "Failed to read project VNet info: invalid eth_call response",
-      emptyResponseMessage: "Failed to read project VNet info: empty payload",
+  if (!projectVnetInfo) {
+    const reasonCode = SYNC_REASON_BINDING_MISMATCH
+    nodeRuntime.log("Project VNet info was not provided to verifyPoC")
+    return buildVerificationResult({
+      isValid: false,
+      drainAmountWei: 0n,
+      reasonCode,
+      sapphireWriteTimestampSec,
     })
-  } catch (error) {
-    const reasonCode = classifyVerifyPocSyncReasonCode(error)
-    nodeRuntime.log(`Failed to read project VNet info: reasonCode=${reasonCode}`)
-    return {
-      isValid: false,
-      drainAmountWei: 0n,
-      reasonCode,
-      sapphireWriteTimestampSec,
-    }
   }
 
-  let vnetInfo: ProjectVnetInfo
-  try {
-    vnetInfo = decodeProjectVnetInfo(projectCallResult)
-  } catch (error) {
-    const reasonCode = classifyVerifyPocSyncReasonCode(error)
-    nodeRuntime.log(`Failed to decode project VNet info: reasonCode=${reasonCode}`)
-    return {
-      isValid: false,
-      drainAmountWei: 0n,
-      reasonCode,
-      sapphireWriteTimestampSec,
-    }
-  }
-
-  const { vnetRpcUrl, baseSnapshotId, vnetStatus } = vnetInfo
+  const { vnetRpcUrl, baseSnapshotId, vnetStatus } = projectVnetInfo
 
   // Check VNet is active
   if (vnetStatus !== VNET_STATUS_ACTIVE) {
     nodeRuntime.log(`VNet not active (status=${vnetStatus}). POC verification skipped.`)
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
       sapphireWriteTimestampSec,
-    }
+    })
   }
 
   if (!vnetRpcUrl || vnetRpcUrl.length === 0) {
     nodeRuntime.log("VNet RPC URL is empty. POC verification skipped.")
-    return {
+    return buildVerificationResult({
       isValid: false,
       drainAmountWei: 0n,
       reasonCode: SYNC_REASON_BINDING_MISMATCH,
       sapphireWriteTimestampSec,
-    }
+    })
   }
 
   nodeRuntime.log(`Using project VNet: ${vnetRpcUrl}, snapshot: ${baseSnapshotId}`)
@@ -2717,19 +3045,30 @@ const verifyPoC = (
 
 // ═══════════════════ Main Handler ═══════════════════
 
-const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
+const onPoCRevealed = async (
+  runtime: Runtime<Config>,
+  log: EVMLog,
+): Promise<string> => {
   const topic1 = bytesToHex(log.topics[1])
   const submissionId = BigInt(topic1.startsWith("0x") ? topic1 : `0x${topic1}`)
 
   runtime.log(`PoC Revealed #${submissionId}`)
 
-  const submission = runtime
-    .runInNodeMode(
-      readSubmissionInNode,
-      consensusIdenticalAggregation<ChainSubmissionRecord>()
-    )(submissionId)
-    .result()
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: true,
+  })
+
+  if (!network) {
+    throw new Error(`Network not found: ${runtime.config.chainSelectorName}`)
+  }
+
+  const evmClient = new EVMClient(network.chainSelector.selector)
+
+  const submission = readSubmissionWithEvmClient(runtime, evmClient, submissionId)
   const { cipherURI, projectId } = submission
+  runtime.log(`Loaded submission cipherURI: ${cipherURI}`)
   const idempotencyStore = getVerifyPocIdempotencyStore(runtime)
   const syncReference = parseOasisReferenceUri(cipherURI)
   if (!syncReference.envelopeHash) {
@@ -2801,12 +3140,44 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
   try {
     const defaultRules = projectRulesFromConfig(runtime.config)
+    let oasisReadPrivateKey: `0x${string}` | undefined
+    let projectVnetInfo: ProjectVnetInfo
+    try {
+      oasisReadPrivateKey = resolveOasisReadPrivateKey({
+        secretValue: runtime
+          .getSecret({ id: OASIS_READ_PRIVATE_KEY_SECRET_ID })
+          .result().value,
+        env: readProcessEnvRecord(),
+      })
+    } catch (error) {
+      runtime.log(
+        `Oasis read secret unavailable via CRE runtime: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      oasisReadPrivateKey = resolveOasisReadPrivateKey({
+        env: readProcessEnvRecord(),
+      })
+    }
+    try {
+      projectVnetInfo = readProjectVnetInfoWithEvmClient(runtime, evmClient, projectId)
+    } catch (error) {
+      const reasonCode = classifyVerifyPocSyncReasonCode(error)
+      runtime.log(
+        `Failed to read project VNet info: reasonCode=${reasonCode}, detail=${error instanceof Error ? error.message : String(error)}`,
+      )
+      throw error
+    }
 
-    const verifyResult = runtime
+    const verifyResult = await runtime
       .runInNodeMode(
         verifyPoC,
         consensusIdenticalAggregation<VerificationResult>()
-      )(submissionId, projectId, cipherURI, defaultRules)
+      )(
+        submissionId,
+        cipherURI,
+        defaultRules,
+        oasisReadPrivateKey,
+        projectVnetInfo,
+      )
       .result()
 
     runtime.log(`Verification result: valid=${verifyResult.isValid}, drain=${verifyResult.drainAmountWei}`)
@@ -2839,12 +3210,11 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     }
 
     if (strictGateDecision.outcome === "EMIT_EVIDENCE") {
-      const projectWindows = runtime
-        .runInNodeMode(
-          readProjectAdjudicationWindowsInNode,
-          consensusIdenticalAggregation<ProjectAdjudicationWindows>(),
-        )(projectId)
-        .result()
+      const projectWindows = readProjectAdjudicationWindowsWithEvmClient(
+        runtime,
+        evmClient,
+        projectId,
+      )
       const evidenceEnvelope = buildVerifyPocStrictFailEvidenceEnvelope({
         submissionId,
         projectId,
@@ -2878,18 +3248,6 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       )
       return encodedEvidence
     }
-
-    const network = getNetwork({
-      chainFamily: "evm",
-      chainSelectorName: runtime.config.chainSelectorName,
-      isTestnet: true,
-    })
-
-    if (!network) {
-      throw new Error(`Network not found: ${runtime.config.chainSelectorName}`)
-    }
-
-    const evmClient = new EVMClient(network.chainSelector.selector)
 
     const reportData = encodeVerifyPocContractReport(
       buildVerifyPocStrictPassReportEnvelope({
@@ -2963,33 +3321,6 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     )
     throw error
   }
-}
-
-function readSubmissionInNode(
-  nodeRuntime: NodeRuntime<Config>,
-  submissionId: bigint
-): ChainSubmissionRecord {
-  const callData = encodeSubmissionReadCall(submissionId)
-  const callResult = runEthCallReadWithRetry(nodeRuntime, {
-    network: "sepolia",
-    operation: "sepolia.submissions.read",
-    endpoints: getSepoliaReadEndpoints(nodeRuntime.config),
-    retryPolicy: nodeRuntime.config.rpcReadRetry,
-    callParams: [
-      {
-        to: nodeRuntime.config.bountyHubAddress,
-        data: callData,
-      },
-      "latest",
-    ],
-    requestId: 7,
-    httpErrorPrefix: `Failed to read submission ${submissionId}`,
-    rpcErrorPrefix: `Failed to read submission ${submissionId}`,
-    invalidResponseMessage: `Failed to read submission ${submissionId}: invalid eth_call response`,
-    emptyResponseMessage: `Failed to read submission ${submissionId}: returned empty payload`,
-  })
-
-  return decodeSubmissionReadResult(callResult)
 }
 
 // ═══════════════════ Workflow Init ═══════════════════

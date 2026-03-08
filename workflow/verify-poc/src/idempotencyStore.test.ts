@@ -31,6 +31,36 @@ function makeInput(overrides?: Partial<VerifyPocIdempotencyInput>): VerifyPocIde
 }
 
 describe("verify-poc durable idempotency store", () => {
+  it("falls back to an in-memory store when file APIs are unavailable", () => {
+    const store = loadVerifyPocIdempotencyStore(
+      "workflow/verify-poc/.verify-poc-idempotency-store.json",
+      100,
+      {},
+    )
+
+    const input = makeInput({ submissionId: 55n })
+    const mapped = assertDurableVerifyPocIdempotencyMappingStable(store, input, 110)
+    const syncId = deriveVerifyPocSyncId({
+      projectId: input.projectId,
+      submissionId: input.submissionId,
+      envelopeHash:
+        "0xabababababababababababababababababababababababababababababababab",
+    })
+    const scopedIdempotencyKey = deriveVerifyPocScopedIdempotencyKey({
+      syncId,
+      sourceEventFingerprint: mapped.sourceEventKey,
+    })
+
+    expect(
+      claimDurableVerifyPocIdempotencySlot(store, scopedIdempotencyKey, 120),
+    ).toEqual({ shouldProcess: true, reason: "first_seen" })
+
+    markDurableVerifyPocIdempotencyCompleted(store, scopedIdempotencyKey, 130)
+    expect(
+      claimDurableVerifyPocIdempotencySlot(store, scopedIdempotencyKey, 140),
+    ).toEqual({ shouldProcess: false, reason: "already_completed" })
+  })
+
   it("idempotency survives restart", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "verify-poc-idempotency-store-"))
     const storePath = join(tempDir, "idempotency.json")
