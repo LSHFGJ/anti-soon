@@ -3,11 +3,11 @@ import { MemoryRouter } from 'react-router-dom'
 import type { Address } from 'viem'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockUseWallet, mockGetLogsWithRangeFallback, mockMulticallWithRpcFallback, mockReadContractWithRpcFallback } = vi.hoisted(() => ({
+const { mockUseWallet, mockGetLogsWithRangeFallback, mockMulticallWithRpcFallback, mockReadAllAuditorSubmissionIds } = vi.hoisted(() => ({
   mockUseWallet: vi.fn(),
   mockGetLogsWithRangeFallback: vi.fn(),
   mockMulticallWithRpcFallback: vi.fn(),
-  mockReadContractWithRpcFallback: vi.fn(),
+  mockReadAllAuditorSubmissionIds: vi.fn(),
 }))
 
 vi.mock('../hooks/useWallet', () => ({
@@ -19,14 +19,29 @@ vi.mock('../lib/chainLogs', () => ({
   getLogsWithRangeFallback: (...args: unknown[]) => mockGetLogsWithRangeFallback(...args),
 }))
 
+vi.mock('../lib/submissionIndex', () => ({
+  readAllAuditorSubmissionIds: (...args: unknown[]) => mockReadAllAuditorSubmissionIds(...args),
+}))
+
 vi.mock('../lib/publicClient', () => ({
   getBlockNumberWithRpcFallback: vi.fn(),
   getLogsWithRpcFallback: vi.fn(),
   multicallWithRpcFallback: (...args: unknown[]) => mockMulticallWithRpcFallback(...args),
-  readContractWithRpcFallback: (...args: unknown[]) => mockReadContractWithRpcFallback(...args),
+  readContractWithRpcFallback: vi.fn(),
 }))
 
 import Dashboard from '../pages/Dashboard'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
 
 describe('Dashboard chain-only submission entrypoints', () => {
   beforeEach(() => {
@@ -37,6 +52,7 @@ describe('Dashboard chain-only submission entrypoints', () => {
       isConnecting: false,
       connect: vi.fn(),
     })
+    mockReadAllAuditorSubmissionIds.mockResolvedValue([7n])
 
     mockGetLogsWithRangeFallback.mockResolvedValue([
       {
@@ -66,10 +82,9 @@ describe('Dashboard chain-only submission entrypoints', () => {
       [false, '', ''],
       [false, '', '', 0, 0]
     ])
-    mockReadContractWithRpcFallback.mockResolvedValue(8n)
   })
 
-  it('renders chain-backed submission links and Sepolia tx links', async () => {
+  it('renders indexed submission links and Sepolia tx links', async () => {
     render(
       <MemoryRouter>
         <Dashboard />
@@ -86,25 +101,13 @@ describe('Dashboard chain-only submission entrypoints', () => {
       expect.stringContaining('/tx/0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'),
     )
     expect(screen.queryByText(/SAPPHIRE TX/i)).not.toBeInTheDocument()
+    expect(mockReadAllAuditorSubmissionIds).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111',
+    )
   })
 
-  it('falls back to scanning submissions from nextSubmissionId when log discovery fails', async () => {
+  it('still renders indexed submissions when optional tx hash lookup fails', async () => {
     mockGetLogsWithRangeFallback.mockRejectedValue(new Error('rpc log failure'))
-    mockReadContractWithRpcFallback.mockResolvedValue(8n)
-    mockMulticallWithRpcFallback.mockImplementation(async ({ contracts }) => {
-      return contracts.map((c: any) => {
-        const id = c.args[0];
-        if (c.functionName === 'submissions') {
-          if (id === 7n) return ['0x9999999999999999999999999999999999999999', 1n, '0xaa', 'uri', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
-          if (id === 6n) return ['0x1111111111111111111111111111111111111111', 1n, '0xbb', 'uri2', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
-          return ['0x0000000000000000000000000000000000000000', 1n, '0xcc', 'uri3', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
-        }
-        if (c.functionName === 'getSubmissionLifecycle') return [0, 0n, 0n, 0, 0, '0x00', '0x00'];
-        if (c.functionName === 'getSubmissionJuryMetadata') return [false, '', ''];
-        if (c.functionName === 'getSubmissionGroupingMetadata') return [false, '', '', 0, 0];
-        return [];
-      });
-    })
 
     render(
       <MemoryRouter>
@@ -113,12 +116,14 @@ describe('Dashboard chain-only submission entrypoints', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: '#6' })).toBeVisible()
+      expect(screen.getByRole('link', { name: '#7' })).toBeVisible()
     })
 
     expect(screen.queryByText(/Failed to load your submissions from blockchain/i)).not.toBeInTheDocument()
   })
+
   it('reads new jury and grouping metadata getters', async () => {
+    mockReadAllAuditorSubmissionIds.mockResolvedValue([99n])
     mockGetLogsWithRangeFallback.mockResolvedValue([
       { args: { submissionId: 99n }, transactionHash: '0x99' }
     ])
@@ -142,6 +147,164 @@ describe('Dashboard chain-only submission entrypoints', () => {
       // Check for Jury UI elements
       expect(screen.getByText(/⚖️ UPHOLD/)).toBeVisible()
       expect(screen.getByText(/\[A1-1\/5\]/)).toBeVisible()
+    })
+  })
+
+  it('keeps rendering indexed submissions when optional lifecycle metadata reverts', async () => {
+    mockMulticallWithRpcFallback.mockResolvedValue([
+      {
+        status: 'success',
+        result: [
+          '0x1111111111111111111111111111111111111111',
+          1n,
+          '0x2222222222222222222222222222222222222222222222222222222222222222',
+          'oasis://sapphire-testnet/mock-contract/slot-7#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          '0x0000000000000000000000000000000000000000000000000000000000000000',
+          1736200000n,
+          0n,
+          0,
+          0n,
+          0,
+          0n,
+          0n,
+          false,
+          '0x0000000000000000000000000000000000000000',
+          0n,
+        ],
+      },
+      { status: 'failure', error: new Error('legacy submission lifecycle unavailable') },
+      { status: 'success', result: [false, '', ''] },
+      { status: 'success', result: [false, '', '', 0, 0] },
+    ])
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '#7' })).toBeVisible()
+    })
+
+    expect(screen.queryByText(/Failed to load your submissions from blockchain/i)).toBeNull()
+  })
+
+  it('keeps rendering indexed submissions when optional jury and grouping metadata revert', async () => {
+    mockMulticallWithRpcFallback.mockResolvedValue([
+      {
+        status: 'success',
+        result: [
+          '0x1111111111111111111111111111111111111111',
+          1n,
+          '0x2222222222222222222222222222222222222222222222222222222222222222',
+          'oasis://sapphire-testnet/mock-contract/slot-7#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          '0x0000000000000000000000000000000000000000000000000000000000000000',
+          1736200000n,
+          0n,
+          0,
+          0n,
+          0,
+          0n,
+          0n,
+          false,
+          '0x0000000000000000000000000000000000000000',
+          0n,
+        ],
+      },
+      { status: 'success', result: [0, 0n, 0n, 0, 0, '0x00', '0x00'] },
+      { status: 'failure', error: new Error('legacy jury metadata unavailable') },
+      { status: 'failure', error: new Error('legacy grouping metadata unavailable') },
+    ])
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '#7' })).toBeVisible()
+    })
+
+    expect(screen.queryByText(/Failed to load your submissions from blockchain/i)).toBeNull()
+  })
+
+  it('ignores stale submission responses after wallet switches', async () => {
+    const walletA = '0x1111111111111111111111111111111111111111' as Address
+    const walletB = '0x2222222222222222222222222222222222222222' as Address
+    const walletAIdsDeferred = deferred<bigint[]>()
+    const walletBIdsDeferred = deferred<bigint[]>()
+    let currentAddress = walletA
+
+    mockUseWallet.mockImplementation(() => ({
+      address: currentAddress,
+      isConnected: true,
+      isConnecting: false,
+      connect: vi.fn(),
+    }))
+    mockReadAllAuditorSubmissionIds.mockImplementation((address: Address) => {
+      if (address === walletA) {
+        return walletAIdsDeferred.promise
+      }
+
+      return walletBIdsDeferred.promise
+    })
+    mockGetLogsWithRangeFallback.mockResolvedValue([])
+    mockMulticallWithRpcFallback.mockImplementation(async ({ contracts }) => {
+      const submissionId = contracts[0].args[0]
+      const auditor = submissionId === 8n ? walletB : walletA
+
+      return [
+        [
+          auditor,
+          1n,
+          '0x2222222222222222222222222222222222222222222222222222222222222222',
+          `oasis://submission/${submissionId.toString()}`,
+          '0x0000000000000000000000000000000000000000000000000000000000000000',
+          1736200000n,
+          0n,
+          0,
+          0n,
+          0,
+          0n,
+          0n,
+          false,
+          '0x0000000000000000000000000000000000000000',
+          0n,
+        ],
+        [0, 0n, 0n, 0, 0, '0x00', '0x00'],
+        [false, '', ''],
+        [false, '', '', 0, 0],
+      ]
+    })
+
+    const view = render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    currentAddress = walletB
+    view.rerender(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    walletAIdsDeferred.resolve([7n])
+
+    await waitFor(() => {
+      expect(screen.getByText('Loading submissions...')).toBeVisible()
+    })
+
+    expect(screen.queryByRole('link', { name: '#7' })).toBeNull()
+
+    walletBIdsDeferred.resolve([8n])
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '#8' })).toBeVisible()
+      expect(screen.queryByRole('link', { name: '#7' })).toBeNull()
     })
   })
 })

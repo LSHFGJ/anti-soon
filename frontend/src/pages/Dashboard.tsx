@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Address } from "viem";
 import { formatEther, type GetLogsReturnType, parseAbiItem } from "viem";
@@ -21,7 +21,6 @@ import {
 } from "../components/ui/table";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { useWallet } from "../hooks/useWallet";
-import { normalizeEthereumAddress } from "../lib/address";
 import {
 	discoverDeploymentBlockWithFallback,
 	getLogsWithRangeFallback,
@@ -32,10 +31,10 @@ import {
 	getBlockNumberWithRpcFallback,
 	getLogsWithRpcFallback,
 	multicallWithRpcFallback,
-	readContractWithRpcFallback,
 } from "../lib/publicClient";
 import { getActualStatus } from "../lib/status";
-import type { ExtendedSubmission, Submission } from "../types";
+import { readAllAuditorSubmissionIds } from "../lib/submissionIndex";
+import type { ExtendedSubmission } from "../types";
 import { STATUS_LABELS } from "../types";
 
 const POC_COMMITTED_EVENT = parseAbiItem(
@@ -89,7 +88,35 @@ type SubmissionGroupingTuple = readonly [
 	groupSize: bigint,
 ];
 
-const DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE = 50;
+type MulticallEntry<T> =
+	| { status: "success"; result: T }
+	| { status: "failure"; error?: unknown };
+
+const SUBMISSION_LOAD_ERROR = "Failed to load your submissions from blockchain";
+
+function readRequiredMulticallEntry<T>(entry: unknown): T {
+	if (entry && typeof entry === "object" && "status" in entry) {
+		const typedEntry = entry as MulticallEntry<T>;
+		if (typedEntry.status === "success") {
+			return typedEntry.result;
+		}
+
+		throw typedEntry.error instanceof Error
+			? typedEntry.error
+			: new Error("Required multicall entry failed");
+	}
+
+	return entry as T;
+}
+
+function readOptionalMulticallEntry<T>(entry: unknown): T | null {
+	if (entry && typeof entry === "object" && "status" in entry) {
+		const typedEntry = entry as MulticallEntry<T>;
+		return typedEntry.status === "success" ? typedEntry.result : null;
+	}
+
+	return (entry as T | null) ?? null;
+}
 
 function mapSubmissionWithMetadata(
 	id: bigint,
@@ -152,6 +179,7 @@ export function Dashboard() {
 	const [previewContent, setPreviewContent] = useState<string | null>(null);
 	const [previewError, setPreviewError] = useState<string | null>(null);
 	const [previewLoadingId, setPreviewLoadingId] = useState<bigint | null>(null);
+	const submissionsRequestIdRef = useRef(0);
 
 	const STATUS_VERIFIED = 2;
 
@@ -163,106 +191,27 @@ export function Dashboard() {
 	const { totalEarned, totalCount, validCount, pendingCount, pendingPayouts } =
 		metrics;
 
-	const scanUserSubmissionsFromState = useCallback(
-		async (userAddress: Address): Promise<Submission[]> => {
-			const nextSubmissionId = (await readContractWithRpcFallback({
-				address: BOUNTY_HUB_ADDRESS,
-				abi: BOUNTY_HUB_V2_ABI,
-				functionName: "nextSubmissionId",
-			})) as bigint;
-
-			if (nextSubmissionId === 0n) {
-				return [];
-			}
-
-			const matched: Submission[] = [];
-			const normalizedUserAddress = normalizeEthereumAddress(userAddress);
-			if (!normalizedUserAddress) {
-				return [];
-			}
-
-			for (
-				let endExclusive = Number(nextSubmissionId);
-				endExclusive > 0;
-				endExclusive -= DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE
-			) {
-				const startInclusive = Math.max(
-					0,
-					endExclusive - DASHBOARD_SUBMISSION_SCAN_CHUNK_SIZE,
-				);
-				const chunkIds = Array.from(
-					{ length: endExclusive - startInclusive },
-					(_, index) => BigInt(endExclusive - 1 - index),
-				);
-
-				const results = (await multicallWithRpcFallback({
-					contracts: chunkIds.flatMap((id) => [
-						{
-							address: BOUNTY_HUB_ADDRESS,
-							abi: BOUNTY_HUB_V2_ABI,
-							functionName: "submissions" as const,
-							args: [id] as const,
-						},
-						{
-							address: BOUNTY_HUB_ADDRESS,
-							abi: BOUNTY_HUB_V2_ABI,
-							functionName: "getSubmissionLifecycle" as const,
-							args: [id] as const,
-						},
-						{
-							address: BOUNTY_HUB_ADDRESS,
-							abi: BOUNTY_HUB_V2_ABI,
-							functionName: "getSubmissionJuryMetadata" as const,
-							args: [id] as const,
-						},
-						{
-							address: BOUNTY_HUB_ADDRESS,
-							abi: BOUNTY_HUB_V2_ABI,
-							functionName: "getSubmissionGroupingMetadata" as const,
-							args: [id] as const,
-						},
-					]),
-					allowFailure: false,
-				})) as readonly unknown[];
-
-				chunkIds.forEach((submissionId, index) => {
-					const data = results[index * 4] as SubmissionTuple;
-					const lifecycleData = results[
-						index * 4 + 1
-					] as SubmissionLifecycleTuple;
-					const juryData = results[index * 4 + 2] as SubmissionJuryTuple;
-					const groupingData = results[
-						index * 4 + 3
-					] as SubmissionGroupingTuple;
-					const auditor = normalizeEthereumAddress(data[0]);
-					if (auditor !== normalizedUserAddress) {
-						return;
-					}
-
-					matched.push(
-						mapSubmissionWithMetadata(
-							submissionId,
-							data,
-							lifecycleData,
-							juryData,
-							groupingData,
-						),
-					);
-				});
-			}
-
-			return matched;
-		},
-		[],
-	);
-
 	const fetchUserSubmissions = useCallback(
 		async (userAddress: Address) => {
+			const requestId = ++submissionsRequestIdRef.current;
 			try {
 				setIsLoading(true);
 				setError(null);
 
-				const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
+				const submissionIds = await readAllAuditorSubmissionIds(userAddress);
+				if (submissionsRequestIdRef.current !== requestId) {
+					return;
+				}
+
+				if (submissionIds.length === 0) {
+					if (submissionsRequestIdRef.current !== requestId) {
+						return;
+					}
+					setSubmissions([]);
+					return;
+				}
+
+				const commitTxHashByIdPromise = getLogsWithRangeFallback<PoCCommittedLog>({
 					fetchLogs: (range) =>
 						getLogsWithRpcFallback({
 							address: BOUNTY_HUB_ADDRESS,
@@ -278,38 +227,29 @@ export function Dashboard() {
 							BOUNTY_HUB_ADDRESS,
 							latestBlock,
 						),
-				});
+				})
+					.then(
+						(logs) =>
+							new Map(
+								logs
+									.map((log) => {
+										const submissionId = log.args.submissionId;
+										if (!submissionId || !log.transactionHash) {
+											return null;
+										}
 
-				const submissionIds = Array.from(
-					new Set(
-						logs
-							.map((log) => log.args.submissionId)
-							.filter(
-								(submissionId): submissionId is bigint =>
-									submissionId !== undefined,
+										return [submissionId.toString(), log.transactionHash] as const;
+									})
+									.filter(
+										(entry): entry is readonly [string, `0x${string}`] =>
+											entry !== null,
+									),
 							),
-					),
-				);
-				const commitTxHashById = new Map(
-					logs
-						.map((log) => {
-							const submissionId = log.args.submissionId;
-							if (!submissionId || !log.transactionHash) {
-								return null;
-							}
-
-							return [submissionId.toString(), log.transactionHash] as const;
-						})
-						.filter(
-							(entry): entry is readonly [string, `0x${string}`] =>
-								entry !== null,
-						),
-				);
-
-				if (submissionIds.length === 0) {
-					setSubmissions([]);
-					return;
-				}
+					)
+					.catch((lookupError) => {
+						console.warn("Optional commit tx lookup failed:", lookupError);
+						return new Map<string, `0x${string}`>();
+					});
 
 				const submissionContracts = submissionIds.flatMap((id) => [
 					{
@@ -338,20 +278,25 @@ export function Dashboard() {
 					},
 				]);
 
-				const results = (await multicallWithRpcFallback({
-					contracts: submissionContracts,
-					allowFailure: false,
-				})) as readonly unknown[];
+				const [results, commitTxHashById] = await Promise.all([
+					multicallWithRpcFallback({
+						contracts: submissionContracts,
+						allowFailure: true,
+					}) as Promise<readonly unknown[]>,
+					commitTxHashByIdPromise,
+				]);
 				const fetchedSubmissions: ExtendedSubmission[] = submissionIds.map(
 					(submissionId, index) => {
-						const data = results[index * 4] as SubmissionTuple;
-						const lifecycleData = results[
-							index * 4 + 1
-						] as SubmissionLifecycleTuple;
-						const juryData = results[index * 4 + 2] as SubmissionJuryTuple;
-						const groupingData = results[
-							index * 4 + 3
-						] as SubmissionGroupingTuple;
+						const data = readRequiredMulticallEntry<SubmissionTuple>(results[index * 4]);
+						const lifecycleData = readOptionalMulticallEntry<SubmissionLifecycleTuple>(
+							results[index * 4 + 1],
+						) ?? [data[7], 0n, 0n, 0, 0, "0x0", "0x0"];
+						const juryData = readOptionalMulticallEntry<SubmissionJuryTuple>(
+							results[index * 4 + 2],
+						) ?? [false, "", ""];
+						const groupingData = readOptionalMulticallEntry<SubmissionGroupingTuple>(
+							results[index * 4 + 3],
+						) ?? [false, "", "", 0n, 0n];
 
 						return mapSubmissionWithMetadata(
 							submissionId,
@@ -364,27 +309,24 @@ export function Dashboard() {
 					},
 				);
 
+				if (submissionsRequestIdRef.current !== requestId) {
+					return;
+				}
 				setSubmissions(fetchedSubmissions);
 			} catch (err) {
 				console.error("Failed to fetch submissions:", err);
-				try {
-					const scannedSubmissions =
-						await scanUserSubmissionsFromState(userAddress);
-					setSubmissions(scannedSubmissions);
-					setError(
-						scannedSubmissions.length === 0
-							? "Failed to load your submissions from blockchain"
-							: null,
-					);
-				} catch (scanErr) {
-					console.error("State-scan fallback failed:", scanErr);
-					setError("Failed to load your submissions from blockchain");
+				if (submissionsRequestIdRef.current !== requestId) {
+					return;
 				}
+				setSubmissions([]);
+				setError(SUBMISSION_LOAD_ERROR);
 			} finally {
-				setIsLoading(false);
+				if (submissionsRequestIdRef.current === requestId) {
+					setIsLoading(false);
+				}
 			}
 		},
-		[scanUserSubmissionsFromState],
+		[],
 	);
 
 	const handlePreviewPoC = useCallback(
