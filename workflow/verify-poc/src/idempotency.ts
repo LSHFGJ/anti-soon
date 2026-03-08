@@ -13,6 +13,7 @@ export type VerifyPocIdempotencyStatus =
   | "processing"
   | "completed"
   | "quarantined"
+  | "strict_failed"
 
 export type VerifyPocSyncState =
   | "SAPPHIRE_WRITTEN"
@@ -29,6 +30,7 @@ export type VerifyPocIdempotencyDecision = {
     | "in_flight"
     | "already_completed"
     | "quarantined"
+    | "strict_failed"
     | "reclaimed_quarantined"
 }
 
@@ -299,6 +301,9 @@ export function claimVerifyPocIdempotencySlot(
     stateByKey.set(key, "processing")
     return { shouldProcess: true, reason: "reclaimed_quarantined" }
   }
+  if (current === "strict_failed") {
+    return { shouldProcess: false, reason: "strict_failed" }
+  }
 
   stateByKey.set(key, "processing")
   return { shouldProcess: true, reason: "first_seen" }
@@ -316,6 +321,13 @@ export function markVerifyPocIdempotencyQuarantined(
   key: string
 ): void {
   stateByKey.set(key, "quarantined")
+}
+
+export function markVerifyPocIdempotencyStrictFailed(
+  stateByKey: Map<string, VerifyPocIdempotencyStatus>,
+  key: string
+): void {
+  stateByKey.set(key, "strict_failed")
 }
 
 export function releaseVerifyPocIdempotencySlot(

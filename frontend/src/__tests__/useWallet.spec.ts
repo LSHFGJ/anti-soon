@@ -5,6 +5,7 @@ import { setCommitRevealFlowGuardActive } from "../lib/commitRevealRecovery";
 
 const {
 	mockUseAccount,
+	mockUseConnect,
 	mockUseDisconnect,
 	mockUseSwitchChain,
 	mockUseWalletClient,
@@ -12,6 +13,7 @@ const {
 	mockUseAppKit,
 } = vi.hoisted(() => ({
 	mockUseAccount: vi.fn(),
+	mockUseConnect: vi.fn(),
 	mockUseDisconnect: vi.fn(),
 	mockUseSwitchChain: vi.fn(),
 	mockUseWalletClient: vi.fn(),
@@ -21,6 +23,7 @@ const {
 
 vi.mock("wagmi", () => ({
 	useAccount: mockUseAccount,
+	useConnect: mockUseConnect,
 	useDisconnect: mockUseDisconnect,
 	useSwitchChain: mockUseSwitchChain,
 	useWalletClient: mockUseWalletClient,
@@ -36,15 +39,35 @@ vi.mock("@reown/appkit/networks", () => ({
 }));
 
 describe("useWallet auto-switch behavior", () => {
+	const connectAsync = vi.fn();
 	const switchChain = vi.fn();
 	const disconnect = vi.fn();
 	const open = vi.fn();
+	const metaMaskGetProvider = vi.fn();
+	const metaMaskConnector = {
+		id: "metaMaskSDK",
+		name: "MetaMask",
+		type: "metaMask",
+		rdns: ["io.metamask", "io.metamask.mobile"],
+		getProvider: metaMaskGetProvider,
+	};
+	const injectedGetProvider = vi.fn();
+	const injectedConnector = {
+		id: "injected",
+		name: "Browser Wallet",
+		type: "injected",
+		rdns: ["com.example.wallet"],
+		getProvider: injectedGetProvider,
+	};
 
 	beforeEach(() => {
 		vi.clearAllMocks();
 		window.localStorage.clear();
 		window.sessionStorage.clear();
+		connectAsync.mockReset();
 		disconnect.mockReset();
+		metaMaskGetProvider.mockReset();
+		injectedGetProvider.mockReset();
 		open.mockReset();
 
 		mockUseAccount.mockReturnValue({
@@ -53,6 +76,7 @@ describe("useWallet auto-switch behavior", () => {
 			chain: { id: 1 },
 		});
 		mockUseDisconnect.mockReturnValue({ disconnect });
+		mockUseConnect.mockReturnValue({ connectAsync, connectors: [] });
 		mockUseSwitchChain.mockReturnValue({ switchChain, isPending: false });
 		mockUseWalletClient.mockReturnValue({ data: undefined });
 		mockUsePublicClient.mockReturnValue(undefined);
@@ -206,8 +230,66 @@ describe("useWallet auto-switch behavior", () => {
 		});
 
 		expect(confirmSpy).toHaveBeenCalledTimes(1);
+		expect(connectAsync).not.toHaveBeenCalled();
 		expect(open).not.toHaveBeenCalled();
 
 		confirmSpy.mockRestore();
+	});
+
+	it("connects to MetaMask directly when a wagmi MetaMask connector is available", async () => {
+		metaMaskGetProvider.mockResolvedValue({ isMetaMask: true });
+		mockUseConnect.mockReturnValue({
+			connectAsync,
+			connectors: [metaMaskConnector],
+		});
+
+		const { result } = renderHook(() =>
+			useWallet({ autoSwitchToSepolia: false }),
+		);
+
+		await act(async () => {
+			await result.current.connect();
+		});
+
+		expect(connectAsync).toHaveBeenCalledWith({ connector: metaMaskConnector });
+		expect(open).not.toHaveBeenCalled();
+	});
+
+	it("connects to MetaMask directly when explicit connector identity exists before provider resolution", async () => {
+		metaMaskGetProvider.mockResolvedValue(undefined);
+		mockUseConnect.mockReturnValue({
+			connectAsync,
+			connectors: [metaMaskConnector],
+		});
+
+		const { result } = renderHook(() =>
+			useWallet({ autoSwitchToSepolia: false }),
+		);
+
+		await act(async () => {
+			await result.current.connect();
+		});
+
+		expect(connectAsync).toHaveBeenCalledWith({ connector: metaMaskConnector });
+		expect(open).not.toHaveBeenCalled();
+	});
+
+	it("falls back to the AppKit modal when no explicit MetaMask connector is available", async () => {
+		injectedGetProvider.mockResolvedValue(undefined);
+		mockUseConnect.mockReturnValue({
+			connectAsync,
+			connectors: [injectedConnector],
+		});
+
+		const { result } = renderHook(() =>
+			useWallet({ autoSwitchToSepolia: false }),
+		);
+
+		await act(async () => {
+			await result.current.connect();
+		});
+
+		expect(connectAsync).not.toHaveBeenCalled();
+		expect(open).toHaveBeenCalledTimes(1);
 	});
 });

@@ -5,17 +5,6 @@ import "forge-std/Test.sol";
 import {BountyHub} from "../src/BountyHub.sol";
 
 contract BountyHubTest is Test {
-    struct AuditorStatsSnapshot {
-        uint256 totalSubmissions;
-        uint256 activeValidCount;
-        uint256 pendingCount;
-        uint256 paidCount;
-        uint256 highPaidCount;
-        uint256 criticalPaidCount;
-        uint256 totalEarnedWei;
-        uint256 leaderboardIndex;
-    }
-
     BountyHub public hub;
     address constant FORWARDER = address(0xF0);
     address constant TARGET = address(0xBEEF);
@@ -27,9 +16,19 @@ contract BountyHubTest is Test {
     uint8 constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 constant REPORT_TYPE_VERIFY_POC_VERDICT = 3;
     bytes32 constant WORKFLOW_VERIFY_POC_ID = keccak256("verify-poc");
+    bytes32 constant WORKFLOW_JURY_ORCHESTRATOR_ID = keccak256("jury-orchestrator");
     bytes32 constant WORKFLOW_VNET_INIT_ID = keccak256("vnet-init");
     bytes10 constant WORKFLOW_NAME = bytes10("verifypoc1");
     address constant WORKFLOW_OWNER = address(0xCAFE);
+    uint8 constant STATUS_JURY_PENDING = 6;
+    uint8 constant STATUS_AWAITING_OWNER_ADJUDICATION = 7;
+    uint8 constant VERDICT_SOURCE_NONE = 0;
+    uint8 constant VERDICT_SOURCE_STRICT = 1;
+    uint8 constant VERDICT_SOURCE_JURY = 2;
+    uint8 constant VERDICT_SOURCE_OWNER = 3;
+    uint8 constant FINAL_VALIDITY_NONE = 0;
+    uint8 constant FINAL_VALIDITY_VALID = 1;
+    uint8 constant FINAL_VALIDITY_INVALID = 2;
     address owner = address(this);
     address auditor = address(0xA1);
     address otherUser = address(0xA2);
@@ -53,7 +52,7 @@ contract BountyHubTest is Test {
 
     function test_registerProjectV2() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 commitDeadline = block.timestamp + 7 days;
         hub.registerProjectV2{value: 1 ether}(
@@ -80,7 +79,7 @@ contract BountyHubTest is Test {
         });
 
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         // Register project
         uint256 projectId = hub.registerProjectV3{value: 1 ether}(
@@ -247,184 +246,6 @@ contract BountyHubTest is Test {
         assertEq(metadataHashAfterReveal, expectedMetadataHash, "Metadata hash should remain stable after reveal");
     }
 
-    function test_getAuditorSubmissionIndex_returnsNewestFirstPages() public {
-        uint256 projectId = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-
-        uint256 firstSubmissionId = _commitSubmission(
-            projectId,
-            auditor,
-            keccak256("auditor-page-1"),
-            "ipfs://auditor-page-1"
-        );
-        vm.warp(block.timestamp + hub.COOLDOWN() + 1);
-        uint256 secondSubmissionId = _commitSubmission(
-            projectId,
-            auditor,
-            keccak256("auditor-page-2"),
-            "ipfs://auditor-page-2"
-        );
-        _commitSubmission(
-            projectId,
-            otherUser,
-            keccak256("other-user-page"),
-            "ipfs://other-user-page"
-        );
-        vm.warp(block.timestamp + hub.COOLDOWN() + 1);
-        uint256 thirdSubmissionId = _commitSubmission(
-            projectId,
-            auditor,
-            keccak256("auditor-page-3"),
-            "ipfs://auditor-page-3"
-        );
-
-        assertEq(_getAuditorSubmissionCount(auditor), 3, "auditor count should track committed submissions");
-
-        (uint256[] memory firstPage, uint256 nextCursor) = _getAuditorSubmissionIds(auditor, 0, 2);
-        assertEq(firstPage.length, 2, "first page should contain newest two submissions");
-        assertEq(firstPage[0], thirdSubmissionId, "first page should start from latest submission");
-        assertEq(firstPage[1], secondSubmissionId, "first page should preserve newest-first order");
-        assertEq(nextCursor, 1, "cursor should move to remaining items");
-
-        (uint256[] memory secondPage, uint256 finalCursor) = _getAuditorSubmissionIds(auditor, nextCursor, 2);
-        assertEq(secondPage.length, 1, "second page should contain remaining submission");
-        assertEq(secondPage[0], firstSubmissionId, "second page should expose oldest remaining submission");
-        assertEq(finalCursor, 0, "final cursor should signal completion");
-    }
-
-    function test_getProjectSubmissionIndex_returnsNewestFirstPages() public {
-        uint256 projectA = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-        uint256 projectB = _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-
-        uint256 firstProjectASubmission = _commitSubmission(
-            projectA,
-            auditor,
-            keccak256("project-a-1"),
-            "ipfs://project-a-1"
-        );
-        _commitSubmission(
-            projectB,
-            auditor,
-            keccak256("project-b-1"),
-            "ipfs://project-b-1"
-        );
-        uint256 secondProjectASubmission = _commitSubmission(
-            projectA,
-            otherUser,
-            keccak256("project-a-2"),
-            "ipfs://project-a-2"
-        );
-
-        assertEq(_getProjectSubmissionCount(projectA), 2, "project count should only include matching project submissions");
-        assertEq(_getProjectSubmissionCount(projectB), 1, "other project count should remain isolated");
-
-        (uint256[] memory ids, uint256 nextCursor) = _getProjectSubmissionIds(projectA, 0, 5);
-        assertEq(ids.length, 2, "project page should include both project submissions");
-        assertEq(ids[0], secondProjectASubmission, "project page should be newest-first");
-        assertEq(ids[1], firstProjectASubmission, "project page should include older project submissions");
-        assertEq(nextCursor, 0, "single page should exhaust the project index");
-    }
-
-    function test_getProjectIds_returnsNewestFirstPages() public {
-        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-        _registerProjectViaV2Defaults(2 ether, 0.5 ether);
-
-        assertEq(_getProjectCount(), 3, "project count should match registered projects");
-
-        (uint256[] memory firstPage, uint256 nextCursor) = _getProjectIds(0, 2);
-        assertEq(firstPage.length, 2, "first page should contain latest projects");
-        assertEq(firstPage[0], 2, "first page should start with newest project id");
-        assertEq(firstPage[1], 1, "first page should preserve newest-first order");
-        assertEq(nextCursor, 1, "cursor should move to the remaining project");
-
-        (uint256[] memory secondPage, uint256 finalCursor) = _getProjectIds(nextCursor, 2);
-        assertEq(secondPage.length, 1, "second page should contain oldest project");
-        assertEq(secondPage[0], 0, "second page should expose the oldest project id");
-        assertEq(finalCursor, 0, "final cursor should signal completion");
-    }
-
-    function test_getAuditorStats_tracksDashboardAndLeaderboardAggregates() public {
-        (, uint256 submissionId) = _registerCommitAndReveal(2 ether, 1 ether);
-
-        AuditorStatsSnapshot memory statsBeforeVerify = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsBeforeVerify.totalSubmissions, 1, "commit should increment total submissions");
-        assertEq(statsBeforeVerify.activeValidCount, 0, "unverified submissions are not valid yet");
-        assertEq(statsBeforeVerify.pendingCount, 0, "pending count should start at zero");
-        assertEq(statsBeforeVerify.paidCount, 0, "paid count should start at zero");
-        assertEq(statsBeforeVerify.highPaidCount, 0, "high count should start at zero");
-        assertEq(statsBeforeVerify.criticalPaidCount, 0, "critical count should start at zero");
-        assertEq(statsBeforeVerify.totalEarnedWei, 0, "earnings should start at zero");
-        assertEq(statsBeforeVerify.leaderboardIndex, 0, "auditor should not join leaderboard before payout");
-
-        vm.prank(FORWARDER);
-        hub.onReport("", _buildReportV2(submissionId, true, 5 ether));
-
-        AuditorStatsSnapshot memory statsAfterVerify = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsAfterVerify.totalSubmissions, 1, "verification should not change submission count");
-        assertEq(statsAfterVerify.activeValidCount, 1, "verified submission should count as active valid");
-        assertEq(statsAfterVerify.pendingCount, 1, "verified submission should count as pending");
-        assertEq(statsAfterVerify.paidCount, 0, "paid count should remain zero before finalize");
-        assertEq(statsAfterVerify.highPaidCount, 0, "high paid count should remain zero before payout");
-        assertEq(statsAfterVerify.criticalPaidCount, 0, "critical paid count should remain zero before payout");
-        assertEq(statsAfterVerify.totalEarnedWei, 0, "earnings should remain zero before payout");
-        assertEq(statsAfterVerify.leaderboardIndex, 0, "auditor should not join leaderboard before payout");
-
-        uint256 challengeBond = hub.MIN_CHALLENGE_BOND();
-        vm.deal(otherUser, 1 ether);
-        vm.prank(otherUser);
-        hub.challenge{value: challengeBond}(submissionId);
-
-        AuditorStatsSnapshot memory statsAfterChallenge = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsAfterChallenge.activeValidCount, 1, "challenged submission should stay valid");
-        assertEq(statsAfterChallenge.pendingCount, 0, "challenged submission should no longer be pending");
-
-        hub.resolveDispute(submissionId, false);
-
-        AuditorStatsSnapshot memory statsAfterResolve = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsAfterResolve.activeValidCount, 1, "confirmed dispute should preserve active valid count");
-        assertEq(statsAfterResolve.pendingCount, 1, "confirmed dispute should restore pending count");
-
-        vm.warp(block.timestamp + 1 days + 1);
-        hub.finalize(submissionId);
-
-        BountyHub.Submission memory finalizedSubmission = _getSubmission(submissionId);
-        AuditorStatsSnapshot memory statsAfterFinalize = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsAfterFinalize.totalSubmissions, 1, "finalize should not change submission count");
-        assertEq(statsAfterFinalize.activeValidCount, 1, "finalized valid submission should stay counted");
-        assertEq(statsAfterFinalize.pendingCount, 0, "finalize should clear pending count");
-        assertEq(statsAfterFinalize.paidCount, 1, "payout should increment paid count");
-        assertEq(statsAfterFinalize.highPaidCount, 1, "high severity payout should increment high count");
-        assertEq(statsAfterFinalize.criticalPaidCount, 0, "critical count should remain zero");
-        assertEq(statsAfterFinalize.totalEarnedWei, finalizedSubmission.payoutAmount, "earnings should track paid amount");
-        assertEq(_getLeaderboardAuditorCount(), 1, "first payout should register the auditor for leaderboard reads");
-        assertEq(statsAfterFinalize.leaderboardIndex, 0, "first paid auditor should receive index zero");
-
-        (address[] memory leaderboardAuditors, uint256 leaderboardCursor) = _getLeaderboardAuditors(0, 10);
-        assertEq(leaderboardAuditors.length, 1, "leaderboard page should include the paid auditor");
-        assertEq(leaderboardAuditors[0], auditor, "leaderboard page should expose the paid auditor");
-        assertEq(leaderboardCursor, 0, "single leaderboard page should exhaust results");
-    }
-
-    function test_getAuditorStats_decrementsValidCountWhenDisputeOverturned() public {
-        (, uint256 submissionId) = _registerCommitAndReveal(2 ether, 1 ether);
-
-        vm.prank(FORWARDER);
-        hub.onReport("", _buildReportV2(submissionId, true, 10 ether));
-
-        uint256 challengeBond = hub.MIN_CHALLENGE_BOND();
-        vm.deal(otherUser, 1 ether);
-        vm.prank(otherUser);
-        hub.challenge{value: challengeBond}(submissionId);
-
-        hub.resolveDispute(submissionId, true);
-
-        AuditorStatsSnapshot memory statsAfterOverturn = _getAuditorStatsSnapshot(auditor);
-        assertEq(statsAfterOverturn.activeValidCount, 0, "overturned dispute should remove valid count");
-        assertEq(statsAfterOverturn.pendingCount, 0, "overturned dispute should not restore pending count");
-        assertEq(statsAfterOverturn.paidCount, 0, "overturned dispute should not create leaderboard payout stats");
-        assertEq(_getLeaderboardAuditorCount(), 0, "auditor should not join leaderboard without payout");
-    }
-
     function test_revealPoC_legacyKeyedInterfaceRejected() public {
         _registerProjectViaV2Defaults(1 ether, 0.5 ether);
         bytes32 salt = keccak256("salt-keyless-cutover");
@@ -450,7 +271,7 @@ contract BountyHubTest is Test {
 
     function test_uniqueCandidateBlocksSecondRevealUntilCandidateResolved() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         uint256 projectId = hub.registerProjectV2{value: 2 ether}(
             TARGET,
             1 ether,
@@ -497,7 +318,7 @@ contract BountyHubTest is Test {
 
     function test_uniqueWinnerLocksAfterValidVerification() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         uint256 projectId = hub.registerProjectV2{value: 2 ether}(
             TARGET,
             1 ether,
@@ -546,7 +367,7 @@ contract BountyHubTest is Test {
 
     function test_FirstValidCandidateWinsAfterEarlierCandidateInvalidates() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         uint256 projectId = hub.registerProjectV2{value: 2 ether}(
             TARGET,
             1 ether,
@@ -780,7 +601,7 @@ contract BountyHubTest is Test {
 
     function test_queueRevealBySig_andExecuteAfterCommitDeadline() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         uint256 commitDeadline = block.timestamp + 1 days;
         uint256 revealDeadline = block.timestamp + 2 days;
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
@@ -1015,6 +836,51 @@ contract BountyHubTest is Test {
         return _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, payload);
     }
 
+    function _buildTypedVerifyPocLifecycleReport(
+        uint256 subId,
+        bool isValid,
+        uint256 drain,
+        bool hasJury,
+        string memory juryAction,
+        string memory juryRationale,
+        bool hasGrouping,
+        string memory groupingCohort,
+        string memory groupId,
+        uint256 groupRank,
+        uint256 groupSize,
+        uint8 lifecycleStatus,
+        uint256 juryDeadline,
+        uint256 adjudicationDeadline,
+        uint8 verdictSource,
+        uint8 finalValidity,
+        bytes32 juryLedgerDigest,
+        bytes32 ownerTestimonyDigest
+    ) internal pure returns (bytes memory) {
+        bytes memory payload = abi.encode(
+            subId,
+            isValid,
+            drain,
+            hasJury,
+            juryAction,
+            juryRationale,
+            hasGrouping,
+            groupingCohort,
+            groupId,
+            groupRank,
+            groupSize,
+            lifecycleStatus,
+            juryDeadline,
+            adjudicationDeadline,
+            verdictSource,
+            finalValidity,
+            juryLedgerDigest,
+            ownerTestimonyDigest,
+            uint8(BountyHub.Severity.NONE)
+        );
+
+        return _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, payload);
+    }
+
     function test_submitPoC_reverts_legacyDisabled_withFundedProject() public {
         _registerProjectViaV2Defaults(5 ether, 2 ether);
         vm.expectRevert("UNSUPPORTED_LEGACY_SUBMIT_POC");
@@ -1176,9 +1042,747 @@ contract BountyHubTest is Test {
         assertEq(groupSize, 3, "Typed report should expose group size");
     }
 
+    function test_submissionStatus_exposesJuryAndAdjudicationLifecycle() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 3 days;
+        uint256 adjudicationDeadline = juryDeadline + 2 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-lifecycle");
+        bytes32 ownerTestimonyDigest = keccak256("owner-testimony-lifecycle");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Submission escalated for sealed jury review.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        BountyHub.Submission memory juryPending = _getSubmission(subId);
+        assertEq(uint8(juryPending.status), STATUS_JURY_PENDING, "Submission should enter jury pending state");
+
+        (
+            uint8 juryPendingStatus,
+            uint256 storedJuryDeadline,
+            uint256 storedAdjudicationDeadline,
+            uint8 storedVerdictSource,
+            uint8 storedFinalValidity,
+            bytes32 storedJuryLedgerDigest,
+            bytes32 storedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        (uint256 expectedJuryDeadline, uint256 expectedAdjudicationDeadline) = _expectedLifecycleDeadlines(subId);
+        assertEq(juryPendingStatus, STATUS_JURY_PENDING, "Lifecycle getter should expose jury pending status");
+        assertEq(storedJuryDeadline, expectedJuryDeadline, "Lifecycle getter should expose the derived jury deadline");
+        assertEq(
+            storedAdjudicationDeadline,
+            expectedAdjudicationDeadline,
+            "Lifecycle getter should expose the derived adjudication deadline"
+        );
+        assertEq(storedVerdictSource, VERDICT_SOURCE_NONE, "Pre-verdict state should not expose verdict source");
+        assertEq(storedFinalValidity, FINAL_VALIDITY_NONE, "Pre-verdict state should not expose final validity");
+        assertEq(storedJuryLedgerDigest, juryLedgerDigest, "Lifecycle getter should expose jury ledger digest");
+        assertEq(storedOwnerTestimonyDigest, bytes32(0), "Lifecycle getter should keep owner testimony empty before adjudication");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "OWNER_ADJUDICATION_REQUIRED",
+                "Jury quorum failed and owner adjudication is now required.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_AWAITING_OWNER_ADJUDICATION,
+                juryDeadline,
+                adjudicationDeadline,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            )
+        );
+
+        BountyHub.Submission memory ownerAdjudicationPending = _getSubmission(subId);
+        assertEq(
+            uint8(ownerAdjudicationPending.status),
+            STATUS_AWAITING_OWNER_ADJUDICATION,
+            "Submission should enter owner adjudication state"
+        );
+
+        (
+            uint8 adjudicationStatus,
+            uint256 updatedJuryDeadline,
+            uint256 updatedAdjudicationDeadline,
+            uint8 updatedVerdictSource,
+            uint8 updatedFinalValidity,
+            bytes32 updatedJuryLedgerDigest,
+            bytes32 updatedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        assertEq(adjudicationStatus, STATUS_AWAITING_OWNER_ADJUDICATION, "Lifecycle getter should expose owner adjudication state");
+        assertEq(updatedJuryDeadline, expectedJuryDeadline, "Lifecycle getter should keep the derived jury deadline stable");
+        assertEq(
+            updatedAdjudicationDeadline,
+            expectedAdjudicationDeadline,
+            "Lifecycle getter should expose the derived adjudication deadline"
+        );
+        assertEq(updatedVerdictSource, VERDICT_SOURCE_NONE, "Owner adjudication should still be pre-verdict");
+        assertEq(updatedFinalValidity, FINAL_VALIDITY_NONE, "Owner adjudication should still be pre-finality");
+        assertEq(updatedJuryLedgerDigest, juryLedgerDigest, "Lifecycle getter should preserve jury ledger digest");
+        assertEq(updatedOwnerTestimonyDigest, ownerTestimonyDigest, "Lifecycle getter should expose owner testimony digest");
+    }
+
+    function test_processReport_recordsJuryProvenanceCommitment() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 4 days;
+        uint256 adjudicationDeadline = juryDeadline + 1 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-commitment");
+        bytes32 ownerTestimonyDigest = keccak256("owner-testimony-commitment");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Digest anchor stored for confidential jury ledger.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "OWNER_TESTIMONY_RECORDED",
+                "Owner testimony digest anchored before final decision.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_AWAITING_OWNER_ADJUDICATION,
+                juryDeadline,
+                adjudicationDeadline,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            )
+        );
+
+        (
+            uint8 status,
+            uint256 storedJuryDeadline,
+            uint256 storedAdjudicationDeadline,
+            uint8 verdictSource,
+            uint8 finalValidity,
+            bytes32 storedJuryLedgerDigest,
+            bytes32 storedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        (uint256 expectedJuryDeadline, uint256 expectedAdjudicationDeadline) = _expectedLifecycleDeadlines(subId);
+        assertEq(status, STATUS_AWAITING_OWNER_ADJUDICATION, "Lifecycle state should remain pre-final adjudication");
+        assertEq(storedJuryDeadline, expectedJuryDeadline, "Stored jury deadline should match the derived deadline");
+        assertEq(
+            storedAdjudicationDeadline,
+            expectedAdjudicationDeadline,
+            "Stored adjudication deadline should match the derived deadline"
+        );
+        assertEq(verdictSource, VERDICT_SOURCE_NONE, "Digest-only state should not commit a verdict source");
+        assertEq(finalValidity, FINAL_VALIDITY_NONE, "Digest-only state should not commit final validity");
+        assertEq(storedJuryLedgerDigest, juryLedgerDigest, "Jury ledger digest should be persisted");
+        assertEq(storedOwnerTestimonyDigest, ownerTestimonyDigest, "Owner testimony digest should be persisted");
+    }
+
+    function test_processReport_rejectsUnauthorizedWorkflowForJuryVerdict() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 3 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-unauthorized");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(BountyHub.UnauthorizedWorkflowProvenance.selector, WORKFLOW_JURY_ORCHESTRATOR_ID)
+        );
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Unauthorized workflow should not move lifecycle state.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Revealed), "Unauthorized workflow must leave status unchanged");
+
+        (
+            uint8 status,
+            uint256 storedJuryDeadline,
+            uint256 storedAdjudicationDeadline,
+            uint8 verdictSource,
+            uint8 finalValidity,
+            bytes32 storedJuryLedgerDigest,
+            bytes32 storedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        assertEq(status, uint8(BountyHub.SubmissionStatus.Revealed), "Unauthorized workflow must not write lifecycle status");
+        assertEq(storedJuryDeadline, 0, "Unauthorized workflow must not write jury deadline");
+        assertEq(storedAdjudicationDeadline, 0, "Unauthorized workflow must not write adjudication deadline");
+        assertEq(verdictSource, VERDICT_SOURCE_NONE, "Unauthorized workflow must not write verdict source");
+        assertEq(finalValidity, FINAL_VALIDITY_NONE, "Unauthorized workflow must not write final validity");
+        assertEq(storedJuryLedgerDigest, bytes32(0), "Unauthorized workflow must not write jury digest");
+        assertEq(storedOwnerTestimonyDigest, bytes32(0), "Unauthorized workflow must not write owner testimony digest");
+    }
+
+    function test_processReport_rejectsMismatchedAuthorizedWorkflowForLifecycleVerdict() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 3 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-mismatched-authorized");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BountyHub.ReportWorkflowMismatch.selector,
+                WORKFLOW_JURY_ORCHESTRATOR_ID,
+                REPORT_TYPE_VERIFY_POC_VERDICT
+            )
+        );
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Authorized but wrong workflow surface must not write lifecycle verdicts.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+    }
+
+    function test_processReport_routesFinalAdjudicationVerdictsToJuryWorkflow() public {
+        (, uint256 verifyPocSubId) = _registerCommitAndReveal(5 ether, 2 ether);
+        BountyHub.SeverityThresholds memory juryThresholds =
+            BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory juryRules =
+            BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, juryThresholds);
+        uint256 juryProjectId = hub.registerProjectV2{value: 5 ether}(
+            TARGET,
+            2 ether,
+            0,
+            BountyHub.CompetitionMode.UNIQUE,
+            0,
+            0,
+            1 days,
+            juryRules
+        );
+        bytes32 jurySalt = keccak256("jury-orchestrator-final-salt");
+        string memory juryCipherURI = "ipfs://jury-orchestrator-final";
+        bytes32 juryCommitHash = keccak256(abi.encodePacked(keccak256(bytes(juryCipherURI)), auditor, jurySalt));
+        vm.prank(auditor);
+        uint256 jurySubId = hub.commitPoC(juryProjectId, juryCommitHash, juryCipherURI);
+        vm.warp(block.timestamp + 1);
+        vm.prank(auditor);
+        hub.revealPoC(jurySubId, jurySalt);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 verifyPocJuryDeadline = block.timestamp + 2 days;
+        bytes32 verifyPocJuryLedgerDigest = keccak256("jury-ledger-final-verify-poc");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                verifyPocSubId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Submission escalated for adjudication.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                verifyPocJuryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                verifyPocJuryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        bytes memory verifyPocFinalPayload = abi.encode(
+            verifyPocSubId,
+            true,
+            0.2 ether,
+            false,
+            "",
+            "",
+            false,
+            "",
+            "",
+            uint256(0),
+            uint256(0),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            verifyPocJuryDeadline,
+            verifyPocJuryDeadline + 1 days,
+            VERDICT_SOURCE_JURY,
+            FINAL_VALIDITY_VALID,
+            verifyPocJuryLedgerDigest,
+            bytes32(0),
+            uint8(BountyHub.Severity.MEDIUM)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BountyHub.ReportWorkflowMismatch.selector,
+                WORKFLOW_VERIFY_POC_ID,
+                REPORT_TYPE_VERIFY_POC_VERDICT
+            )
+        );
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, verifyPocFinalPayload)
+        );
+
+        BountyHub.Submission memory verifyPocRejectedSub = _getSubmission(verifyPocSubId);
+        assertEq(
+            uint8(verifyPocRejectedSub.status),
+            STATUS_JURY_PENDING,
+            "verify-poc must not finalize adjudication verdicts"
+        );
+
+        uint256 juryWorkflowDeadline = block.timestamp + 2 days;
+        bytes32 juryWorkflowDigest = keccak256("jury-ledger-final-jury-orchestrator");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                jurySubId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Submission escalated for adjudication.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryWorkflowDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryWorkflowDigest,
+                bytes32(0)
+            )
+        );
+
+        bytes memory juryWorkflowFinalPayload = abi.encode(
+            jurySubId,
+            true,
+            0.2 ether,
+            false,
+            "",
+            "",
+            false,
+            "",
+            "",
+            uint256(0),
+            uint256(0),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            juryWorkflowDeadline,
+            juryWorkflowDeadline + 1 days,
+            VERDICT_SOURCE_JURY,
+            FINAL_VALIDITY_VALID,
+            juryWorkflowDigest,
+            bytes32(0),
+            uint8(BountyHub.Severity.MEDIUM)
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, juryWorkflowFinalPayload)
+        );
+
+        BountyHub.Submission memory juryWorkflowSub = _getSubmission(jurySubId);
+        assertEq(
+            uint8(juryWorkflowSub.status),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            "jury-orchestrator should own final adjudication verdict writeback"
+        );
+        assertEq(
+            uint8(juryWorkflowSub.severity),
+            uint8(BountyHub.Severity.MEDIUM),
+            "jury-orchestrator final verdicts should preserve adjudicated severity"
+        );
+    }
+
+    function test_processReport_recordsFinalValiditySourceAndDigests() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 2 days;
+        uint256 adjudicationDeadline = juryDeadline + 1 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-owner-final");
+        bytes32 ownerTestimonyDigest = keccak256("owner-testimony-owner-final");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Jury review started before owner adjudication.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "OWNER_ADJUDICATION_REQUIRED",
+                "Jury quorum failed and owner adjudication is required.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_AWAITING_OWNER_ADJUDICATION,
+                juryDeadline,
+                adjudicationDeadline,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            )
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                false,
+                "",
+                "",
+                false,
+                "",
+                "",
+                0,
+                0,
+                uint8(BountyHub.SubmissionStatus.Invalid),
+                juryDeadline,
+                adjudicationDeadline,
+                VERDICT_SOURCE_OWNER,
+                FINAL_VALIDITY_INVALID,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            )
+        );
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Invalid), "Final owner verdict should mark the submission invalid");
+
+        (
+            uint8 lifecycleStatus,
+            uint256 storedJuryDeadline,
+            uint256 storedAdjudicationDeadline,
+            uint8 verdictSource,
+            uint8 finalValidity,
+            bytes32 storedJuryLedgerDigest,
+            bytes32 storedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        (uint256 expectedJuryDeadline, uint256 expectedAdjudicationDeadline) = _expectedLifecycleDeadlines(subId);
+        assertEq(lifecycleStatus, uint8(BountyHub.SubmissionStatus.Invalid), "Lifecycle getter should expose final invalid status");
+        assertEq(storedJuryDeadline, expectedJuryDeadline, "Lifecycle getter should preserve the derived jury deadline");
+        assertEq(
+            storedAdjudicationDeadline,
+            expectedAdjudicationDeadline,
+            "Lifecycle getter should preserve the derived adjudication deadline"
+        );
+        assertEq(verdictSource, VERDICT_SOURCE_OWNER, "Lifecycle getter should expose owner verdict source");
+        assertEq(finalValidity, FINAL_VALIDITY_INVALID, "Lifecycle getter should expose invalid finality");
+        assertEq(storedJuryLedgerDigest, juryLedgerDigest, "Lifecycle getter should preserve jury ledger digest");
+        assertEq(storedOwnerTestimonyDigest, ownerTestimonyDigest, "Lifecycle getter should preserve owner testimony digest");
+    }
+
+    function test_processReport_rejectsGroupingForInvalidVerdict() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 2 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-invalid-grouping");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Grouping must wait until a valid final verdict exists.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        vm.expectRevert("Grouping requires valid final verdict");
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_REJECTED",
+                "Invalid verdicts must never emit MULTI grouping metadata.",
+                true,
+                "HIGH",
+                "jury-high-invalid-001",
+                1,
+                2,
+                uint8(BountyHub.SubmissionStatus.Invalid),
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_JURY,
+                FINAL_VALIDITY_INVALID,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), STATUS_JURY_PENDING, "Reverted invalid grouping should leave lifecycle state unchanged");
+    }
+
+    function test_settlementChallengeStillAppliesAfterFinalVerdictCommit() public {
+        (, uint256 subId) = _registerCommitAndReveal(5 ether, 2 ether);
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 3 days;
+        uint256 adjudicationDeadline = juryDeadline + 2 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-final-verdict");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Settlement hooks must stay closed before a final verdict.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        vm.deal(otherUser, 1 ether);
+        vm.expectRevert("Not verified");
+        vm.prank(otherUser);
+        hub.challenge{value: 0.1 ether}(subId);
+
+        bytes memory finalPayload = abi.encode(
+            subId,
+            true,
+            1 ether,
+            false,
+            "",
+            "",
+            false,
+            "",
+            "",
+            uint256(0),
+            uint256(0),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            juryDeadline,
+            adjudicationDeadline,
+            VERDICT_SOURCE_JURY,
+            FINAL_VALIDITY_VALID,
+            juryLedgerDigest,
+            bytes32(0),
+            uint8(BountyHub.Severity.MEDIUM)
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, finalPayload)
+        );
+
+        BountyHub.Submission memory verified = _getSubmission(subId);
+        assertEq(uint8(verified.status), uint8(BountyHub.SubmissionStatus.Verified), "Final verdict should reopen settlement flow");
+        assertGt(verified.disputeDeadline, block.timestamp, "Final verdict should set dispute deadline");
+
+        (
+            uint8 lifecycleStatus,
+            ,
+            ,
+            uint8 verdictSource,
+            uint8 finalValidity,
+            bytes32 storedJuryLedgerDigest,
+            bytes32 storedOwnerTestimonyDigest
+        ) = _getSubmissionLifecycle(subId);
+        assertEq(lifecycleStatus, uint8(BountyHub.SubmissionStatus.Verified), "Lifecycle getter should expose final verified status");
+        assertEq(verdictSource, VERDICT_SOURCE_JURY, "Final verdict should record jury as the source");
+        assertEq(finalValidity, FINAL_VALIDITY_VALID, "Final verdict should record valid finality");
+        assertEq(storedJuryLedgerDigest, juryLedgerDigest, "Final verdict should preserve jury digest provenance");
+        assertEq(storedOwnerTestimonyDigest, bytes32(0), "Final jury verdict should not invent owner testimony digest");
+
+        vm.prank(otherUser);
+        hub.challenge{value: 0.1 ether}(subId);
+
+        BountyHub.Submission memory disputed = _getSubmission(subId);
+        assertEq(uint8(disputed.status), uint8(BountyHub.SubmissionStatus.Disputed), "Challenge should still work after final verdict commit");
+
+        hub.resolveDispute(subId, false);
+
+        BountyHub.Submission memory resolved = _getSubmission(subId);
+        assertEq(uint8(resolved.status), uint8(BountyHub.SubmissionStatus.Verified), "Resolve dispute should return submission to verified state");
+
+        vm.warp(resolved.disputeDeadline + 1);
+        uint256 auditorBalanceBefore = auditor.balance;
+        hub.finalize(subId);
+
+        BountyHub.Submission memory finalized = _getSubmission(subId);
+        assertEq(uint8(finalized.status), uint8(BountyHub.SubmissionStatus.Finalized), "Finalize should still complete after jury verdict review");
+        assertGt(auditor.balance, auditorBalanceBefore, "Finalize should still pay the auditor");
+    }
+
     function test_processReport_severity_critical() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         hub.registerProjectV2{value: 10 ether}(TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 0, rules);
 
         bytes32 salt = keccak256("salt");
@@ -1194,7 +1798,7 @@ contract BountyHubTest is Test {
 
     function test_challenge() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         hub.registerProjectV2{value: 10 ether}(TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules);
 
         bytes32 salt = keccak256("salt");
@@ -1214,7 +1818,7 @@ contract BountyHubTest is Test {
 
     function test_finalize() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         hub.registerProjectV2{value: 10 ether}(TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules);
 
         bytes32 salt = keccak256("salt");
@@ -1442,12 +2046,92 @@ contract BountyHubTest is Test {
         );
     }
 
+    function test_processReport_preservesAdjudicatedMediumSeverity() public {
+        BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
+        hub.registerProjectV2{value: 5 ether}(TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules);
+
+        bytes32 salt = keccak256("adjudicated-medium-salt");
+        string memory cipherURI = "ipfs://oasis/adjudicated-medium";
+        bytes32 commitHash = keccak256(abi.encodePacked(keccak256(bytes(cipherURI)), auditor, salt));
+
+        vm.prank(auditor);
+        uint256 subId = hub.commitPoC(0, commitHash, cipherURI);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(auditor);
+        hub.revealPoC(subId, salt);
+
+        hub.setAuthorizedWorkflow(WORKFLOW_VERIFY_POC_ID, true);
+        hub.setAuthorizedWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID, true);
+
+        uint256 juryDeadline = block.timestamp + 3 days;
+        bytes32 juryLedgerDigest = keccak256("jury-ledger-medium-severity");
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
+            _buildTypedVerifyPocLifecycleReport(
+                subId,
+                false,
+                0,
+                true,
+                "JURY_PENDING",
+                "Submission escalated for adjudication.",
+                false,
+                "",
+                "",
+                0,
+                0,
+                STATUS_JURY_PENDING,
+                juryDeadline,
+                0,
+                VERDICT_SOURCE_NONE,
+                FINAL_VALIDITY_NONE,
+                juryLedgerDigest,
+                bytes32(0)
+            )
+        );
+
+        bytes memory finalPayload = abi.encode(
+            subId,
+            true,
+            0.2 ether,
+            false,
+            "",
+            "",
+            false,
+            "",
+            "",
+            uint256(0),
+            uint256(0),
+            uint8(BountyHub.SubmissionStatus.Verified),
+            juryDeadline,
+            juryDeadline + 1 days,
+            VERDICT_SOURCE_JURY,
+            FINAL_VALIDITY_VALID,
+            juryLedgerDigest,
+            bytes32(0),
+            uint8(BountyHub.Severity.MEDIUM)
+        );
+
+        vm.prank(FORWARDER);
+        hub.onReport(
+            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _buildTypedReport(REPORT_TYPE_VERIFY_POC_VERDICT, finalPayload)
+        );
+
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        assertEq(uint8(sub.status), uint8(BountyHub.SubmissionStatus.Verified), "Final adjudication should mark submission verified");
+        assertEq(uint8(sub.severity), uint8(BountyHub.Severity.MEDIUM), "Adjudicated medium outcomes must not be recomputed from drain thresholds");
+    }
+
     // ============ HELPER FUNCTIONS ============
 
     function _registerProjectViaV2Defaults(uint256 bounty, uint256 maxPayout) internal returns (uint256 projectId) {
         BountyHub.SeverityThresholds memory thresholds =
             BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 0, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 0, true, 3600, 3600, thresholds);
 
         projectId = hub.registerProjectV2{value: bounty}(
             TARGET,
@@ -1463,7 +2147,7 @@ contract BountyHubTest is Test {
 
     function _registerCommitAndReveal(uint256 bounty, uint256 maxPayout) internal returns (uint256 pid, uint256 subId) {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         pid = hub.registerProjectV2{value: bounty}(TARGET, maxPayout, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules);
 
         bytes32 commitHash = keccak256(abi.encodePacked(keccak256("uri"), auditor, keccak256("salt")));
@@ -1473,19 +2157,6 @@ contract BountyHubTest is Test {
         vm.warp(block.timestamp + 1); // Ensure reveal after commit
         vm.prank(auditor);
         hub.revealPoC(subId, keccak256("salt"));
-    }
-
-    function _commitSubmission(
-        uint256 projectId,
-        address submitter,
-        bytes32 salt,
-        string memory cipherURI
-    ) internal returns (uint256 submissionId) {
-        bytes32 commitHash = keccak256(
-            abi.encodePacked(keccak256(bytes(cipherURI)), submitter, salt)
-        );
-        vm.prank(submitter);
-        return hub.commitPoC(projectId, commitHash, cipherURI);
     }
 
     function _getSubmission(uint256 subId) internal view returns (BountyHub.Submission memory sub) {
@@ -1518,132 +2189,35 @@ contract BountyHubTest is Test {
         return abi.decode(data, (bool, string, string, uint256, uint256));
     }
 
-    function _getAuditorSubmissionCount(address auditorAddress) internal view returns (uint256 count) {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getAuditorSubmissionCount(address)", auditorAddress)
-        );
-        assertTrue(ok, "auditor submission count getter should exist");
-        return abi.decode(data, (uint256));
-    }
-
-    function _getProjectSubmissionCount(uint256 projectId) internal view returns (uint256 count) {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getProjectSubmissionCount(uint256)", projectId)
-        );
-        assertTrue(ok, "project submission count getter should exist");
-        return abi.decode(data, (uint256));
-    }
-
-    function _getAuditorSubmissionIds(address auditorAddress, uint256 cursor, uint256 limit)
+    function _expectedLifecycleDeadlines(uint256 subId)
         internal
         view
-        returns (uint256[] memory ids, uint256 nextCursor)
+        returns (uint256 juryDeadline, uint256 adjudicationDeadline)
     {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature(
-                "getAuditorSubmissionIds(address,uint256,uint256)",
-                auditorAddress,
-                cursor,
-                limit
-            )
-        );
-        assertTrue(ok, "auditor submission ids getter should exist");
-        return abi.decode(data, (uint256[], uint256));
+        BountyHub.Submission memory sub = _getSubmission(subId);
+        (uint256 juryWindow, uint256 adjudicationWindow) = hub.getProjectAdjudicationWindows(sub.projectId);
+        juryDeadline = sub.revealTimestamp + juryWindow;
+        adjudicationDeadline = juryDeadline + adjudicationWindow;
     }
 
-    function _getProjectSubmissionIds(uint256 projectId, uint256 cursor, uint256 limit)
-        internal
-        view
-        returns (uint256[] memory ids, uint256 nextCursor)
-    {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature(
-                "getProjectSubmissionIds(uint256,uint256,uint256)",
-                projectId,
-                cursor,
-                limit
-            )
-        );
-        assertTrue(ok, "project submission ids getter should exist");
-        return abi.decode(data, (uint256[], uint256));
-    }
-
-    function _getProjectCount() internal view returns (uint256 count) {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getProjectCount()")
-        );
-        assertTrue(ok, "project count getter should exist");
-        return abi.decode(data, (uint256));
-    }
-
-    function _getProjectIds(uint256 cursor, uint256 limit)
-        internal
-        view
-        returns (uint256[] memory ids, uint256 nextCursor)
-    {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getProjectIds(uint256,uint256)", cursor, limit)
-        );
-        assertTrue(ok, "project ids getter should exist");
-        return abi.decode(data, (uint256[], uint256));
-    }
-
-    function _getAuditorStats(address auditorAddress)
+    function _getSubmissionLifecycle(uint256 subId)
         internal
         view
         returns (
-            uint256 totalSubmissions,
-            uint256 activeValidCount,
-            uint256 pendingCount,
-            uint256 paidCount,
-            uint256 highPaidCount,
-            uint256 criticalPaidCount,
-            uint256 totalEarnedWei,
-            uint256 leaderboardIndex
+            uint8 status,
+            uint256 juryDeadline,
+            uint256 adjudicationDeadline,
+            uint8 verdictSource,
+            uint8 finalValidity,
+            bytes32 juryLedgerDigest,
+            bytes32 ownerTestimonyDigest
         )
     {
         (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getAuditorStats(address)", auditorAddress)
+            abi.encodeWithSignature("getSubmissionLifecycle(uint256)", subId)
         );
-        assertTrue(ok, "auditor stats getter should exist");
-        return abi.decode(data, (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint256));
-    }
-
-    function _getAuditorStatsSnapshot(address auditorAddress)
-        internal
-        view
-        returns (AuditorStatsSnapshot memory snapshot)
-    {
-        (
-            snapshot.totalSubmissions,
-            snapshot.activeValidCount,
-            snapshot.pendingCount,
-            snapshot.paidCount,
-            snapshot.highPaidCount,
-            snapshot.criticalPaidCount,
-            snapshot.totalEarnedWei,
-            snapshot.leaderboardIndex
-        ) = _getAuditorStats(auditorAddress);
-    }
-
-    function _getLeaderboardAuditorCount() internal view returns (uint256 count) {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getLeaderboardAuditorCount()")
-        );
-        assertTrue(ok, "leaderboard auditor count getter should exist");
-        return abi.decode(data, (uint256));
-    }
-
-    function _getLeaderboardAuditors(uint256 cursor, uint256 limit)
-        internal
-        view
-        returns (address[] memory auditors, uint256 nextCursor)
-    {
-        (bool ok, bytes memory data) = address(hub).staticcall(
-            abi.encodeWithSignature("getLeaderboardAuditors(uint256,uint256)", cursor, limit)
-        );
-        assertTrue(ok, "leaderboard auditors getter should exist");
-        return abi.decode(data, (address[], uint256));
+        assertTrue(ok, "lifecycle getter should exist");
+        return abi.decode(data, (uint8, uint256, uint256, uint8, uint8, bytes32, bytes32));
     }
 
     function _domainSeparator() internal view returns (bytes32) {
@@ -1714,7 +2288,7 @@ contract BountyHubTest is Test {
     function test_commitReveal_oasisFlow() public {
         // 1. Register project V2
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
         uint256 projectId = hub.registerProjectV2{value: 10 ether}(
             TARGET, 1 ether, 0, BountyHub.CompetitionMode.UNIQUE, 0, 0, 1 days, rules
         );
@@ -1763,7 +2337,7 @@ contract BountyHubTest is Test {
         }
 
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV3{value: 10 ether}(
             "https://github.com/test/multi-contract",
@@ -1791,7 +2365,7 @@ contract BountyHubTest is Test {
         BountyHub.ContractScope[] memory scopes = new BountyHub.ContractScope[](0);
 
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV3{value: 1 ether}(
             "https://github.com/test/empty",

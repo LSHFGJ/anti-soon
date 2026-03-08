@@ -233,12 +233,16 @@ describe("docs content schema", () => {
 
 		expect(architectureText).toContain("5 LLM");
 		expect(architectureText).toContain("5 human");
-		expect(architectureText).toContain("verification window");
+		expect(architectureText).toContain("juryDeadline");
+		expect(architectureText).toContain("8/10");
 		expect(dataFlowText).toContain("solo");
 		expect(dataFlowText).toContain("duplicate");
 		expect(dataFlowText).toContain("owner testimony");
-		expect(securityText).toContain("VRF randomness");
-		expect(securityText).toContain("zk");
+		expect(dataFlowText).toContain("verify-poc");
+		expect(securityText).toContain("selection provenance");
+		expect(securityText).toContain("BountyHub");
+		expect(securityText).toContain("jury-orchestrator");
+		expect(securityText).toContain("selection provenance");
 	});
 
 	it("publishes a minimal addresses page with real on-chain contract addresses and one repo link", async () => {

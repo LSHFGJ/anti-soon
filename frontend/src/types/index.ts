@@ -1,7 +1,7 @@
 import type { Address } from 'viem'
 
-export type SubmissionStatus = 'Committed' | 'Revealed' | 'Verified' | 'Disputed' | 'Finalized' | 'Invalid'
-export const STATUS_LABELS: SubmissionStatus[] = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
+export type SubmissionStatus = 'Committed' | 'Revealed' | 'Verified' | 'Disputed' | 'Finalized' | 'Invalid' | 'JuryPending' | 'AwaitingOwnerAdjudication'
+export const STATUS_LABELS: SubmissionStatus[] = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid', 'JuryPending', 'AwaitingOwnerAdjudication']
 
 export type Severity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export const SEVERITY_LABELS: Severity[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
@@ -11,6 +11,23 @@ export const SEVERITY_COLORS: Record<Severity, string> = {
   MEDIUM: 'var(--color-gold)',
   HIGH: 'var(--color-warning)',
   CRITICAL: 'var(--color-error)'
+}
+
+
+export type VerdictSource = 'None' | 'Verification' | 'Jury' | 'Owner'
+export const VERDICT_SOURCE_LABELS: VerdictSource[] = ['None', 'Verification', 'Jury', 'Owner']
+
+export type FinalValidity = 'None' | 'Valid' | 'Invalid'
+export const FINAL_VALIDITY_LABELS: FinalValidity[] = ['None', 'Valid', 'Invalid']
+
+export interface SubmissionLifecycle {
+  status: number
+  juryDeadline: bigint
+  adjudicationDeadline: bigint
+  verdictSource: number
+  finalValidity: number
+  juryLedgerDigest: `0x${string}`
+  ownerTestimonyDigest: `0x${string}`
 }
 
 export type CompetitionMode = 'UNIQUE' | 'MULTI'
@@ -128,6 +145,7 @@ export interface SubmissionJury {
 }
 
 export interface ExtendedSubmission extends Submission {
+  lifecycle?: SubmissionLifecycle
   grouping?: SubmissionGrouping
   jury?: SubmissionJury
 }

@@ -1,263 +1,254 @@
-import { render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Address } from 'viem'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Dashboard } from '../pages/Dashboard'
 import { ProjectDetail } from '../pages/ProjectDetail'
 import { SubmissionDetail } from '../pages/SubmissionDetail'
-import { useWallet } from '../hooks/useWallet'
-import { resolveSapphireTxHash } from '../lib/oasisUpload'
-import { readProjectById } from '../lib/projectReads'
-import type { Project, ProjectRules, Submission } from '../types'
-
-type SubmissionTuple = readonly [
-  auditor: Address,
-  projectId: bigint,
-  commitHash: `0x${string}`,
-  cipherURI: string,
-  salt: `0x${string}`,
-  commitTimestamp: bigint,
-  revealTimestamp: bigint,
-  status: number,
-  drainAmountWei: bigint,
-  severity: number,
-  payoutAmount: bigint,
-  disputeDeadline: bigint,
-  challenged: boolean,
-  challenger: Address,
-  challengeBond: bigint,
-]
-
-type RulesTuple = readonly [
-  maxAttackerSeedWei: bigint,
-  maxWarpSeconds: bigint,
-  allowImpersonation: boolean,
-  thresholds: ProjectRules['thresholds'],
-]
 
 const {
-  mockReadContractWithRpcFallback,
-  mockMulticallWithRpcFallback,
+  mockUseWallet,
   mockGetLogsWithRangeFallback,
-  mockReadSubmissionCommitTxHash,
-  publicClientMock,
+  mockGetLogsWithRpcFallback,
+  mockMulticallWithRpcFallback,
+  mockReadContractWithRpcFallback,
+  mockReadProjectById,
+  mockReadStoredPoCPreview,
+  mockResolveSapphireTxHash,
 } = vi.hoisted(() => ({
-  mockReadContractWithRpcFallback: vi.fn(),
-  mockMulticallWithRpcFallback: vi.fn(),
+  mockUseWallet: vi.fn(),
   mockGetLogsWithRangeFallback: vi.fn(),
-  mockReadSubmissionCommitTxHash: vi.fn(),
-  publicClientMock: {
-    waitForTransactionReceipt: vi.fn(),
-  },
+  mockGetLogsWithRpcFallback: vi.fn(),
+  mockMulticallWithRpcFallback: vi.fn(),
+  mockReadContractWithRpcFallback: vi.fn(),
+  mockReadProjectById: vi.fn(),
+  mockReadStoredPoCPreview: vi.fn(),
+  mockResolveSapphireTxHash: vi.fn(),
 }))
 
 vi.mock('../hooks/useWallet', () => ({
-  useWallet: vi.fn(),
-}))
-
-vi.mock('../lib/publicClient', () => ({
-  multicallWithRpcFallback: mockMulticallWithRpcFallback,
-  publicClient: publicClientMock,
-  readContractWithRpcFallback: mockReadContractWithRpcFallback,
+  useWallet: (...args: unknown[]) => mockUseWallet(...args),
 }))
 
 vi.mock('../lib/chainLogs', () => ({
-  discoverDeploymentBlockWithFallback: vi.fn().mockResolvedValue(0n),
-  getLogsWithRangeFallback: mockGetLogsWithRangeFallback,
+  discoverDeploymentBlockWithFallback: vi.fn(),
+  getLogsWithRangeFallback: (...args: unknown[]) => mockGetLogsWithRangeFallback(...args),
+}))
+
+vi.mock('../lib/publicClient', () => ({
+  publicClient: {
+    multicall: vi.fn(),
+    readContract: vi.fn(),
+    getLogs: vi.fn(),
+  },
+  getBlockNumberWithRpcFallback: vi.fn(),
+  getLogsWithRpcFallback: (...args: unknown[]) => mockGetLogsWithRpcFallback(...args),
+  multicallWithRpcFallback: (...args: unknown[]) => mockMulticallWithRpcFallback(...args),
+  readContractWithRpcFallback: (...args: unknown[]) => mockReadContractWithRpcFallback(...args),
 }))
 
 vi.mock('../lib/projectReads', () => ({
-  readProjectById: vi.fn(),
+  readProjectById: (...args: unknown[]) => mockReadProjectById(...args),
 }))
 
 vi.mock('../lib/oasisUpload', () => ({
-  readStoredPoCPreview: vi.fn(),
-  resolveSapphireTxHash: vi.fn(),
-}))
-
-vi.mock('../lib/submissionArtifacts', () => ({
-  readSubmissionCommitTxHash: mockReadSubmissionCommitTxHash,
+  readStoredPoCPreview: (...args: unknown[]) => mockReadStoredPoCPreview(...args),
+  resolveSapphireTxHash: (...args: unknown[]) => mockResolveSapphireTxHash(...args),
 }))
 
 const MOCK_ADDRESS = '0x1234567890123456789012345678901234567890' as Address
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
-const ZERO_HASH = `0x${'0'.repeat(64)}` as `0x${string}`
 
-const mockProject: Project = {
+const mockProject = {
   id: 1n,
   owner: MOCK_ADDRESS,
   bountyPool: 1_000n,
   maxPayoutPerBug: 100n,
-  targetContract: MOCK_ADDRESS,
-  forkBlock: 12_345n,
+  targetContract: '0x2222222222222222222222222222222222222222' as Address,
+  forkBlock: 20_000_000n,
   active: true,
   mode: 1,
-  commitDeadline: 20_000_000_000n,
-  revealDeadline: 20_000_100_000n,
+  commitDeadline: 10_000_000_000n,
+  revealDeadline: 20_000_000_000n,
   disputeWindow: 100n,
-  rulesHash: ZERO_HASH,
+  rulesHash: `0x${'12'.repeat(32)}` as `0x${string}`,
   vnetStatus: 0,
   vnetRpcUrl: '',
-  baseSnapshotId: ZERO_HASH,
+  baseSnapshotId: `0x${'00'.repeat(32)}` as `0x${string}`,
   vnetCreatedAt: 0n,
   repoUrl: '',
 }
 
-const mockRules: ProjectRules = {
-  maxAttackerSeedWei: 100n,
-  maxWarpSeconds: 3_600n,
-  allowImpersonation: false,
-  thresholds: {
-    criticalDrainWei: 400n,
-    highDrainWei: 300n,
-    mediumDrainWei: 200n,
+const mockProjectRules = [
+  100n,
+  3600n,
+  false,
+  {
+    criticalDrainWei: 100n,
+    highDrainWei: 100n,
+    mediumDrainWei: 100n,
     lowDrainWei: 100n,
   },
+] as const
+
+function makeSubmissionTuple(overrides?: Partial<{
+  auditor: Address
+  projectId: bigint
+  status: number
+  severity: number
+  drainAmountWei: bigint
+  payoutAmount: bigint
+  disputeDeadline: bigint
+  challenged: boolean
+  challenger: Address
+  challengeBond: bigint
+}>) {
+  return [
+    overrides?.auditor ?? MOCK_ADDRESS,
+    overrides?.projectId ?? 1n,
+    `0x${'aa'.repeat(32)}` as `0x${string}`,
+    'oasis://sapphire-testnet/0x2222222222222222222222222222222222222222/slot-1001#0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    `0x${'00'.repeat(32)}` as `0x${string}`,
+    1_736_200_000n,
+    1_736_300_000n,
+    overrides?.status ?? 2,
+    overrides?.drainAmountWei ?? 100n,
+    overrides?.severity ?? 3,
+    overrides?.payoutAmount ?? 0n,
+    overrides?.disputeDeadline ?? 0n,
+    overrides?.challenged ?? false,
+    overrides?.challenger ?? ('0x0000000000000000000000000000000000000000' as Address),
+    overrides?.challengeBond ?? 0n,
+  ] as const
 }
 
-const mockRulesTuple: RulesTuple = [
-  mockRules.maxAttackerSeedWei,
-  mockRules.maxWarpSeconds,
-  mockRules.allowImpersonation,
-  mockRules.thresholds,
-]
-
-const mockSubmission: Submission = {
-  id: 1001n,
-  auditor: MOCK_ADDRESS,
-  projectId: mockProject.id,
-  commitHash: ZERO_HASH,
-  cipherURI: 'oasis://preview/fallback',
-  salt: ZERO_HASH,
-  commitTimestamp: 1_700_000_000n,
-  revealTimestamp: 1_700_000_100n,
-  status: 2,
-  drainAmountWei: 100n,
-  severity: 3,
-  payoutAmount: 0n,
-  disputeDeadline: 1_700_000_200n,
-  challenged: false,
-  challenger: ZERO_ADDRESS,
-  challengeBond: 0n,
+function makeLifecycleTuple() {
+  return [6, 1_736_400_000n, 1_736_500_000n, 2, 0, '0x0', '0x0'] as const
 }
 
-const mockSubmissionTuple: SubmissionTuple = [
-  mockSubmission.auditor,
-  mockSubmission.projectId,
-  mockSubmission.commitHash,
-  mockSubmission.cipherURI,
-  mockSubmission.salt,
-  mockSubmission.commitTimestamp,
-  mockSubmission.revealTimestamp,
-  mockSubmission.status,
-  mockSubmission.drainAmountWei,
-  mockSubmission.severity,
-  mockSubmission.payoutAmount,
-  mockSubmission.disputeDeadline,
-  mockSubmission.challenged,
-  mockSubmission.challenger,
-  mockSubmission.challengeBond,
-]
-
-function getFunctionName(parameters: unknown): string | null {
-  if (typeof parameters !== 'object' || parameters === null || !('functionName' in parameters)) {
-    return null
-  }
-
-  const value = parameters.functionName
-  return typeof value === 'string' ? value : null
+function makeJuryTuple() {
+  return [true, 'UPHOLD_AI_RESULT', 'Looks good'] as const
 }
 
-function renderProjectDetailRoute() {
-  render(
-    <MemoryRouter initialEntries={['/project/1']}>
-      <Routes>
-        <Route path="/project/:id" element={<ProjectDetail />} />
-      </Routes>
-    </MemoryRouter>,
-  )
+function makeGroupingTuple() {
+  return [true, 'HIGH', 'g123', 1n, 3n] as const
 }
 
-function renderSubmissionDetailRoute() {
-  render(
-    <MemoryRouter initialEntries={['/submission/1001']}>
-      <Routes>
-        <Route path="/submission/:id" element={<SubmissionDetail />} />
-      </Routes>
-    </MemoryRouter>,
-  )
-}
-
-describe('Submission views omit optional grouping and jury metadata when chain data lacks it', () => {
+describe('Submission Grouping & Jury Visibility Alignment', () => {
   beforeEach(() => {
     vi.clearAllMocks()
 
-    const mockWalletState: ReturnType<typeof useWallet> = {
+    mockUseWallet.mockReturnValue({
       address: MOCK_ADDRESS,
-      chainId: 11155111,
-      chainName: 'Sepolia',
-      connect: vi.fn(async () => {}),
-      disconnect: vi.fn(),
       isConnected: true,
       isConnecting: false,
-      isWrongNetwork: false,
-      publicClient: undefined,
-      switchToCorrectNetwork: vi.fn(async () => {}),
+      connect: vi.fn(),
       walletClient: undefined,
-    }
-
-    vi.mocked(useWallet).mockReturnValue(mockWalletState)
-    vi.mocked(readProjectById).mockResolvedValue(mockProject)
-    vi.mocked(resolveSapphireTxHash).mockResolvedValue(undefined)
+    })
 
     mockGetLogsWithRangeFallback.mockResolvedValue([])
-    mockMulticallWithRpcFallback.mockResolvedValue([mockSubmissionTuple])
-    mockReadSubmissionCommitTxHash.mockResolvedValue(undefined)
-    mockReadContractWithRpcFallback.mockImplementation(async (parameters: unknown) => {
-      const functionName = getFunctionName(parameters)
-
-      if (functionName === 'getAuditorSubmissionIds' || functionName === 'getProjectSubmissionIds') {
-        return [[mockSubmission.id], 0n]
-      }
-
-      if (functionName === 'projectRules') {
-        return mockRulesTuple
-      }
-
-      if (functionName === 'submissions') {
-        return mockSubmissionTuple
-      }
-
-      throw new Error(`Unexpected readContract call: ${String(functionName)}`)
+    mockGetLogsWithRpcFallback.mockResolvedValue([])
+    mockMulticallWithRpcFallback.mockResolvedValue([])
+    mockReadProjectById.mockResolvedValue(mockProject)
+    mockReadStoredPoCPreview.mockResolvedValue({ poc: { ok: true } })
+    mockResolveSapphireTxHash.mockResolvedValue(undefined)
+    mockReadContractWithRpcFallback.mockImplementation(({ functionName }: { functionName: string }) => {
+      if (functionName === 'projectRules') return Promise.resolve(mockProjectRules)
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple())
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve(makeLifecycleTuple())
+      if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', ''])
+      if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n])
+      if (functionName === 'nextSubmissionId') return Promise.resolve(0n)
+      return Promise.resolve(null)
     })
   })
 
-  it('Dashboard renders recent submissions without grouping or jury badges', async () => {
+  it('Dashboard renders grouping and jury metadata gracefully', async () => {
+    mockGetLogsWithRangeFallback.mockResolvedValue([
+      {
+        args: { submissionId: 1001n },
+        transactionHash: `0x${'c'.repeat(64)}`,
+      },
+    ])
+
+    mockMulticallWithRpcFallback.mockResolvedValue([
+      makeSubmissionTuple(),
+      makeLifecycleTuple(),
+      makeJuryTuple(),
+      makeGroupingTuple(),
+    ])
+
     render(
       <MemoryRouter>
         <Dashboard />
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('link', { name: '#1001' })).toBeVisible()
-    expect(screen.queryByText('[HIGH-1/3]')).not.toBeInTheDocument()
-    expect(screen.queryByText(/⚖️/)).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '#1001' })).toBeVisible()
+    })
+
+    expect(screen.getByText(/\[HIGH-1\/3\]/)).toBeVisible()
+    expect(screen.getByText(/UPHOLD AI/)).toBeVisible()
+    expect(screen.queryByText(/Failed to load your submissions from blockchain/i)).not.toBeInTheDocument()
   })
 
-  it('ProjectDetail renders submissions without grouping or jury badges', async () => {
-    renderProjectDetailRoute()
+  it('ProjectDetail renders grouping and jury metadata gracefully', async () => {
+    mockGetLogsWithRangeFallback.mockResolvedValue([
+      {
+        args: { submissionId: 3001n },
+        transactionHash: `0x${'d'.repeat(64)}`,
+      },
+    ])
 
-    expect(await screen.findByText('#1001')).toBeInTheDocument()
-    expect(screen.queryByText('[HIGH-1/3]')).not.toBeInTheDocument()
-    expect(screen.queryByText(/⚖️/)).not.toBeInTheDocument()
+    mockMulticallWithRpcFallback.mockResolvedValue([
+      makeSubmissionTuple(),
+      makeLifecycleTuple(),
+      makeJuryTuple(),
+      makeGroupingTuple(),
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/project/1']}>
+        <Routes>
+          <Route path="/project/:id" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/\[HIGH-1\/3\]/)).toBeVisible()
+      expect(screen.getByText('Source: Jury')).toBeVisible()
+    })
   })
 
-  it('SubmissionDetail omits grouping and jury sections when metadata is unavailable', async () => {
-    renderSubmissionDetailRoute()
+  it('SubmissionDetail renders grouping and jury metadata gracefully', async () => {
+    mockReadContractWithRpcFallback.mockImplementation(({ functionName }: { functionName: string }) => {
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple())
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve(makeLifecycleTuple())
+      if (functionName === 'getSubmissionJuryMetadata') {
+        return Promise.resolve(makeJuryTuple())
+      }
+      if (functionName === 'getSubmissionGroupingMetadata') {
+        return Promise.resolve(makeGroupingTuple())
+      }
+      if (functionName === 'projectRules') return Promise.resolve(mockProjectRules)
+      return Promise.resolve(null)
+    })
 
-    expect(await screen.findByText('SUBMISSION_#1001')).toBeInTheDocument()
-    expect(screen.queryByText('GROUPING_METADATA')).not.toBeInTheDocument()
-    expect(screen.queryByText('JURY_OUTPUT')).not.toBeInTheDocument()
+    render(
+      <MemoryRouter initialEntries={['/submission/1001']}>
+        <Routes>
+          <Route path="/submission/:id" element={<SubmissionDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('GROUPING_METADATA')).toBeInTheDocument()
+    expect(screen.getByText('g123')).toBeInTheDocument()
+    expect(screen.getByText('1 of 3')).toBeInTheDocument()
+    expect(screen.getByText('JURY_OUTPUT')).toBeInTheDocument()
+    expect(screen.getByText('UPHOLD_AI_RESULT')).toBeInTheDocument()
+    expect(screen.getByText('Looks good')).toBeInTheDocument()
   })
 })

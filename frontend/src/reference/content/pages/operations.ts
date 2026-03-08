@@ -6,7 +6,7 @@ export const operationsDocsPage = {
 	href: "/docs/operations",
 	locale: "en",
 	title: "Operations",
-	summary: "Operational checkpoints for the intended workflow-driven AntiSoon protocol path.",
+	summary: "Operational checkpoints for the workflow-driven AntiSoon protocol path.",
 	sections: [
 		{
 			id: "runtime-topology",
@@ -16,7 +16,7 @@ export const operationsDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Operations in AntiSoon are organized around a runtime topology, not a single long-running service. Registration-time bootstrap, commit-window scheduling, reveal orchestration, strict verification, result packaging, and settlement-facing write-back all depend on different surfaces working in sequence.",
+					text: "Operations are organized around a runtime topology. Registration-time bootstrap, commit-window scheduling, reveal orchestration via `verify-poc`, strict verification, `jury-orchestrator` consensus, and settlement-facing write-back to `BountyHub` move in sequence.",
 				},
 				{
 					type: "table",
@@ -26,7 +26,7 @@ export const operationsDocsPage = {
 						["`vnet-init` path", "Activate projects by provisioning or reusing Tenderly state", "Registration events and Tenderly environment health"],
 						["Commit-window scheduler", "Track mode-specific timing after project bootstrap", "Stored project timing rules"],
 						["`verify-poc` path", "Replay revealed submissions and compute strict metrics", "Sapphire payload access plus Tenderly execution"],
-						["Confidential consensus path", "Aggregate hidden jury opinions and final package inputs", "Confidential storage and deadline-aware orchestration"],
+						["`jury-orchestrator` path", "Aggregate hidden jury opinions and final package inputs", "Confidential storage and deadline-aware orchestration"],
 					],
 				},
 			],
@@ -54,7 +54,7 @@ export const operationsDocsPage = {
 						},
 						{
 							title: "Verification branch checkpoint",
-							body: "Determine whether the case passed the strict gate directly or moved into confidential consensus or adjudication, because downstream timelines depend on that branch.",
+							body: "Determine whether the case passed the `verify-poc` strict gate or moved into `jury-orchestrator` consensus or adjudication, as downstream timelines depend on this branch.",
 						},
 						{
 							title: "Result write-back checkpoint",
@@ -72,13 +72,13 @@ export const operationsDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Because the docs are intended to describe the target protocol path, release discipline matters. Contract sync, docs schema validation, preview checks, and build verification should happen together so that protocol-facing language and runtime-facing configuration do not drift apart.",
+					text: "Because the docs are intended to describe the protocol path, release discipline matters. Contract sync, docs schema validation, preview checks, and build verification should happen together so that protocol-facing language and runtime-facing configuration do not drift apart.",
 				},
 				{
 					type: "code",
 					language: "bash",
 					code: "bun run contracts:check\nbunx vitest run src/__tests__/docs-content.spec.ts src/__tests__/Docs.test.tsx src/__tests__/App.docs-route.spec.tsx\nbun run build",
-					caption: "Minimum verification loop for this docs corpus while the protocol design is still being aligned to the lifecycle diagram.",
+					caption: "Minimum verification loop for this docs corpus as it describes the shipped adjudication authority model.",
 				},
 			],
 		},

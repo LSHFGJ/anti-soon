@@ -442,6 +442,21 @@ export const BOUNTY_HUB_V2_ABI = [
 		],
 	},
 	{
+		name: "getSubmissionLifecycle",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_submissionId", type: "uint256" }],
+		outputs: [
+			{ name: "status", type: "uint8" },
+			{ name: "juryDeadline", type: "uint256" },
+			{ name: "adjudicationDeadline", type: "uint256" },
+			{ name: "verdictSource", type: "uint8" },
+			{ name: "finalValidity", type: "uint8" },
+			{ name: "juryLedgerDigest", type: "bytes32" },
+			{ name: "ownerTestimonyDigest", type: "bytes32" },
+		],
+	},
+	{
 		name: "getSubmissionGroupingMetadata",
 		type: "function",
 		stateMutability: "view",

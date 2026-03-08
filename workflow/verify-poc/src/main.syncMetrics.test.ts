@@ -93,9 +93,18 @@ describe("verify-poc sync metrics", () => {
   })
 
   it("keeps retry reason code branches out of strict gate report writes", () => {
+    const decideStrictGate = decideVerifyPocStrictGate as unknown as (args: {
+      isValid: boolean
+      reasonCode?: string
+    }) => {
+      outcome: string
+      reasonCode?: string
+    }
+
     expect(
       JSON.stringify(
-        decideVerifyPocStrictGate({
+        decideStrictGate({
+          isValid: false,
           reasonCode: SYNC_REASON_RETRYABLE_RPC,
         }),
       ),
@@ -108,7 +117,8 @@ describe("verify-poc sync metrics", () => {
 
     expect(
       JSON.stringify(
-        decideVerifyPocStrictGate({
+        decideStrictGate({
+          isValid: false,
           reasonCode: SYNC_REASON_RETRY_EXHAUSTED,
         }),
       ),
@@ -121,18 +131,25 @@ describe("verify-poc sync metrics", () => {
 
     expect(
       JSON.stringify(
-        decideVerifyPocStrictGate({
+        decideStrictGate({
+          isValid: false,
           reasonCode: SYNC_REASON_BINDING_MISMATCH,
         }),
       ),
     ).toBe(
       JSON.stringify({
-        outcome: "WRITE_REPORT",
+        outcome: "EMIT_EVIDENCE",
         reasonCode: SYNC_REASON_BINDING_MISMATCH,
       }),
     )
 
-    expect(JSON.stringify(decideVerifyPocStrictGate({}))).toBe(
+    expect(JSON.stringify(decideStrictGate({ isValid: false }))).toBe(
+      JSON.stringify({
+        outcome: "EMIT_EVIDENCE",
+      }),
+    )
+
+    expect(JSON.stringify(decideStrictGate({ isValid: true }))).toBe(
       JSON.stringify({
         outcome: "WRITE_REPORT",
       }),

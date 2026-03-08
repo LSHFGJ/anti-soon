@@ -119,4 +119,21 @@ describe("verify-poc orphan reconciliation", () => {
     expect(disputeMutationCalls).toBe(0)
     expect(severityMutationCalls).toBe(0)
   })
+
+  it("ignores intentionally suppressed strict-fail no-write records during orphan scanning", () => {
+    const result = reconcileVerifyPocOrphans([
+      {
+        syncId: "sync-strict-fail-no-write",
+        sapphireWritten: true,
+        sepoliaCommitted: true,
+        sepoliaRevealed: true,
+        reportWritten: false,
+        strictFailedNoWrite: true,
+      } as VerifyPocReconciliationRecord,
+    ])
+
+    expect(result.totalScanned).toBe(1)
+    expect(result.totalOrphans).toBe(0)
+    expect(result.outcomes).toEqual([])
+  })
 })

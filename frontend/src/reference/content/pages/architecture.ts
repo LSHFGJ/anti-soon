@@ -6,7 +6,8 @@ export const architectureDocsPage = {
 	href: "/docs/architecture",
 	locale: "en",
 	title: "Architecture",
-	summary: "How AntiSoon splits authority, execution, and verification across contracts, workflows, confidential storage, and the frontend.",
+	summary:
+		"How AntiSoon splits authority, execution, and verification across contracts, workflows, confidential storage, and the frontend.",
 	sections: [
 		{
 			id: "system-model",
@@ -16,17 +17,18 @@ export const architectureDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "AntiSoon is not a single-contract product and it is not a pure off-chain workflow system. It is a split architecture where BountyHub owns irreversible protocol truth, workflows own expensive execution and automation, OasisPoCStore owns confidential payload storage, and the frontend owns user coordination plus recovery UX.",
+					text: "The split between authority and execution is central to the protocol. BountyHub owns irreversible protocol truth, `verify-poc` owns strict verification and evidence generation, `jury-orchestrator` owns adjudication packaging for non-strict cases, OasisPoCStore owns confidential payload storage, and the frontend owns user coordination plus recovery UX.",
 				},
 				{
 					type: "paragraph",
-					text: "That split is deliberate. Commit and reveal state, final verdicts, grouping, disputes, and payouts must be chain-verifiable. Exploit execution, environment provisioning, replay, and consensus-style verification are too expensive or too dynamic to live inside the contract. The architecture therefore separates state authority from execution labor.",
+					text: "That split is deliberate. Commit and reveal state, final verdicts, grouping, disputes, and payouts must be chain-verifiable. Exploit execution, environment provisioning, replay, and consensus-style adjudication are too expensive or too dynamic to live inside the contract. The architecture therefore separates state authority from execution labor.",
 				},
 				{
 					type: "mermaid",
 					diagram:
 						"flowchart LR\nA[Auditor] --> B[Frontend]\nB -->|encrypted upload| D[Sapphire Testnet OasisPOCStore]\nB --> C[Sepolia BountyHub]\nC -->|event trigger| E[CRE Workflow DON]\nE <-->|confidential store / retrieve| D\nE -->|simulation and replay| F[Tenderly VNet]\nF -->|jury verification| E\nE -->|signed report| G[CRE Forwarder]\nG -->|onReport writeback| C\nC -->|bounty payout| A",
-					caption: "The auditor enters through the frontend, confidential data moves through OasisPoCStore during submission and later workflow evaluation, and finalized payout returns from BountyHub back to the auditor while the on-chain trust boundary runs through the CRE Forwarder.",
+					caption:
+						"The auditor enters through the frontend, confidential data moves through OasisPoCStore during submission and later workflow evaluation, and finalized payout returns from BountyHub back to the auditor while the on-chain trust boundary runs through the CRE Forwarder.",
 				},
 			],
 		},
@@ -37,17 +39,8 @@ export const architectureDocsPage = {
 			summary: "The main system path from project registration to settlement.",
 			blocks: [
 				{
-					type: "callout",
-					tone: "info",
-					title: "Intended protocol path",
-					body: [
-						"This lifecycle walkthrough follows the target protocol sequence from the original design and lifecycle Mermaid source.",
-						"Not every branch described here is fully implemented yet, so read it as the intended architecture contract for the system rather than a claim that every workflow stage is already live.",
-					],
-				},
-				{
 					type: "paragraph",
-					text: "The best way to understand AntiSoon is to follow the state machine, not the repository tree. The intended lifecycle starts when a project is registered, passes through encrypted commitment and workflow-driven reveal, then branches in a fixed order: strict verification first, confidential jury consensus for non-strict cases, owner adjudication if the ten-node jury cannot converge, MULTI-only similarity grouping for H/M outcomes, result write-back, and final settlement.",
+					text: "The AntiSoon state machine follows a fixed order: project registration, encrypted commitment, workflow-driven reveal, strict verification and evidence generation by `verify-poc`, confidential adjudication by `jury-orchestrator` for non-strict cases, and owner adjudication if consensus fails. Accepted final results are written back to BountyHub for settlement.",
 				},
 				{
 					type: "steps",
@@ -65,16 +58,16 @@ export const architectureDocsPage = {
 							body: "After commitment, reveal responsibility depends on project mode. UNIQUE projects tie reveal sequencing to a submission-triggered workflow path, while MULTI projects depend on commit-window deadlines and cron-driven batch reveal automation.",
 						},
 						{
-							title: "Verification and strict gate",
-							body: "A revealed submission triggers `verify-poc`, which loads metadata and payload, replays the exploit in Tenderly, computes strict metrics, and either produces a direct strict-pass path or routes the submission into the confidential jury block.",
+							title: "Strict verification and evidence",
+							body: "A revealed submission triggers `verify-poc`, which loads metadata and payload, replays the exploit in Tenderly, emits verification evidence, and either prepares a strict-pass write-back package or hands the case to `jury-orchestrator`.",
 						},
 						{
-							title: "Consensus and adjudication",
-							body: "Non-strict cases go through a ten-node jury process: 5 LLM jurors with different base models and 5 human jurors selected by VRF randomness. Their 10 final validity opinions are stored in the Oasis confidential layer until the verification window deadline, then retrieved and aggregated. If consensus fails, the owner adjudication path requires judgment plus testimony and uses LLM consensus to check testimony and judgment consistency.",
+							title: "Jury adjudication",
+						body: "Non-strict cases go through the `jury-orchestrator` process: 5 LLM jurors and 5 human jurors. Their final validity opinions are stored in the Oasis confidential layer and aggregated after the submission's derived `juryDeadline`. If consensus fails, the owner adjudication path requires judgment plus testimony.",
 						},
 						{
-							title: "Result commit and settlement",
-							body: "The final package is written back through the authorized report path, persisted into BountyHub, optionally enriched with LLM-only similarity analysis for `MULTI` projects whose final validity is H/M, and later finalized into payout-relevant settlement state.",
+							title: "Result write-back and settlement",
+							body: "The accepted final package is written back through the authorized report path, persisted into BountyHub, optionally enriched with LLM-only similarity analysis for `MULTI` projects whose final validity is H/M, and later finalized into payout-relevant settlement state.",
 						},
 					],
 				},
@@ -108,9 +101,9 @@ export const architectureDocsPage = {
 						],
 						[
 							"CRE workflows",
-							"Execution reports, orchestration state, packaged results before write-back",
-							"VNet bootstrap, reveal automation, verification jobs, report submission",
-							"Deterministic automation only when provenance is later validated on-chain",
+							"Execution reports, orchestration state, `verify-poc` evidence packages, and `jury-orchestrator` adjudication packages",
+							"VNet bootstrap, reveal automation, verification jobs, adjudication, and report submission",
+							"Deterministic automation whose outputs matter only after BountyHub accepts the write-back",
 						],
 						[
 							"Tenderly VNet",
@@ -136,24 +129,15 @@ export const architectureDocsPage = {
 			id: "jury-orchestration-design",
 			anchor: { id: "jury-orchestration-design", label: "Jury Orchestration Design" },
 			title: "Jury Orchestration Design",
-			summary: "The intended jury block is a concrete ten-node protocol, not a generic confidential review step.",
+			summary: "The jury block is a concrete ten-node protocol, not a generic confidential review step.",
 			blocks: [
 				{
-					type: "callout",
-					tone: "info",
-					title: "Intended protocol path",
-					body: [
-						"This section follows the original protocol design and the lifecycle Mermaid source, not only the currently implemented workflow scaffold.",
-						"Today the jury-orchestrator code still behaves more like a recommendation scaffold, so treat the storage and full consensus flow here as target architecture rather than fully shipped behavior.",
-					],
+					type: "paragraph",
+					text: "After a revealed submission enters Tenderly-backed verification, the protocol first tries strict validation via `verify-poc`. Only when the submission does not satisfy the strict gate does it enter the `jury-orchestrator` block. At that point, the case is dispatched to 5 LLM jurors and 5 human jurors selected through recorded human-selection provenance.",
 				},
 				{
 					type: "paragraph",
-					text: "After a revealed submission enters Tenderly-backed verification, the protocol first tries strict validation. Only when the submission does not satisfy the strict gate does it enter the confidential jury block. At that point the protocol assembles the PoC plus the full verification trace and dispatches the case to 5 LLM jurors using different base models and 5 human jurors selected by VRF randomness.",
-				},
-				{
-					type: "paragraph",
-					text: "Each of those 10 jurors produces one final validity opinion. In the intended design, all 10 opinions are written into the Oasis confidential layer, then left sealed until the verification window deadline. Only after that deadline does the system retrieve the confidential opinions, aggregate consensus, and decide whether the final validity is `High`, `Medium`, or `Invalid` or whether the protocol must escalate into owner adjudication. Today, the shipped OasisPoCStore path is concrete for PoC payload storage, while confidential jury storage remains target architecture.",
+					text: "Each juror produces a final validity opinion. These opinions are stored in the Oasis confidential layer until the submission's derived `juryDeadline`, then retrieved and aggregated. If consensus fails, the owner adjudication path requires judgment plus testimony. Similarity grouping is applied for H/M outcomes in MULTI projects after the accepted verdict package is assembled.",
 				},
 				{
 					type: "table",
@@ -161,23 +145,23 @@ export const architectureDocsPage = {
 					rows: [
 						[
 							"Panel formation",
-							"5 LLM jurors plus 5 human jurors selected by VRF randomness",
-							"The protocol mixes machine and human judgment instead of trusting a single authority source.",
+							"5 LLM jurors plus 5 human jurors selected through recorded human-selection provenance",
+							"Mixes automated and human judgment before any adjudication package is produced.",
 						],
 						[
 							"Opinion collection",
 							"Each of 10 jurors outputs one final validity opinion",
-							"The system gathers a discrete set of verdict votes instead of an open-ended discussion artifact.",
+							"The adjudication surface records discrete verdict inputs instead of an open-ended review thread.",
 						],
 						[
 							"Confidential storage",
-							"All opinions are stored in the Oasis confidential layer until the window closes",
-							"No juror can adapt their vote after seeing the others and external observers cannot front-run the consensus process.",
+							"All opinions remain sealed in the Oasis confidential layer until the submission's derived `juryDeadline` closes",
+							"Protects against early vote leakage, strategic vote copying, and deadline-skewed pressure.",
 						],
 						[
-							"Consensus",
-							"All opinions are retrieved after the verification window deadline and aggregated",
-							"The final protocol verdict depends on delayed confidential consensus rather than first-seen timing.",
+							"Consensus aggregation",
+							"`jury-orchestrator` aggregates the sealed opinions into consensus or owner-escalation output after the deadline",
+							"Keeps adjudication workflow-local until BountyHub accepts an authorized result package.",
 						],
 					],
 				},
@@ -185,15 +169,15 @@ export const architectureDocsPage = {
 					type: "list",
 					style: "unordered",
 					items: [
-						"If all 10 nodes reach consensus, that consensus becomes the final validity result.",
+						"If consensus meets the 8/10 threshold (with at least 3 agreeing votes from each cohort), `jury-orchestrator` emits that adjudication result into final packaging rather than writing protocol truth directly.",
 						"If consensus does not form, the protocol opens the project-owner adjudication path instead of pretending the jury result is decisive.",
-						"A future path adds zk-proof identity checks for human jurors so the VRF-selected panel can also resist Sybil-style participant farming.",
+						"The adjudication design includes selection provenance for human jurors so the assigned panel can better resist Sybil-style participant farming.",
 						"If the final result is H/M and the project is in `MULTI` mode, the protocol runs LLM-only similarity analysis to form `solo` and `duplicate` clusters before final packaging.",
 					],
 				},
 				{
 					type: "paragraph",
-					text: "Owner adjudication is also structured rather than discretionary. The owner must submit a final judgment and the testimony supporting it during the dispute window, and the intended design then uses LLM consensus to verify the consistency and reasonableness of that testimony before producing the adjudicated final validity.",
+					text: "Owner adjudication is also structured rather than discretionary. The owner must submit a final judgment and the testimony supporting it before the adjudication deadline, and `jury-orchestrator` checks that package for consistency before BountyHub accepts the adjudicated final validity.",
 				},
 			],
 		},
@@ -228,7 +212,7 @@ export const architectureDocsPage = {
 						],
 						[
 							"Jury confidentiality",
-							"Intended: private opinions stored in the Oasis confidential layer until aggregation time",
+							"Private opinions stored in the Oasis confidential layer until aggregation time",
 							"Consensus logic can use hidden evidence without prematurely leaking reviewer judgments",
 						],
 						[
@@ -251,9 +235,9 @@ export const architectureDocsPage = {
 					style: "unordered",
 					items: [
 						"Commit and reveal exist because exploit privacy matters before adjudication; a plain public submission flow would leak zero-days too early.",
-						"Workflow automation exists because VNet provisioning, reveal scheduling, replay execution, and jury orchestration are operationally complex and too expensive for direct on-chain execution.",
+						"Workflow automation exists because VNet provisioning, reveal scheduling, replay execution, evidence generation, and adjudication orchestration are operationally complex and too expensive for direct on-chain execution.",
 						"The contract remains central because verdict persistence, workflow provenance, and payout-relevant state cannot depend on UI state or external service goodwill.",
-						"Strict verification and jury consensus coexist because some cases are deterministic enough for hard metrics, while others still need confidential, multi-party judgment.",
+						"Strict verification and jury adjudication coexist because some cases are deterministic enough for hard metrics, while others still need confidential, multi-party judgment before a BountyHub write-back.",
 						"Explorer and dashboard reads are intentionally downstream because observability must reflect protocol state, not define it.",
 					],
 				},

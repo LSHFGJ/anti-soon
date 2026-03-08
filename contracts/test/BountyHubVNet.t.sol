@@ -33,7 +33,7 @@ contract BountyHubVNetTest is Test {
 
     function test_registerProjectV2_setsPendingStatus() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -53,7 +53,7 @@ contract BountyHubVNetTest is Test {
 
     function test_setProjectVnet_onlyForwarder() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -73,7 +73,7 @@ contract BountyHubVNetTest is Test {
 
     function test_setProjectVnet_storesFields() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -101,7 +101,7 @@ contract BountyHubVNetTest is Test {
 
     function test_setProjectVnet_emitsEvent() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -125,7 +125,7 @@ contract BountyHubVNetTest is Test {
 
     function test_setProjectVnet_revertsIfAlreadyActive() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -152,7 +152,7 @@ contract BountyHubVNetTest is Test {
 
     function test_markVnetFailed_onlyForwarder() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -172,7 +172,7 @@ contract BountyHubVNetTest is Test {
 
     function test_markVnetFailed_updatesStatus() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -195,7 +195,7 @@ contract BountyHubVNetTest is Test {
 
     function test_markVnetFailed_emitsEvent() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -248,7 +248,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_revertsForUnauthorizedSender_beforeProvenanceChecks() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -271,7 +271,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_acceptsAuthorizedWorkflowMetadata() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -304,7 +304,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_revertsOnUnauthorizedWorkflowMetadata() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -330,7 +330,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_revertsOnMalformedMetadataWhenGuardrailEnabled() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -355,7 +355,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_vnetSuccessEnvelope_updatesProjectVnet() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -384,7 +384,7 @@ contract BountyHubVNetTest is Test {
 
     function test_onReport_vnetFailedEnvelope_marksFailed() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,

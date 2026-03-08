@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { formatEther, type Address } from 'viem'
+import { formatEther } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { readProjectById } from '../lib/projectReads'
 import { readContractWithRpcFallback } from '../lib/publicClient'
@@ -9,33 +9,17 @@ import { readSubmissionCommitTxHash } from '../lib/submissionArtifacts'
 import { Timeline } from '../components/shared/Timeline'
 import { getSubmissionTimeline } from '../components/shared/submissionTimeline'
 import { SeverityBadge } from '../components/shared/SeverityBadge'
+import { getActualStatus } from '../lib/status'
 import { MetaRow, NeonPanel, PageHeader, StatusBanner } from '../components/shared/ui-primitives'
 import { useWallet } from '../hooks/useWallet'
 import { publicClient } from '../lib/publicClient'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/explorerLinks'
-import type { Submission, Project, ExtendedSubmission } from '../types'
+import type { Project, ExtendedSubmission } from '../types'
+import { VERDICT_SOURCE_LABELS, FINAL_VALIDITY_LABELS, STATUS_LABELS } from '../types'
 
-type SubmissionTuple = readonly [
-  auditor: Address,
-  projectId: bigint,
-  commitHash: `0x${string}`,
-  cipherURI: string,
-  salt: `0x${string}`,
-  commitTimestamp: bigint,
-  revealTimestamp: bigint,
-  status: number,
-  drainAmountWei: bigint,
-  severity: number,
-  payoutAmount: bigint,
-  disputeDeadline: bigint,
-  challenged: boolean,
-  challenger: Address,
-  challengeBond: bigint
-]
 
-const STATUS_LABELS = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid']
 const SUBMISSION_STATUS_VERIFIED = 2
 const SUBMISSION_STATUS_DISPUTED = 3
 const SUBMISSION_STATUS_FINALIZED = 4
@@ -56,14 +40,34 @@ export function SubmissionDetail() {
   const requestIdRef = useRef(0)
 
   const refreshSubmissionData = useCallback(async (submissionId: bigint, requestId?: number) => {
-    const subData = await readContractWithRpcFallback({
-      address: BOUNTY_HUB_ADDRESS,
-      abi: BOUNTY_HUB_V2_ABI,
-      functionName: 'submissions',
-      args: [submissionId]
-    }) as SubmissionTuple
+    const [subData, lifecycleData, juryData, groupingData] = await Promise.all([
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'submissions',
+        args: [submissionId]
+      }) as Promise<any>,
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionLifecycle',
+        args: [submissionId]
+      }).catch(() => null) as Promise<any>,
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionJuryMetadata',
+        args: [submissionId]
+      }).catch(() => null) as Promise<any>,
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionGroupingMetadata',
+        args: [submissionId]
+      }).catch(() => null) as Promise<any>
+    ]);
 
-    const fetchedSubmission: Submission = {
+    const fetchedSubmission: ExtendedSubmission = {
       id: submissionId,
       auditor: subData[0],
       projectId: subData[1],
@@ -79,7 +83,18 @@ export function SubmissionDetail() {
       disputeDeadline: subData[11],
       challenged: subData[12],
       challenger: subData[13],
-      challengeBond: subData[14]
+      challengeBond: subData[14],
+      lifecycle: lifecycleData ? {
+        status: lifecycleData[0],
+        juryDeadline: lifecycleData[1],
+        adjudicationDeadline: lifecycleData[2],
+        verdictSource: lifecycleData[3],
+        finalValidity: lifecycleData[4],
+        juryLedgerDigest: lifecycleData[5],
+        ownerTestimonyDigest: lifecycleData[6]
+      } : undefined,
+      jury: juryData && juryData[0] ? { action: juryData[1], rationale: juryData[2] } : undefined,
+      grouping: groupingData && groupingData[0] ? { cohort: groupingData[1], groupId: groupingData[2], groupRank: Number(groupingData[3]), groupSize: Number(groupingData[4]) } : undefined
     }
 
     if (requestId !== undefined && requestIdRef.current !== requestId) {
@@ -87,11 +102,20 @@ export function SubmissionDetail() {
     }
 
     const [fetchedProject, commitTxHash, sapphireTxHash] = await Promise.all([
-      readProjectById(fetchedSubmission.projectId),
-      readSubmissionCommitTxHash(submissionId),
+      readProjectById(fetchedSubmission.projectId).catch((err) => {
+        console.warn('Failed to fetch project:', err)
+        return null
+      }),
+      readSubmissionCommitTxHash(submissionId).catch((err) => {
+        console.warn('Failed to fetch commit tx hash:', err)
+        return undefined
+      }),
       resolveSapphireTxHash({
         cipherURI: fetchedSubmission.cipherURI,
         auditor: fetchedSubmission.auditor,
+      }).catch((err) => {
+        console.warn('Failed to resolve sapphire tx hash:', err)
+        return undefined
       }),
     ])
 
@@ -254,13 +278,14 @@ export function SubmissionDetail() {
 
   const now = BigInt(Math.floor(Date.now() / 1000))
   const challengeBond = MIN_CHALLENGE_BOND_WEI
-  const hasActiveDispute = submission?.status === SUBMISSION_STATUS_DISPUTED
+  const actualStatus = submission ? getActualStatus(submission.status, submission.lifecycle?.status) : undefined;
+  const hasActiveDispute = actualStatus === SUBMISSION_STATUS_DISPUTED
   const disputeWindowOpen = Boolean(submission && submission.disputeDeadline > 0n && submission.disputeDeadline >= now)
   const disputeWindowClosed = Boolean(submission && submission.disputeDeadline > 0n && now > submission.disputeDeadline)
   const isProjectOwner = Boolean(project && address && project.owner.toLowerCase() === address.toLowerCase())
   const canChallenge = Boolean(
-    submission?.status === SUBMISSION_STATUS_VERIFIED &&
-    !submission.challenged &&
+    actualStatus === SUBMISSION_STATUS_VERIFIED &&
+    !submission?.challenged &&
     disputeWindowOpen &&
     isConnected,
   )
@@ -272,17 +297,17 @@ export function SubmissionDetail() {
   )
   const canFinalize = Boolean(
     submission &&
-    (submission.status === SUBMISSION_STATUS_VERIFIED || submission.status === SUBMISSION_STATUS_DISPUTED) &&
+    (actualStatus === SUBMISSION_STATUS_VERIFIED || actualStatus === SUBMISSION_STATUS_DISPUTED) &&
     disputeWindowClosed &&
     isConnected,
   )
 
   const getStatusBadgeVariant = (): 'success' | 'error' | 'warning' | 'info' => {
-    if (submission?.status === SUBMISSION_STATUS_INVALID) return 'error'
+    if (actualStatus === SUBMISSION_STATUS_INVALID) return 'error'
     if (hasActiveDispute) return 'error'
-    if (submission?.status === SUBMISSION_STATUS_FINALIZED) return 'success'
-    if (submission?.status === SUBMISSION_STATUS_VERIFIED) return 'success'
-    if (submission?.status === 1) return 'info'
+    if (actualStatus === SUBMISSION_STATUS_FINALIZED) return 'success'
+    if (actualStatus === SUBMISSION_STATUS_VERIFIED) return 'success'
+    if (actualStatus === 1) return 'info'
     return 'warning'
   }
 
@@ -327,7 +352,8 @@ export function SubmissionDetail() {
     submission.status,
     submission.commitTimestamp,
     submission.revealTimestamp,
-    hasActiveDispute
+    hasActiveDispute,
+    submission.lifecycle?.status
   )
 
   return (
@@ -336,7 +362,7 @@ export function SubmissionDetail() {
         <PageHeader
           title={`SUBMISSION_#${id}`}
           subtitle="> View submission details and dispute status"
-          suffix={<Badge variant={getStatusBadgeVariant()}>[{STATUS_LABELS[submission.status]}]</Badge>}
+          suffix={<Badge variant={getStatusBadgeVariant()}>[{STATUS_LABELS[actualStatus as number]}]</Badge>}
         />
 
         {error && (
@@ -512,14 +538,30 @@ export function SubmissionDetail() {
 
                     <StatusBanner
                       className="mt-4"
-                      variant={submission.status === SUBMISSION_STATUS_INVALID || hasActiveDispute ? 'error' : 'success'}
+                      variant={actualStatus === SUBMISSION_STATUS_INVALID || hasActiveDispute ? 'error' : (actualStatus === 6 || actualStatus === 7) ? 'warning' : 'success'}
                       message={
                         <span className="font-bold tracking-wider">
-                          {submission.status === SUBMISSION_STATUS_INVALID ? '[ INVALID ]' : hasActiveDispute ? '[ DISPUTED ]' : '[ VALID ]'}
+                          {actualStatus === SUBMISSION_STATUS_INVALID ? '[ INVALID ]' : hasActiveDispute ? '[ DISPUTED ]' : (actualStatus === 6 || actualStatus === 7) ? '[ PENDING REVIEW ]' : '[ VALID ]'}
                         </span>
                       }
                     />
 
+                                        {submission.lifecycle && (
+                      <div className="pt-4 border-t border-[var(--color-bg-light)]">
+                        <h3 className="text-xs font-mono text-[var(--color-secondary)] mb-3 tracking-wider">LIFECYCLE_METADATA</h3>
+                        <div className="space-y-3">
+                          <MetaRow label="STATUS" value={STATUS_LABELS[submission.lifecycle.status]} inline />
+                          <MetaRow label="VERDICT_SOURCE" value={VERDICT_SOURCE_LABELS[submission.lifecycle.verdictSource]} inline />
+                          <MetaRow label="FINAL_VALIDITY" value={FINAL_VALIDITY_LABELS[submission.lifecycle.finalValidity]} inline />
+                          {submission.lifecycle.juryDeadline > 0n && (
+                            <MetaRow label="JURY_DEADLINE" value={new Date(Number(submission.lifecycle.juryDeadline) * 1000).toLocaleString()} inline />
+                          )}
+                          {submission.lifecycle.adjudicationDeadline > 0n && (
+                            <MetaRow label="ADJ_DEADLINE" value={new Date(Number(submission.lifecycle.adjudicationDeadline) * 1000).toLocaleString()} inline />
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {submission.grouping && (
                       <div className="pt-4 border-t border-[var(--color-bg-light)]">
                         <h3 className="text-xs font-mono text-[var(--color-secondary)] mb-3 tracking-wider">GROUPING_METADATA</h3>
@@ -550,7 +592,7 @@ export function SubmissionDetail() {
               <h2 className={`text-sm font-mono tracking-wider mb-3 ${hasActiveDispute ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}`}>
                 {hasActiveDispute ? 'ACTIVE_DISPUTE' : 'DISPUTE_PANEL'}
               </h2>
-                {submission.status === SUBMISSION_STATUS_FINALIZED ? (
+                {actualStatus === SUBMISSION_STATUS_FINALIZED ? (
                   <div className="text-center py-4 text-[var(--color-text-dim)] font-mono">
                     <p className="text-[var(--color-primary)]">[ FINALIZED ]</p>
                     <p className="text-xs mt-2">No further actions available</p>

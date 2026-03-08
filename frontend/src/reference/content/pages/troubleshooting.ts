@@ -41,7 +41,7 @@ export const troubleshootingDocsPage = {
 			id: "read-model-and-routing-issues",
 			anchor: { id: "read-model-and-routing-issues", label: "Read-Model and Routing Issues" },
 			title: "Read-Model and Routing Issues",
-			summary: "Symptoms where the docs or app surface do not match the intended protocol path.",
+			summary: "Symptoms where the docs or app surface do not match the protocol path.",
 			blocks: [
 				{
 					type: "list",
@@ -50,7 +50,7 @@ export const troubleshootingDocsPage = {
 						"If `/docs` is missing, verify the docs feature flag and rebuild path before assuming the content itself is wrong.",
 						"If project or dashboard reads fall back to preview data, treat that as a read-model problem first, not as evidence that the protocol lifecycle is empty.",
 						"If a deep docs route behaves unexpectedly, confirm the flat `/docs/<slug>` manifest path instead of testing unsupported nested routes.",
-						"If a page narrative conflicts with the product surface, prefer the lifecycle-aligned docs and then verify whether the product is simply behind the intended architecture.",
+						"If a page narrative conflicts with the product surface, prefer the lifecycle-aligned docs and then verify whether the product is simply behind the architecture.",
 					],
 				},
 			],
