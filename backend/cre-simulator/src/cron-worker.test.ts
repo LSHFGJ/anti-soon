@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
+import { getCreSimulatorModeRequiredEnv } from "./deploy-preflight"
 import { createCreSimulatorCronWorkerRunner } from "./cron-worker"
 
 describe("cre-simulator cron worker", () => {
@@ -21,5 +22,11 @@ describe("cre-simulator cron worker", () => {
 
 		release?.()
 		expect(await firstRun).toBe("completed")
+	})
+
+	it("uses the base deployment env contract", () => {
+		expect(getCreSimulatorModeRequiredEnv("cron")).not.toContain(
+			"DEMO_OPERATOR_WS_RPC_URL",
+		)
 	})
 })
