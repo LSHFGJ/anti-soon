@@ -11,7 +11,7 @@
     "docs:preview-check": "node ./tooling/check-docs-preview.mjs",
     "docs:readme-drift": "node ./tooling/check-readme-drift.mjs",
     "docs:validate": "bun run ./tooling/validate-docs-contract.ts",
-    "prebuild": "bun run contracts:check",
+    "prebuild": "node ./tooling/vercel-prebuild.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
