@@ -26,7 +26,7 @@ export const createProjectDocsPage = {
 						"Foundry deployment scripts in the repository's `script/` directory, because the first wizard step scans that folder for `*.s.sol` files.",
 						"A clear idea of which deploy script and contracts belong in scope before you start clicking through the wizard.",
 						"Enough ETH for the bounty pool you plan to fund, plus gas for the registration transaction.",
-						"Concrete rule values for deadlines, attacker seed, warp allowance, impersonation, dispute window, and severity thresholds.",
+						"Concrete rule values for deadlines, attacker seed, warp allowance, impersonation, dispute window, and the current payout bands.",
 					],
 				},
 			],
@@ -58,7 +58,7 @@ export const createProjectDocsPage = {
 						},
 						{
 							title: "Rules and thresholds",
-							body: "Set attacker seed, warp allowance, impersonation, dispute window, and the ETH drain thresholds for `CRITICAL`, `HIGH`, `MEDIUM`, and `LOW` outcomes.",
+							body: "Set attacker seed, warp allowance, impersonation, dispute window, and the ETH drain thresholds for the `HIGH` and `MEDIUM` payout bands. The frontend derives the legacy outer bands automatically for compatibility.",
 						},
 						{
 							title: "Review",

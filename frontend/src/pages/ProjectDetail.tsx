@@ -23,7 +23,10 @@ import {
 } from "../components/shared/ui-primitives";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
 import { readProjectById } from "../lib/projectReads";
-import { multicallWithRpcFallback, readContractWithRpcFallback } from "../lib/publicClient";
+import {
+	multicallWithRpcFallback,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
 import { getActualStatus } from "../lib/status";
 import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
 import {
@@ -477,15 +480,17 @@ export function ProjectDetail() {
 					const data = readRequiredMulticallEntry<SubmissionTuple>(
 						results[index * 4],
 					);
-					const lifecycleData = readOptionalMulticallEntry<SubmissionLifecycleTuple>(
-						results[index * 4 + 1],
-					);
+					const lifecycleData =
+						readOptionalMulticallEntry<SubmissionLifecycleTuple>(
+							results[index * 4 + 1],
+						);
 					const juryData = readOptionalMulticallEntry<SubmissionJuryTuple>(
 						results[index * 4 + 2],
 					);
-					const groupingData = readOptionalMulticallEntry<SubmissionGroupingTuple>(
-						results[index * 4 + 3],
-					);
+					const groupingData =
+						readOptionalMulticallEntry<SubmissionGroupingTuple>(
+							results[index * 4 + 3],
+						);
 
 					return mapSubmissionWithMetadata(
 						id,
@@ -745,24 +750,14 @@ export function ProjectDetail() {
 									</p>
 									<div className="mt-4 space-y-2">
 										<ThresholdRow
-											label="CRITICAL"
-											amountWei={rules.thresholds.criticalDrainWei}
-											accentClassName="text-[var(--color-error)]"
-										/>
-										<ThresholdRow
 											label="HIGH"
 											amountWei={rules.thresholds.highDrainWei}
-											accentClassName="text-[var(--color-warning)]"
+											accentClassName="text-[var(--color-error)]"
 										/>
 										<ThresholdRow
 											label="MEDIUM"
 											amountWei={rules.thresholds.mediumDrainWei}
 											accentClassName="text-[var(--color-gold)]"
-										/>
-										<ThresholdRow
-											label="LOW"
-											amountWei={rules.thresholds.lowDrainWei}
-											accentClassName="text-[var(--color-primary)]"
 										/>
 									</div>
 								</div>

@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDetail } from "../pages/ProjectDetail";
 
+const originalPreviewFallbackEnv = import.meta.env.VITE_PREVIEW_FALLBACK;
+
 const { readProjectByIdMock, readAllProjectSubmissionIdsMock, publicClientMock } = vi.hoisted(() => ({
 	readProjectByIdMock: vi.fn(),
 	readAllProjectSubmissionIdsMock: vi.fn(),
@@ -118,6 +120,9 @@ function deferred<T>() {
 describe("ProjectDetail submission visibility", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		Object.assign(import.meta.env, {
+			VITE_PREVIEW_FALLBACK: originalPreviewFallbackEnv,
+		});
 
 		readProjectByIdMock.mockResolvedValue(mockProject);
 		readAllProjectSubmissionIdsMock.mockResolvedValue([42n]);
@@ -154,6 +159,7 @@ describe("ProjectDetail submission visibility", () => {
 	});
 
 	it("preserves preview submissions without retrying live reads in preview fallback mode", async () => {
+		Object.assign(import.meta.env, { VITE_PREVIEW_FALLBACK: "true" });
 		readProjectByIdMock.mockRejectedValue(new Error("project rpc down"));
 		readAllProjectSubmissionIdsMock.mockRejectedValue(new Error("submission rpc down"));
 
@@ -170,10 +176,14 @@ describe("ProjectDetail submission visibility", () => {
 
 	it("renders the enforced-rules panel copy from main", async () => {
 		renderProjectDetailRoute();
-
+		
 		await waitFor(() => {
 			expect(screen.getByText("CURRENTLY ENFORCED")).toBeVisible();
 			expect(screen.getByText("SEVERITY THRESHOLDS")).toBeVisible();
+			expect(screen.getByText("HIGH")).toBeVisible();
+			expect(screen.getByText("MEDIUM")).toBeVisible();
+			expect(screen.queryByText("CRITICAL")).toBeNull();
+			expect(screen.queryByText("LOW")).toBeNull();
 			expect(screen.getByText("DISPUTE WINDOW")).toBeVisible();
 			expect(
 				screen.getByText(

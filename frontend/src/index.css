@@ -900,9 +900,9 @@ input:focus, select:focus, textarea:focus {
 }
 
 .severity-badge.high {
-  background: var(--color-warning-dim);
-  color: var(--color-warning);
-  border: 1px solid var(--color-warning);
+  background: var(--color-error-dim);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
 }
 
 .severity-badge.medium {

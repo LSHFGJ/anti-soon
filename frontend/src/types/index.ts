@@ -1,153 +1,184 @@
-import type { Address } from 'viem'
+import type { Address } from "viem";
 
-export type SubmissionStatus = 'Committed' | 'Revealed' | 'Verified' | 'Disputed' | 'Finalized' | 'Invalid' | 'JuryPending' | 'AwaitingOwnerAdjudication'
-export const STATUS_LABELS: SubmissionStatus[] = ['Committed', 'Revealed', 'Verified', 'Disputed', 'Finalized', 'Invalid', 'JuryPending', 'AwaitingOwnerAdjudication']
+export type SubmissionStatus =
+	| "Committed"
+	| "Revealed"
+	| "Verified"
+	| "Disputed"
+	| "Finalized"
+	| "Invalid"
+	| "JuryPending"
+	| "AwaitingOwnerAdjudication";
+export const STATUS_LABELS: SubmissionStatus[] = [
+	"Committed",
+	"Revealed",
+	"Verified",
+	"Disputed",
+	"Finalized",
+	"Invalid",
+	"JuryPending",
+	"AwaitingOwnerAdjudication",
+];
 
-export type Severity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
-export const SEVERITY_LABELS: Severity[] = ['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+export type Severity = "NONE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export const SEVERITY_LABELS: Severity[] = [
+	"NONE",
+	"LOW",
+	"MEDIUM",
+	"HIGH",
+	"CRITICAL",
+];
 export const SEVERITY_COLORS: Record<Severity, string> = {
-  NONE: 'var(--color-text-dim)',
-  LOW: 'var(--color-primary)',
-  MEDIUM: 'var(--color-gold)',
-  HIGH: 'var(--color-warning)',
-  CRITICAL: 'var(--color-error)'
-}
+	NONE: "var(--color-text-dim)",
+	LOW: "var(--color-primary)",
+	MEDIUM: "var(--color-gold)",
+	HIGH: "var(--color-error)",
+	CRITICAL: "var(--color-error)",
+};
 
+export type VerdictSource = "None" | "Verification" | "Jury" | "Owner";
+export const VERDICT_SOURCE_LABELS: VerdictSource[] = [
+	"None",
+	"Verification",
+	"Jury",
+	"Owner",
+];
 
-export type VerdictSource = 'None' | 'Verification' | 'Jury' | 'Owner'
-export const VERDICT_SOURCE_LABELS: VerdictSource[] = ['None', 'Verification', 'Jury', 'Owner']
-
-export type FinalValidity = 'None' | 'Valid' | 'Invalid'
-export const FINAL_VALIDITY_LABELS: FinalValidity[] = ['None', 'Valid', 'Invalid']
+export type FinalValidity = "None" | "Valid" | "Invalid";
+export const FINAL_VALIDITY_LABELS: FinalValidity[] = [
+	"None",
+	"Valid",
+	"Invalid",
+];
 
 export interface SubmissionLifecycle {
-  status: number
-  juryDeadline: bigint
-  adjudicationDeadline: bigint
-  verdictSource: number
-  finalValidity: number
-  juryLedgerDigest: `0x${string}`
-  ownerTestimonyDigest: `0x${string}`
+	status: number;
+	juryDeadline: bigint;
+	adjudicationDeadline: bigint;
+	verdictSource: number;
+	finalValidity: number;
+	juryLedgerDigest: `0x${string}`;
+	ownerTestimonyDigest: `0x${string}`;
 }
 
-export type CompetitionMode = 'UNIQUE' | 'MULTI'
+export type CompetitionMode = "UNIQUE" | "MULTI";
 
 export interface Project {
-  id: bigint
-  owner: Address
-  bountyPool: bigint
-  maxPayoutPerBug: bigint
-  targetContract: Address
-  forkBlock: bigint
-  active: boolean
-  mode: number // 0 = UNIQUE, 1 = MULTI
-  commitDeadline: bigint
-  revealDeadline: bigint
-  disputeWindow: bigint
-  juryWindow: bigint
-  adjudicationWindow: bigint
-  rulesHash: `0x${string}`
-  vnetStatus: number
-  vnetRpcUrl: string
-  baseSnapshotId: `0x${string}`
-  vnetCreatedAt: bigint
-  repoUrl: string
+	id: bigint;
+	owner: Address;
+	bountyPool: bigint;
+	maxPayoutPerBug: bigint;
+	targetContract: Address;
+	forkBlock: bigint;
+	active: boolean;
+	mode: number; // 0 = UNIQUE, 1 = MULTI
+	commitDeadline: bigint;
+	revealDeadline: bigint;
+	disputeWindow: bigint;
+	juryWindow: bigint;
+	adjudicationWindow: bigint;
+	rulesHash: `0x${string}`;
+	vnetStatus: number;
+	vnetRpcUrl: string;
+	baseSnapshotId: `0x${string}`;
+	vnetCreatedAt: bigint;
+	repoUrl: string;
 }
 
 export interface ContractScope {
-  address: `0x${string}`;
-  name: string;
-  artifactRef: string;
-  verified: boolean;
+	address: `0x${string}`;
+	name: string;
+	artifactRef: string;
+	verified: boolean;
 }
 
 export interface ProjectV3 extends Project {
-  scopes: ContractScope[];
+	scopes: ContractScope[];
 }
 
 export interface GitHubRepo {
-  owner: string;
-  name: string;
-  url: string;
-  defaultBranch: string;
+	owner: string;
+	name: string;
+	url: string;
+	defaultBranch: string;
 }
 
 export interface DeployScript {
-  name: string;
-  path: string;
-  contracts: string[];
+	name: string;
+	path: string;
+	contracts: string[];
 }
 
 export interface ProjectRules {
-  maxAttackerSeedWei: bigint
-  maxWarpSeconds: bigint
-  allowImpersonation: boolean
-  thresholds: {
-    criticalDrainWei: bigint
-    highDrainWei: bigint
-    mediumDrainWei: bigint
-    lowDrainWei: bigint
-  }
+	maxAttackerSeedWei: bigint;
+	maxWarpSeconds: bigint;
+	allowImpersonation: boolean;
+	thresholds: {
+		criticalDrainWei: bigint;
+		highDrainWei: bigint;
+		mediumDrainWei: bigint;
+		lowDrainWei: bigint;
+	};
 }
 
 export interface Submission {
-  id: bigint
-  auditor: Address
-  projectId: bigint
-  commitHash: `0x${string}`
-  cipherURI: string
-  oasisTxHash?: `0x${string}`
-  commitTxHash?: `0x${string}`
-  salt: `0x${string}`
-  commitTimestamp: bigint
-  revealTimestamp: bigint
-  status: number
-  drainAmountWei: bigint
-  severity: number
-  payoutAmount: bigint
-  disputeDeadline: bigint
-  challenged: boolean
-  challenger: Address
-  challengeBond: bigint
+	id: bigint;
+	auditor: Address;
+	projectId: bigint;
+	commitHash: `0x${string}`;
+	cipherURI: string;
+	oasisTxHash?: `0x${string}`;
+	commitTxHash?: `0x${string}`;
+	salt: `0x${string}`;
+	commitTimestamp: bigint;
+	revealTimestamp: bigint;
+	status: number;
+	drainAmountWei: bigint;
+	severity: number;
+	payoutAmount: bigint;
+	disputeDeadline: bigint;
+	challenged: boolean;
+	challenger: Address;
+	challengeBond: bigint;
 }
 
 export interface TimelineStep {
-  label: string
-  completed: boolean
-  active: boolean
-  timestamp?: bigint
+	label: string;
+	completed: boolean;
+	active: boolean;
+	timestamp?: bigint;
 }
 
 export interface AuditorStats {
-  totalEarned: bigint
-  totalSubmitted: number
-  validCount: number
-  pendingCount: number
+	totalEarned: bigint;
+	totalSubmitted: number;
+	validCount: number;
+	pendingCount: number;
 }
 
 export interface LeaderboardEntry {
-  rank: number
-  address: Address
-  validCount: number
-  totalEarned: bigint
-  highCount: number
-  criticalCount: number
+	rank: number;
+	address: Address;
+	validCount: number;
+	totalEarned: bigint;
+	highCount: number;
+	criticalCount: number;
 }
 
 export interface SubmissionGrouping {
-  cohort: string
-  groupId: string
-  groupRank: number
-  groupSize: number
+	cohort: string;
+	groupId: string;
+	groupRank: number;
+	groupSize: number;
 }
 
 export interface SubmissionJury {
-  action: string
-  rationale?: string
+	action: string;
+	rationale?: string;
 }
 
 export interface ExtendedSubmission extends Submission {
-  lifecycle?: SubmissionLifecycle
-  grouping?: SubmissionGrouping
-  jury?: SubmissionJury
+	lifecycle?: SubmissionLifecycle;
+	grouping?: SubmissionGrouping;
+	jury?: SubmissionJury;
 }
