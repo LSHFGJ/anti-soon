@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "anti-soon.cre-simulator.trigger-config.v1",
+  "stateFilePath": "backend/cre-simulator/.trigger-state.json",
+  "httpTriggers": {
+    "manual-run": {
+      "command": "run"
+    },
+    "manual-verify": {
+      "command": "verify"
+    }
+  },
+  "cronTriggers": {
+    "demo-run": {
+      "intervalMs": 60000,
+      "command": "run"
+    }
+  },
+  "evmLogTriggers": {
+    "poc-revealed": {
+      "command": "verify",
+      "wsRpcUrlEnvVar": "DEMO_OPERATOR_WS_RPC_URL",
+      "contractAddress": "0x17797b473864806072186f6997801d4473aaf6e8",
+      "topic0": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}
