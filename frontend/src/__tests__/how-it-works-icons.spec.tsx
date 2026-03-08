@@ -26,9 +26,17 @@ describe('HowItWorks icon sizing', () => {
   it('uses short, clear copy for each step', () => {
     render(<HowItWorks />)
 
-    expect(screen.getByText('Encrypt PoC.')).toBeInTheDocument()
-    expect(screen.getByText('Run attack.')).toBeInTheDocument()
-    expect(screen.getByText('Nodes verify.')).toBeInTheDocument()
-    expect(screen.getByText('Pay bounty.')).toBeInTheDocument()
+    for (const copy of [
+      'ENCRYPT',
+      'Hide your fantastic exploits.',
+      'SIMULATE',
+      'Run attacks in sandboxes.',
+      'CONSENSUS',
+      'AI & Human verify on a jury.',
+      'PAYOUT',
+      'Release bounty NOW.',
+    ]) {
+      expect(screen.getByText(copy)).toBeInTheDocument()
+    }
   })
 })
