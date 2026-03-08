@@ -1053,7 +1053,7 @@ contract BountyHubTest is Test {
 
         vm.prank(FORWARDER);
         hub.onReport(
-            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
             _buildTypedVerifyPocLifecycleReport(
                 subId,
                 false,
@@ -1103,7 +1103,7 @@ contract BountyHubTest is Test {
 
         vm.prank(FORWARDER);
         hub.onReport(
-            _metadataForWorkflow(WORKFLOW_JURY_ORCHESTRATOR_ID),
+            _metadataForWorkflow(WORKFLOW_VERIFY_POC_ID),
             _buildTypedVerifyPocLifecycleReport(
                 subId,
                 false,
