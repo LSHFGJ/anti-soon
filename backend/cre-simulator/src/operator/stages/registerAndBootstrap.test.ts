@@ -10,7 +10,7 @@ import { registerAndBootstrap } from "./registerAndBootstrap"
 const REAL_REPO_ROOT = resolve(import.meta.dir, "../../../../..")
 const REAL_SCENARIO_PATH = resolve(
   REAL_REPO_ROOT,
-  "demo-data/operator/multi-fast-happy-path.json",
+  "backend/cre-simulator/default-scenario.json",
 )
 
 const TX_REGISTER =
@@ -44,7 +44,7 @@ function buildConfig(repoRoot: string): DemoOperatorConfig {
     command: "register",
     repoRoot,
     cwd: join(repoRoot, "backend/cre-simulator"),
-    scenarioPath: join(repoRoot, "demo-data/operator/multi-fast-happy-path.json"),
+    scenarioPath: join(repoRoot, "backend/cre-simulator/default-scenario.json"),
     stateFilePath: join(repoRoot, "backend/cre-simulator/.demo-operator-state.json"),
     evidenceDir: join(repoRoot, ".sisyphus/evidence/demo-run"),
     scenario: buildScenario(),
@@ -268,8 +268,8 @@ describe("registerAndBootstrap", () => {
     })
   })
 
-  it("rejects missing broadcast prerequisites before simulate", async () => {
-    await withTempRepoRoot(async (repoRoot) => {
+	it("rejects missing broadcast prerequisites before simulate", async () => {
+		await withTempRepoRoot(async (repoRoot) => {
       const config = buildConfig(repoRoot)
       const env = buildEnv()
       writeWorkflowFixtures(repoRoot, { includeSecrets: false })
@@ -310,6 +310,76 @@ describe("registerAndBootstrap", () => {
         "pending",
       )
       expect((persisted.stageData as Record<string, unknown> | undefined)?.register).toBeUndefined()
-    })
-  })
+		})
+	})
+
+	it("accepts TENDERLY_API_KEY from env and generates a runtime secrets file when repo secrets are absent", async () => {
+		await withTempRepoRoot(async (repoRoot) => {
+			const config = buildConfig(repoRoot)
+			const env = {
+				...buildEnv(),
+				TENDERLY_API_KEY: "railway-secret",
+			}
+			writeWorkflowFixtures(repoRoot, { includeSecrets: false })
+
+			const simulateWorkflowPaths: string[] = []
+			const runtimeSecretsPayloads: string[] = []
+
+			const result = await registerAndBootstrap({
+				config,
+				env,
+				deps: {
+					nowMs: 1_700_000_000_000,
+					createClient: async () => ({
+						registerProjectV2: async () => ({
+							eventName: "ProjectRegisteredV2",
+							projectId: 77n,
+							txHash: TX_REGISTER,
+							eventIndex: 4,
+						}),
+						readProject: async () => ({
+							owner: OWNER_ADDRESS,
+							bountyPool: 10_000_000_000_000_000_000n,
+							maxPayoutPerBug: 1_000_000_000_000_000_000n,
+							targetContract:
+								config.scenario.project.targetContract as `0x${string}`,
+							forkBlock: BigInt(config.scenario.project.forkBlock),
+							active: true,
+							mode: 1,
+							commitDeadline: 1_700_000_300n,
+							revealDeadline: 1_700_000_900n,
+							disputeWindow: 0n,
+							rulesHash:
+								"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+							vnetStatus: 2,
+							vnetRpcUrl: "https://rpc.tenderly.co/vnet/77",
+							baseSnapshotId:
+								"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+							vnetCreatedAt: 1_700_000_123n,
+							repoUrl: config.scenario.project.repoUrl,
+						}),
+					}),
+					runCommand: async (spec) => {
+						const workflowPath = String(spec.args[2])
+						simulateWorkflowPaths.push(workflowPath)
+						runtimeSecretsPayloads.push(
+							readFileSync(resolve(spec.cwd, workflowPath, "../../secrets.yaml"), "utf8"),
+						)
+
+						return {
+							exitCode: 0,
+							stdout: "ok",
+							stderr: "",
+						}
+					},
+				},
+			})
+
+			expect(result.projectId).toBe("77")
+			expect(simulateWorkflowPaths).toHaveLength(1)
+			expect(simulateWorkflowPaths[0]).not.toBe("workflow/vnet-init")
+			expect(simulateWorkflowPaths[0]).toContain(".cre-simulator-runtime")
+			expect(runtimeSecretsPayloads[0]).toContain("railway-secret")
+		})
+	})
 })
