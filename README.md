@@ -56,6 +56,31 @@ bun run test
 bun run build
 ```
 
+If you need the demo-only backend surface that simulates deployed CRE-triggered execution, use the backend-owned package:
+
+```bash
+cd backend/cre-simulator
+bun test
+bun ./src/operator-cli.ts --help
+bun ./src/index.ts --help
+```
+
+The backend package exposes a thin HTTP surface plus a backend-owned CLI over the same durable state file:
+
+- `GET /health` for service liveness.
+- `GET /api/cre-simulator/status` for the current durable stage snapshot.
+- `POST /api/cre-simulator/commands/:command` for `register`, `submit`, `reveal`, `verify`, `run`, and `status`.
+- `GET /api/cre-simulator/triggers/status` for trigger-worker health, scheduler/listener cursors, and configured trigger mappings.
+- `POST /api/cre-simulator/triggers/:triggerName` for backend-owned manual trigger dispatch such as `manual-run`.
+- `run` executes `register -> submit -> reveal -> verify` in order, then returns a final `status` snapshot so demo UIs can inspect partial or completed progress without touching the real workflow packages.
+
+The package now also includes separate worker-style entrypoints for the other CRE trigger shapes:
+
+- `bun ./src/cron-worker.ts --help` for CRON/scheduled trigger execution.
+- `bun ./src/evm-log-worker.ts --help` for EVM log trigger listening.
+
+That split is intentional: WebSocket listening is kept in the EVM-log worker only, while HTTP and CRON continue to adapt into the same backend execution core.
+
 Once the app is running, the best first route depends on your job right now:
 
 - Researcher looking for a target: open `/explorer`.
@@ -86,6 +111,7 @@ cd frontend && bun run build
 AntiSoon is a small multi-surface system rather than a single app server:
 
 - `frontend/` - React app for landing, explorer, builder, project creation, dashboard, leaderboard, and `/docs`.
+- `backend/cre-simulator/` - demo-only Bun HTTP service plus backend-owned trigger adapters and worker entrypoints for HTTP, CRON, and EVM-log simulation, all reusing the same operator core and durable `status` inspection while staying separate from the real CRE workflow packages.
 - `contracts/src/BountyHub.sol` - core protocol contract for project registration, commit-reveal submissions, verification results, disputes, and payout finalization.
 - `contracts/src/OasisPoCStore.sol` - Sapphire-side encrypted payload storage with explicit read grants.
 - `workflow/verify-poc/`, `workflow/vnet-init/`, `workflow/auto-reveal-relayer/`, `workflow/jury-orchestrator/` - workflow surfaces registered in `project.yaml`.
