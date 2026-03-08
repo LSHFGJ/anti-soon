@@ -32,7 +32,7 @@ describe("demo operator state store", () => {
         store,
         {
           scenarioId: "multi-fast-happy-path",
-          scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
           evidenceDir: "/repo/.sisyphus/evidence/demo-run",
         },
         101,
@@ -50,7 +50,7 @@ describe("demo operator state store", () => {
       expect(persisted.schemaVersion).toBe(DEMO_OPERATOR_STATE_STORE_SCHEMA_VERSION)
       expect(persisted.binding).toEqual({
         scenarioId: "multi-fast-happy-path",
-        scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+				scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
         evidenceDir: "/repo/.sisyphus/evidence/demo-run",
       })
       expect(persisted.stageStateByName.register.status).toBe("completed")
@@ -69,7 +69,7 @@ describe("demo operator state store", () => {
         store,
         {
           scenarioId: "multi-fast-happy-path",
-          scenarioPath: "/repo/demo-data/operator/multi-fast-happy-path.json",
+					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
           evidenceDir: "/repo/.sisyphus/evidence/demo-run",
         },
         301,
