@@ -44,6 +44,7 @@ The fastest local path is to run the frontend, sync the contract address used by
 ```bash
 cd frontend
 bun install
+cp .env.example .env
 bun run contracts:sync
 bun run dev
 ```
@@ -55,6 +56,14 @@ cd frontend
 bun run test
 bun run build
 ```
+
+Frontend-only Vite envs now live in `frontend/.env.example`. Backend and workflow envs stay in the repo-root `.env.example` and `backend/cre-simulator/.env.example` templates.
+
+The frontend now treats `VITE_RPC_URL` and `VITE_OASIS_STORAGE_CONTRACT` as the canonical names. The old `VITE_CRE_SIM_SEPOLIA_RPC_URL` and `VITE_CRE_SIM_OASIS_STORAGE_CONTRACT` names are still accepted as compatibility fallbacks, but new frontend deployments should use the cleaner `VITE_*` names.
+
+For Vercel, set the project root to `frontend/`, configure the frontend `VITE_*` envs there, and keep the SPA rewrite contract from `frontend/vercel.json` so deep links like `/project/:id` resolve to `index.html`.
+
+The repo-root `.env.example` is still useful for backend/workflow services and full local integration runs; it is no longer the frontend env template.
 
 The contracts config uses Foundry `compilation_restrictions` on the
 `DeployOasisPoCStore` script entrypoint so that the Sapphire deployment path is
