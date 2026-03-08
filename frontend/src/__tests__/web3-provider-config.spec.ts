@@ -8,8 +8,8 @@ describe('Web3Provider appkit config', () => {
 
   it('disables auto network-switch prompts for temporary non-sepolia flows', async () => {
     const createAppKit = vi.fn()
-    const metaMaskConnector = { id: 'metamask' }
-    const metaMask = vi.fn(() => metaMaskConnector)
+    const metaMaskConnector = { id: 'io.metamask' }
+    const injected = vi.fn(() => metaMaskConnector)
     const WagmiAdapter = vi.fn(
       class {
         wagmiConfig = {}
@@ -26,7 +26,7 @@ describe('Web3Provider appkit config', () => {
     }))
 
     vi.doMock('@wagmi/connectors', () => ({
-      metaMask,
+      injected,
     }))
 
     vi.doMock('@reown/appkit/networks', () => ({
@@ -43,7 +43,7 @@ describe('Web3Provider appkit config', () => {
 
     await import('../providers/Web3Provider')
 
-    expect(metaMask).toHaveBeenCalledTimes(1)
+    expect(injected).toHaveBeenCalledWith({ target: 'metaMask' })
     expect(WagmiAdapter).toHaveBeenCalledWith(
       expect.objectContaining({
         connectors: [metaMaskConnector],
