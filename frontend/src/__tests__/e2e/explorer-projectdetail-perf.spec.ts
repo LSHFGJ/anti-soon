@@ -28,6 +28,7 @@ const PROJECT_DETAIL_READY_BUDGET_MS = 1400
 
 const baseTimestamp = 1_900_000_000n
 const shortAddr = (suffix: string) => (`0x000000000000000000000000000000000000${suffix}` as Hex)
+const zeroBytes32 = `0x${'00'.repeat(32)}` as Hex
 
 const projectRows = [
   {
@@ -42,6 +43,8 @@ const projectRows = [
     commitDeadline: 0n,
     revealDeadline: 0n,
     disputeWindow: 86_400n,
+    juryWindow: 86_400n,
+    adjudicationWindow: 86_400n,
     rulesHash: `0x${'11'.repeat(32)}` as Hex,
     vnetStatus: 2,
     vnetRpcUrl: 'https://rpc.tenderly.co/fork/alpha',
@@ -61,6 +64,8 @@ const projectRows = [
     commitDeadline: 0n,
     revealDeadline: 0n,
     disputeWindow: 172_800n,
+    juryWindow: 172_800n,
+    adjudicationWindow: 172_800n,
     rulesHash: `0x${'33'.repeat(32)}` as Hex,
     vnetStatus: 2,
     vnetRpcUrl: 'https://rpc.tenderly.co/fork/beta',
@@ -80,6 +85,8 @@ const projectRows = [
     commitDeadline: 0n,
     revealDeadline: 0n,
     disputeWindow: 86_400n,
+    juryWindow: 86_400n,
+    adjudicationWindow: 86_400n,
     rulesHash: `0x${'55'.repeat(32)}` as Hex,
     vnetStatus: 3,
     vnetRpcUrl: '',
@@ -99,6 +106,8 @@ const projectRows = [
     commitDeadline: 0n,
     revealDeadline: 0n,
     disputeWindow: 120_000n,
+    juryWindow: 120_000n,
+    adjudicationWindow: 120_000n,
     rulesHash: `0x${'77'.repeat(32)}` as Hex,
     vnetStatus: 1,
     vnetRpcUrl: '',
@@ -249,6 +258,8 @@ function toProjectTuple(id: bigint) {
       commitDeadline: 0n,
       revealDeadline: 0n,
       disputeWindow: 0n,
+      juryWindow: 0n,
+      adjudicationWindow: 0n,
       rulesHash: `0x${'00'.repeat(32)}` as Hex,
       vnetStatus: 0,
       vnetRpcUrl: '',
@@ -269,6 +280,8 @@ function toProjectTuple(id: bigint) {
     commitDeadline: row.commitDeadline,
     revealDeadline: row.revealDeadline,
     disputeWindow: row.disputeWindow,
+    juryWindow: row.juryWindow,
+    adjudicationWindow: row.adjudicationWindow,
     rulesHash: row.rulesHash,
     vnetStatus: row.vnetStatus,
     vnetRpcUrl: row.vnetRpcUrl,
@@ -278,11 +291,32 @@ function toProjectTuple(id: bigint) {
   } as const
 }
 
-function selectorOf(functionName: 'getProjectIds' | 'projects' | 'projectRules' | 'submissions'): Hex {
+function selectorOf(
+  functionName:
+    | 'getProjectIds'
+    | 'projects'
+    | 'projectRules'
+    | 'submissions'
+    | 'getProjectSubmissionIds'
+    | 'getSubmissionLifecycle'
+    | 'getSubmissionJuryMetadata'
+    | 'getSubmissionGroupingMetadata'
+): Hex {
+  const args = (() => {
+    switch (functionName) {
+      case 'getProjectIds':
+        return [0n, 100n] as const
+      case 'getProjectSubmissionIds':
+        return [0n, 0n, 100n] as const
+      default:
+        return [0n] as const
+    }
+  })()
+
   return encodeFunctionData({
     abi: BOUNTY_HUB_V2_ABI,
     functionName,
-    args: functionName === 'getProjectIds' ? [0n, 100n] : [0n],
+    args,
   }).slice(0, 10) as Hex
 }
 
@@ -337,6 +371,10 @@ function getBountyCallResult(
     projectsSelector: Hex
     rulesSelector: Hex
     submissionsSelector: Hex
+    projectSubmissionIdsSelector: Hex
+    submissionLifecycleSelector: Hex
+    submissionJurySelector: Hex
+    submissionGroupingSelector: Hex
   }
 ): Hex | null {
   const selector = data.slice(0, 10).toLowerCase() as Hex
@@ -414,6 +452,60 @@ function getBountyCallResult(
     })
   }
 
+  if (selector === selectors.projectSubmissionIdsSelector.toLowerCase()) {
+    const decoded = decodeFunctionData({ abi: BOUNTY_HUB_V2_ABI, data })
+    const projectId = Array.isArray(decoded.args) ? decoded.args[0] as bigint : 0n
+    const result = projectId === 1n ? [[11n, 12n, 13n], 0n] as const : [[], 0n] as const
+
+    return encodeFunctionResult({
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'getProjectSubmissionIds',
+      result,
+    })
+  }
+
+  if (selector === selectors.submissionLifecycleSelector.toLowerCase()) {
+    const submissionId = Number(decodeUintArg(data))
+    const lifecycleBySubmission = {
+      11: [0, 0n, 0n, 0, 0, zeroBytes32, zeroBytes32],
+      12: [2, baseTimestamp + 1_000n, 0n, 1, 1, zeroBytes32, zeroBytes32],
+      13: [6, baseTimestamp + 1_200n, baseTimestamp + 1_600n, 2, 0, zeroBytes32, zeroBytes32],
+    } as const
+
+    return encodeFunctionResult({
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'getSubmissionLifecycle',
+      result: lifecycleBySubmission[submissionId as keyof typeof lifecycleBySubmission] ?? [0, 0n, 0n, 0, 0, zeroBytes32, zeroBytes32],
+    })
+  }
+
+  if (selector === selectors.submissionJurySelector.toLowerCase()) {
+    const submissionId = Number(decodeUintArg(data))
+    const juryBySubmission = {
+      13: [true, 'UPHOLD_AI_RESULT', 'Consensus maintained after manual review'],
+    } as const
+
+    return encodeFunctionResult({
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'getSubmissionJuryMetadata',
+      result: juryBySubmission[submissionId as keyof typeof juryBySubmission] ?? [false, '', ''],
+    })
+  }
+
+  if (selector === selectors.submissionGroupingSelector.toLowerCase()) {
+    const submissionId = Number(decodeUintArg(data))
+    const groupingBySubmission = {
+      12: [true, 'HIGH', 'g-12', 1n, 2n],
+      13: [true, 'HIGH', 'g-12', 2n, 2n],
+    } as const
+
+    return encodeFunctionResult({
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'getSubmissionGroupingMetadata',
+      result: groupingBySubmission[submissionId as keyof typeof groupingBySubmission] ?? [false, '', '', 0n, 0n],
+    })
+  }
+
   return null
 }
 
@@ -425,6 +517,10 @@ async function installRpcMock(
   const projectsSelector = selectorOf('projects')
   const rulesSelector = selectorOf('projectRules')
   const submissionsSelector = selectorOf('submissions')
+  const projectSubmissionIdsSelector = selectorOf('getProjectSubmissionIds')
+  const submissionLifecycleSelector = selectorOf('getSubmissionLifecycle')
+  const submissionJurySelector = selectorOf('getSubmissionJuryMetadata')
+  const submissionGroupingSelector = selectorOf('getSubmissionGroupingMetadata')
   const multicallSelector = encodeFunctionData({
     abi: MULTICALL3_ABI,
     functionName: 'aggregate3',
@@ -515,6 +611,10 @@ async function installRpcMock(
               projectsSelector,
               rulesSelector,
               submissionsSelector,
+              projectSubmissionIdsSelector,
+              submissionLifecycleSelector,
+              submissionJurySelector,
+              submissionGroupingSelector,
             })
 
             return {
@@ -539,6 +639,10 @@ async function installRpcMock(
           projectsSelector,
           rulesSelector,
           submissionsSelector,
+          projectSubmissionIdsSelector,
+          submissionLifecycleSelector,
+          submissionJurySelector,
+          submissionGroupingSelector,
         })
 
         if (directCallResult) {

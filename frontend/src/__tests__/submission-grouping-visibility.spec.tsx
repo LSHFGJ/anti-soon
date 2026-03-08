@@ -80,6 +80,8 @@ const mockProject = {
   commitDeadline: 10_000_000_000n,
   revealDeadline: 20_000_000_000n,
   disputeWindow: 100n,
+  juryWindow: 100n,
+  adjudicationWindow: 100n,
   rulesHash: `0x${'12'.repeat(32)}` as `0x${string}`,
   vnetStatus: 0,
   vnetRpcUrl: '',
