@@ -18,6 +18,7 @@ function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<vo
 }
 
 const CONFIG_SCHEMA_VERSION = "anti-soon.cre-simulator.trigger-config.v1"
+const ACTUAL_REPO_ROOT = join(import.meta.dir, "../../../..")
 
 describe("cre-simulator cron triggers", () => {
 	it("runs due jobs once and persists scheduler cursor state", async () => {
@@ -114,5 +115,50 @@ describe("cre-simulator cron triggers", () => {
 				),
 			).rejects.toThrow("Cre-simulator trigger state store is not healthy")
 		})
+	})
+
+	it("loads the checked-in trigger config when no repoRoot override is provided", async () => {
+		const configPath = join(
+			ACTUAL_REPO_ROOT,
+			"backend/cre-simulator/.cron-default-config.test.json",
+		)
+		writeFileSync(
+			configPath,
+			`${JSON.stringify(
+				{
+					schemaVersion: CONFIG_SCHEMA_VERSION,
+					stateFilePath: "backend/cre-simulator/.cron-default-state.test.json",
+					httpTriggers: {},
+					cronTriggers: { "demo-run": { intervalMs: 1000, command: "run" } },
+					evmLogTriggers: {},
+				},
+				null,
+				2,
+			)}\n`,
+			"utf8",
+		)
+
+		try {
+			const result = await runCronTriggerTick(
+				{ configPath: "backend/cre-simulator/.cron-default-config.test.json" },
+				{},
+				{
+					nowMs: () => 60_000,
+					executeCommand: async (request) => ({
+						command: request.command,
+						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
+						result: { command: request.command },
+					}),
+				},
+			)
+
+			expect(result.executed).toEqual([{ triggerName: "demo-run", command: "run" }])
+		} finally {
+			rmSync(configPath, { force: true })
+			rmSync(
+				join(ACTUAL_REPO_ROOT, "backend/cre-simulator/.cron-default-state.test.json"),
+				{ force: true },
+			)
+		}
 	})
 })
