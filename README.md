@@ -56,23 +56,57 @@ bun run test
 bun run build
 ```
 
-If you need the demo-only backend surface that simulates deployed CRE-triggered execution, use the backend-owned package:
+The contracts config uses Foundry `compilation_restrictions` on the
+`DeployOasisPoCStore` script entrypoint so that the Sapphire deployment path is
+compiled with `evm_version=paris` while the rest of the workspace keeps the
+default compiler target.
+
+Use it when deploying `OasisPoCStore` to Sapphire:
+
+```bash
+cd contracts
+forge script script/DeployOasisPoCStore.s.sol:DeployOasisPoCStore --rpc-url sapphire_testnet --broadcast
+```
+
+That keeps the Sapphire storage contract deployment compatible with the network
+without forcing unrelated contracts like `BountyHub` onto the same EVM target.
+
+Then verify the deployed contract source on Sapphire testnet with Sourcify:
+
+```bash
+cd contracts
+CONSTRUCTOR_ARGS=$(cast abi-encode "constructor(string)" "$SIWE_DOMAIN")
+forge verify-contract <DEPLOYED_ADDRESS> src/OasisPoCStore.sol:OasisPoCStore \
+  --chain 23295 \
+  --verifier sourcify \
+  --compiler-version v0.8.30+commit.73712a01 \
+  --num-of-optimizations 1000 \
+  --via-ir \
+  --evm-version paris \
+  --constructor-args "$CONSTRUCTOR_ARGS" \
+  --watch
+```
+
+Sourcify is the preferred verification service for Sapphire, and this deploy
+path stays compatible with verification because the Forge script broadcasts a
+normal deployment transaction instead of an encrypted deployment wrapper.
+
+If you need the backend-owned CRE trigger entrypoint for live workflows, use `backend/cre-simulator`:
 
 ```bash
 cd backend/cre-simulator
 bun test
-bun ./src/operator-cli.ts --help
 bun ./src/index.ts --help
 ```
 
-The backend package exposes a thin HTTP surface plus a backend-owned CLI over the same durable state file:
+The backend package exposes a thin HTTP surface plus worker entrypoints over the same durable trigger state:
 
 - `GET /health` for service liveness.
-- `GET /api/cre-simulator/status` for the current durable stage snapshot.
-- `POST /api/cre-simulator/commands/:command` for `register`, `submit`, `reveal`, `verify`, `run`, and `status`.
+- `GET /api/cre-simulator/status` for live runtime and trigger-config status.
+- `POST /api/cre-simulator/adapters/:adapter` for direct adapter execution such as `auto-reveal-relayer` or `cre-workflow-simulate`.
 - `GET /api/cre-simulator/triggers/status` for trigger-worker health, scheduler/listener cursors, and configured trigger mappings.
-- `POST /api/cre-simulator/triggers/:triggerName` for backend-owned manual trigger dispatch such as `manual-run`.
-- `run` executes `register -> submit -> reveal -> verify` in order, then returns a final `status` snapshot so demo UIs can inspect partial or completed progress without touching the real workflow packages.
+- `POST /api/cre-simulator/triggers/:triggerName` for manual trigger dispatch such as `manual-reveal` or `manual-verify`, using the adapter bindings declared in `backend/cre-simulator/triggers.json`.
+- The checked-in `cre-workflow-simulate` binding for `verify-poc` requires `evmTxHash` and `evmEventIndex`, while the EVM-log worker fills those fields automatically from `PoCRevealed` events.
 
 The package now also includes separate worker-style entrypoints for the other CRE trigger shapes:
 
@@ -87,27 +121,24 @@ For a full staging demo on Railway, deploy `backend/cre-simulator` as three proc
 - CRON worker: `bun run start:cron -- --once` for smoke checks, then `bun run start:cron`
 - EVM-log worker: `bun run start:evm-log`
 
-Minimum runtime env for a full `run` demo includes:
+The backend deploy contract now follows one canonical env template, defined in `backend/cre-simulator/.env.example`:
 
-- `DEMO_OPERATOR_PUBLIC_RPC_URL`
-- `DEMO_OPERATOR_ADMIN_RPC_URL`
-- `DEMO_PROJECT_OWNER_ADDRESS`
-- `DEMO_PROJECT_OWNER_PRIVATE_KEY`
-- `DEMO_OPERATOR_ADDRESS`
-- `DEMO_OPERATOR_PRIVATE_KEY`
-- `DEMO_AUDITOR_ADDRESS`
-- `DEMO_AUDITOR_PRIVATE_KEY`
-- `CRE_ETH_PRIVATE_KEY`
+- `CRE_SIM_TENDERLY_API_KEY`
+- `CRE_SIM_PRIVATE_KEY`
+- `CRE_SIM_SEPOLIA_RPC_URL`
+- `CRE_SIM_ADMIN_RPC_URL`
+- `CRE_SIM_WS_RPC_URL`
+- `CRE_SIM_SAPPHIRE_RPC_URL`
+- `CRE_SIM_BOUNTY_HUB_ADDRESS`
+- `CRE_SIM_OASIS_STORAGE_CONTRACT`
 
-Additional deployment env depends on your PoC upload and trigger mode:
+At runtime the backend derives the internal workflow env it needs from that canonical backend env surface; old simulator fallback env names are no longer part of the supported deploy contract.
 
-- `TENDERLY_API_KEY` for generated workflow secrets during Railway-style deploys
-- `VITE_OASIS_STORAGE_CONTRACT` for direct Sapphire writes, or `DEMO_OPERATOR_OASIS_UPLOAD_API_URL` / `VITE_OASIS_UPLOAD_API_URL` for upload-API mode
-- `DEMO_OPERATOR_WS_RPC_URL` when running the EVM-log worker
+`CRE_SIM_WS_RPC_URL` is required when running the EVM-log worker.
 
-The HTTP server now honors `HOST` and `PORT` env defaults, and the workflow-simulate stages can generate a runtime `secrets.yaml` from `TENDERLY_API_KEY` instead of requiring a hand-managed repo-root secret file during deploy.
+The HTTP server honors `HOST` and `PORT` env defaults, and the workflow-simulate stages generate the runtime secret material they need from `CRE_SIM_TENDERLY_API_KEY` during execution instead of relying on runtime-config JSON fallbacks.
 
-Deployment templates and a Railway-specific runbook now live under `backend/cre-simulator/railway/`, and the env template lives at `backend/cre-simulator/.env.railway.example`.
+Deployment templates and a Railway-specific runbook now live under `backend/cre-simulator/railway/`, and the canonical env template lives at `backend/cre-simulator/.env.example`.
 
 Once the app is running, the best first route depends on your job right now:
 
@@ -139,7 +170,7 @@ cd frontend && bun run build
 AntiSoon is a small multi-surface system rather than a single app server:
 
 - `frontend/` - React app for landing, explorer, builder, project creation, dashboard, leaderboard, and `/docs`.
-- `backend/cre-simulator/` - demo-only Bun HTTP service plus backend-owned trigger adapters and worker entrypoints for HTTP, CRON, and EVM-log simulation, all reusing the same operator core and durable `status` inspection while staying separate from the real CRE workflow packages.
+- `backend/cre-simulator/` - Bun HTTP service plus backend-owned trigger adapters and worker entrypoints for HTTP, CRON, and EVM-log execution, acting as a live adapter host in front of the real CRE workflow packages while keeping deployment/runtime concerns under `backend/`.
 - `contracts/src/BountyHub.sol` - core protocol contract for project registration, commit-reveal submissions, verification results, disputes, and payout finalization.
 - `contracts/src/OasisPoCStore.sol` - Sapphire-side encrypted payload storage with explicit read grants.
 - `workflow/verify-poc/`, `workflow/vnet-init/`, `workflow/auto-reveal-relayer/`, `workflow/jury-orchestrator/` - workflow surfaces for verification and adjudication.
