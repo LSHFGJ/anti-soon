@@ -10,7 +10,7 @@ Deploy `backend/cre-simulator` as three Railway services that share the same env
 
 ## Preflight commands
 
-Run these locally before configuring Railway:
+Run these locally from the repository root before configuring Railway:
 
 - `bun run preflight:http`
 - `bun run preflight:cron`
@@ -19,17 +19,17 @@ Run these locally before configuring Railway:
 ## HTTP service
 
 - Root directory: repository root
-- Start command: `cd backend/cre-simulator && HOST=0.0.0.0 PORT=$PORT bun run start:http`
+- Start command: `HOST=0.0.0.0 PORT=$PORT bun run start:http`
 
 ## CRON worker
 
 - Root directory: repository root
-- Start command: `cd backend/cre-simulator && bun run start:cron`
+- Start command: `bun run start:cron`
 
 ## EVM-log worker
 
 - Root directory: repository root
-- Start command: `cd backend/cre-simulator && bun run start:evm-log`
+- Start command: `bun run start:evm-log`
 
 ## Environment model
 
@@ -71,7 +71,7 @@ If the trigger enters quarantine, inspect `GET /api/cre-simulator/triggers/statu
 ### CRON worker smoke test
 
 ```bash
-cd backend/cre-simulator && bun run start:cron -- --once
+bun run start:cron -- --once
 ```
 
 This should perform a single scheduler tick and exit.
@@ -79,7 +79,7 @@ This should perform a single scheduler tick and exit.
 ### EVM-log worker startup validation
 
 ```bash
-cd backend/cre-simulator && bun run start:evm-log
+bun run start:evm-log
 ```
 
 If `CRE_SIM_WS_RPC_URL` is missing, the worker should fail immediately with a clear environment error.

@@ -1,0 +1,22 @@
+{
+  "name": "anti-soon-monorepo",
+  "private": true,
+  "packageManager": "bun@1.3.9",
+  "workspaces": [
+    "backend/cre-simulator",
+    "frontend",
+    "workflow/auto-reveal-relayer",
+    "workflow/jury-orchestrator",
+    "workflow/verify-poc",
+    "workflow/vnet-init"
+  ],
+  "scripts": {
+    "start": "bun run start:http",
+    "start:http": "bun run --cwd backend/cre-simulator start:http",
+    "start:cron": "bun run --cwd backend/cre-simulator start:cron",
+    "start:evm-log": "bun run --cwd backend/cre-simulator start:evm-log",
+    "preflight:http": "bun run --cwd backend/cre-simulator preflight:http",
+    "preflight:cron": "bun run --cwd backend/cre-simulator preflight:cron",
+    "preflight:evm-log": "bun run --cwd backend/cre-simulator preflight:evm-log"
+  }
+}

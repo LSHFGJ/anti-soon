@@ -124,7 +124,7 @@ The package now also includes separate worker-style entrypoints for the other CR
 
 That split is intentional: WebSocket listening is kept in the EVM-log worker only, while HTTP and CRON continue to adapt into the same backend execution core.
 
-For a full staging demo on Railway, deploy `backend/cre-simulator` as three processes that share the same working tree and runtime env:
+For a full staging demo on Railway, deploy the repository root as a Bun monorepo and run `backend/cre-simulator` through the root scripts:
 
 - HTTP service: `HOST=0.0.0.0 PORT=$PORT bun run start:http`
 - CRON worker: `bun run start:cron -- --once` for smoke checks, then `bun run start:cron`
@@ -147,7 +147,7 @@ At runtime the backend derives the internal workflow env it needs from that cano
 
 The HTTP server honors `HOST` and `PORT` env defaults, and the workflow-simulate stages generate the runtime secret material they need from `CRE_SIM_TENDERLY_API_KEY` during execution instead of relying on runtime-config JSON fallbacks.
 
-Deployment templates and a Railway-specific runbook now live under `backend/cre-simulator/railway/`, and the canonical env template lives at `backend/cre-simulator/.env.example`.
+Deployment templates and a Railway-specific runbook now live under `backend/cre-simulator/railway/`, the canonical env template lives at `backend/cre-simulator/.env.example`, and the root `package.json` gives Railpack a detectable Bun monorepo entrypoint.
 
 Once the app is running, the best first route depends on your job right now:
 

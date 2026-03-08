@@ -1,6 +1,6 @@
 {
   "name": "cre-simulator-cron",
   "root": ".",
-  "startCommand": "cd backend/cre-simulator && bun run start:cron",
-  "preflightCommand": "cd backend/cre-simulator && bun run preflight:cron"
+  "startCommand": "bun run start:cron",
+  "preflightCommand": "bun run preflight:cron"
 }
