@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { targetConfigSchema, type TargetConfigFormData } from '../../../lib/validations/poc'
+import { createReactHookFormZodResolver } from '../../../lib/reactHookFormZodResolver'
 import { cn } from '../../../lib/utils'
 import type { Project } from '../../../types'
 import type { TargetConfig } from '../../../types/poc'
@@ -73,7 +73,7 @@ export const TargetStep: React.FC<TargetStepProps> = React.memo(({
   )
 
   const form = useForm<TargetConfigFormData>({
-    resolver: zodResolver(targetConfigSchema),
+    resolver: createReactHookFormZodResolver(targetConfigSchema),
     defaultValues: {
       targetContract: config.targetContract,
       forkBlock: config.forkBlock,

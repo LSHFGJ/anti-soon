@@ -1,4 +1,3 @@
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -33,6 +32,7 @@ import type { ContractScope, DeployScript } from "@/types";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
 import { useWallet } from "../hooks/useWallet";
 import { buildCreateProjectThresholdPayload } from "../lib/createProjectThresholds";
+import { createReactHookFormZodResolver } from "../lib/reactHookFormZodResolver";
 
 const isValidAddress = (val: string): boolean => isAddress(val);
 
@@ -205,7 +205,7 @@ export function CreateProject() {
 	const [scopes, setScopes] = useState<ContractScope[]>([]);
 
 	const form = useForm<FormData>({
-		resolver: zodResolver(createProjectSchema),
+		resolver: createReactHookFormZodResolver(createProjectSchema),
 		defaultValues,
 		mode: "onChange",
 	});
