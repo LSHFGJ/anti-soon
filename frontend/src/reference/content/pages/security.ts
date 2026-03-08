@@ -6,7 +6,7 @@ export const securityDocsPage = {
 	href: "/docs/security",
 	locale: "en",
 	title: "Security",
-	summary: "Security goals and trust boundaries for the intended AntiSoon protocol pipeline.",
+	summary: "Security goals and trust boundaries for the AntiSoon protocol pipeline.",
 	sections: [
 		{
 			id: "security-goals",
@@ -16,7 +16,7 @@ export const securityDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The security model is built around four goals: keep zero-day submissions confidential before the correct reveal point, prevent workflows from becoming unchecked governors of protocol truth, ensure verification and adjudication are evidence-driven, and expose only the right amount of information to non-submitters before final results are ready.",
+					text: "The security model is built around four goals: keep zero-day submissions confidential, prevent workflows from becoming unchecked governors of protocol truth, ensure verification and adjudication are evidence-driven, and expose only necessary information before final results are ready.",
 				},
 				{
 					type: "table",
@@ -38,7 +38,7 @@ export const securityDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "AntiSoon does not trust confidentiality and authority to the same component. Today, OasisPoCStore protects hidden PoC payloads, while the intended protocol design extends the Oasis confidential layer to private jury data as well. BountyHub still remains the authority over what becomes protocol truth. That split prevents a confidential storage surface from unilaterally deciding validity, and it prevents the contract from having to expose exploit details too early.",
+					text: "The protocol uses separate components for confidentiality and authority. OasisPoCStore protects hidden PoC payloads and confidential jury data, `verify-poc` and `jury-orchestrator` prepare evidence or adjudication packages, and BountyHub remains the authority over what becomes protocol truth through authorized report write-back.",
 				},
 				{
 					type: "list",
@@ -58,30 +58,25 @@ export const securityDocsPage = {
 				label: "Jury Selection and Confidentiality",
 			},
 			title: "Jury Selection and Confidentiality",
-			summary: "Why the intended jury block uses mixed jurors, confidential storage, and a future anti-sybil path.",
+			summary: "Why the jury block uses mixed jurors, confidential storage, and human selection provenance.",
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The original jury design is a privacy and selection-integrity mechanism, not just a generic consensus phrase. Non-strict cases are meant to go to 5 LLM jurors with different base models and 5 human jurors selected by VRF randomness. In the intended protocol path, all 10 resulting opinions are stored in the Oasis confidential layer, then retrieved only after the verification window deadline so consensus can happen without leaking intermediate votes.",
+					text: "The jury design is a privacy and selection-integrity mechanism. Non-strict cases go to 5 LLM jurors and 5 human jurors selected through recorded human-selection provenance. Their opinions are stored in the Oasis confidential layer and retrieved after the submission's derived jury deadline for consensus aggregation.",
 				},
 				{
 					type: "table",
 					columns: ["Security property", "Mechanism", "What it protects against"],
 					rows: [
 						["Panel diversity", "5 LLM jurors plus 5 human jurors", "Single-model blind spots and single-role capture"],
-						["Human juror selection integrity", "VRF randomness", "Predictable or curator-controlled panel composition"],
-						["Vote privacy before consensus", "Intended: store every opinion in the Oasis confidential layer until the deadline", "Early vote leakage, strategic vote copying, and pre-consensus external pressure"],
-						["Future anti-sybil hardening", "zk-proof identity validation for human jurors", "Human-panel farming and duplicate-identity abuse"],
+						["Human juror selection integrity", "Recorded human-selection provenance", "Predictable or curator-controlled panel composition"],
+						["Vote privacy before consensus", "Store every opinion in the Oasis confidential layer until the deadline", "Early vote leakage, strategic vote copying, and pre-consensus external pressure"],
+						["Anti-sybil hardening", "Human juror selection provenance", "Human-panel farming and duplicate-identity abuse"],
 					],
 				},
 				{
-					type: "callout",
-					tone: "info",
-					title: "Target architecture note",
-					body: [
-						"The docs treat this as intended protocol behavior from the original design source.",
-						"The current codebase has not yet fully implemented the juror-opinion storage and retrieval path in the Oasis confidential layer.",
-					],
+					type: "paragraph",
+					text: "That structure means confidentiality and selection integrity reinforce each other: jurors are mixed by design, opinions stay sealed until the jury deadline closes, and the eventual BountyHub write-back is based on aggregate adjudication rather than first-seen timing.",
 				},
 			],
 		},
@@ -96,7 +91,7 @@ export const securityDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The lifecycle design does not assume every case can be reduced to a single deterministic yes-or-no check. Strict verification provides a hard metrics path for cases that cleanly satisfy project criteria, while confidential jury aggregation and possible owner adjudication handle cases where the protocol still needs a guarded judgment layer. The intended final-validity space is `High`, `Medium`, or `Invalid`, and owner adjudication is only supposed to happen when the ten-node jury cannot form consensus by the end of the verification window.",
+					text: "Strict verification via `verify-poc` provides a hard metrics and evidence-generation path for cases that cleanly satisfy project criteria, while confidential jury aggregation via `jury-orchestrator` and possible owner adjudication handle cases where the protocol still needs a guarded judgment layer.",
 				},
 				{
 					type: "table",
@@ -109,16 +104,7 @@ export const securityDocsPage = {
 				},
 				{
 					type: "paragraph",
-					text: "Owner adjudication is still checked, not simply accepted. In the intended design, the owner submits both the final judgment and the testimony supporting it, and LLM consensus then verifies whether that testimony is consistent with the judgment being asserted before the adjudicated validity becomes final. The current codebase already supports owner dispute resolution, but not the full confidential jury-storage pipeline described here.",
-				},
-				{
-					type: "callout",
-					tone: "info",
-					title: "Target architecture note",
-					body: [
-						"This page follows the lifecycle design where jury and adjudication are first-class trust layers.",
-						"If the current product surface still presents a simpler CRE verification story, treat that as an implementation lag rather than the long-term security model.",
-					],
+					text: "Owner adjudication is the final fallback when the ten-node jury does not converge. The owner submits judgment and testimony, `jury-orchestrator` checks that package for consistency, and BountyHub remains the irreversible state surface that accepts or rejects the resulting write-back.",
 				},
 			],
 		},

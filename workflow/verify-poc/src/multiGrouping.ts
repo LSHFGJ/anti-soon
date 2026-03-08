@@ -48,6 +48,13 @@ export type MultiSubmissionGroupingResult = {
   submissions: MultiSubmissionSimilarityRecord[]
 }
 
+export type PostVerdictMultiGroupingInput = {
+  competitionMode: "MULTI" | "UNIQUE"
+  finalValidity: "NONE" | "VALID" | "INVALID"
+  severity: string
+  submissions: readonly MultiSubmissionGroupingInput[]
+}
+
 type NormalizedSubmission = {
   submissionId: string
   cohort: MultiGroupingCohort
@@ -609,4 +616,23 @@ export function buildDeterministicMultiSubmissionGroups(
     groups,
     submissions: submissionsWithSimilarity,
   }
+}
+
+export function buildPostVerdictMultiSubmissionGroups(
+  args: PostVerdictMultiGroupingInput,
+): MultiSubmissionGroupingResult | null {
+  if (args.competitionMode !== "MULTI") {
+    return null
+  }
+
+  if (args.finalValidity !== "VALID") {
+    return null
+  }
+
+  const cohort = normalizeSeverityToCohort(args.severity)
+  if (cohort !== "HIGH" && cohort !== "MEDIUM") {
+    return null
+  }
+
+  return buildDeterministicMultiSubmissionGroups(args.submissions)
 }

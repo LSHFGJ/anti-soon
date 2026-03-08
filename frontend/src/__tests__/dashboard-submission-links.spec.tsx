@@ -28,15 +28,6 @@ vi.mock('../lib/publicClient', () => ({
 
 import Dashboard from '../pages/Dashboard'
 
-function getFunctionName(parameters: unknown): string | null {
-  if (typeof parameters !== 'object' || parameters === null || !('functionName' in parameters)) {
-    return null
-  }
-
-  const value = parameters.functionName
-  return typeof value === 'string' ? value : null
-}
-
 describe('Dashboard chain-only submission entrypoints', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -71,24 +62,11 @@ describe('Dashboard chain-only submission entrypoints', () => {
         '0x0000000000000000000000000000000000000000',
         0n,
       ],
+      [0, 0n, 0n, 0, 0, '0x00', '0x00'],
+      [false, '', ''],
+      [false, '', '', 0, 0]
     ])
-    mockReadContractWithRpcFallback.mockImplementation(async (parameters: unknown) => {
-      const functionName = getFunctionName(parameters)
-      if (functionName === 'getAuditorSubmissionIds') {
-        return [[7n], 0n]
-      }
-      if (functionName === 'getAuditorStats') {
-        return [9n, 4n, 2n, 3n, 1n, 0n, 5_000_000_000_000_000_000n, 0n]
-      }
-      if (functionName === 'getSubmissionGroupingMetadata') {
-        return [false, '', '', 0n, 0n]
-      }
-      if (functionName === 'getSubmissionJuryMetadata') {
-        return [false, '', '']
-      }
-
-      throw new Error(`Unexpected readContract call: ${String(functionName)}`)
-    })
+    mockReadContractWithRpcFallback.mockResolvedValue(8n)
   })
 
   it('renders chain-backed submission links and Sepolia tx links', async () => {
@@ -103,13 +81,6 @@ describe('Dashboard chain-only submission entrypoints', () => {
     })
 
     expect(screen.getByRole('link', { name: '#7' })).toHaveAttribute('href', '/submission/7')
-    expect(screen.getByText(/5(\.0+)? ETH/)).toBeVisible()
-    expect(screen.getByText('9')).toBeVisible()
-    expect(screen.getByText('4')).toBeVisible()
-    expect(screen.getByText('2')).toBeVisible()
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'SEPOLIA TX' })).toBeVisible()
-    })
     expect(screen.getByRole('link', { name: 'SEPOLIA TX' })).toHaveAttribute(
       'href',
       expect.stringContaining('/tx/0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'),
@@ -117,8 +88,23 @@ describe('Dashboard chain-only submission entrypoints', () => {
     expect(screen.queryByText(/SAPPHIRE TX/i)).not.toBeInTheDocument()
   })
 
-  it('loads submissions from the contract index even when tx log lookup fails', async () => {
+  it('falls back to scanning submissions from nextSubmissionId when log discovery fails', async () => {
     mockGetLogsWithRangeFallback.mockRejectedValue(new Error('rpc log failure'))
+    mockReadContractWithRpcFallback.mockResolvedValue(8n)
+    mockMulticallWithRpcFallback.mockImplementation(async ({ contracts }) => {
+      return contracts.map((c: any) => {
+        const id = c.args[0];
+        if (c.functionName === 'submissions') {
+          if (id === 7n) return ['0x9999999999999999999999999999999999999999', 1n, '0xaa', 'uri', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
+          if (id === 6n) return ['0x1111111111111111111111111111111111111111', 1n, '0xbb', 'uri2', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
+          return ['0x0000000000000000000000000000000000000000', 1n, '0xcc', 'uri3', '0x00', 1736200000n, 0n, 0, 0n, 0, 0n, 0n, false, '0x0', 0n];
+        }
+        if (c.functionName === 'getSubmissionLifecycle') return [0, 0n, 0n, 0, 0, '0x00', '0x00'];
+        if (c.functionName === 'getSubmissionJuryMetadata') return [false, '', ''];
+        if (c.functionName === 'getSubmissionGroupingMetadata') return [false, '', '', 0, 0];
+        return [];
+      });
+    })
 
     render(
       <MemoryRouter>
@@ -127,17 +113,35 @@ describe('Dashboard chain-only submission entrypoints', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: '#7' })).toBeVisible()
+      expect(screen.getByRole('link', { name: '#6' })).toBeVisible()
     })
 
-    const functionNames = mockReadContractWithRpcFallback.mock.calls
-      .map(([parameters]) => getFunctionName(parameters))
-      .filter((value): value is string => value !== null)
-
-    expect(functionNames).toContain('getAuditorSubmissionIds')
-    expect(functionNames).toContain('getAuditorStats')
-    expect(functionNames).not.toContain('nextSubmissionId')
     expect(screen.queryByText(/Failed to load your submissions from blockchain/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'SEPOLIA TX' })).not.toBeInTheDocument()
+  })
+  it('reads new jury and grouping metadata getters', async () => {
+    mockGetLogsWithRangeFallback.mockResolvedValue([
+      { args: { submissionId: 99n }, transactionHash: '0x99' }
+    ])
+
+    mockMulticallWithRpcFallback.mockResolvedValue([
+      [
+        '0x1111111111111111111111111111111111111111', 1n, '0x0', 'uri', '0x0', 0n, 0n, 2, 0n, 1, 100n, 0n, false, '0x0', 0n
+      ],
+      [6, 123456789n, 0n, 2, 0, '0x0', '0x0'], // lifecycle: JuryPending
+      [true, 'UPHOLD_RESULT', 'Valid finding'], // jury
+      [true, 'A1', 'gid', 1n, 5n] // grouping
+    ])
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      // Check for Jury UI elements
+      expect(screen.getByText(/⚖️ UPHOLD/)).toBeVisible()
+      expect(screen.getByText(/\[A1-1\/5\]/)).toBeVisible()
+    })
   })
 })

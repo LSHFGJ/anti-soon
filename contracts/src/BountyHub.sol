@@ -10,7 +10,22 @@ contract BountyHub is ReceiverTemplate {
     // ═══════════ Enums ═══════════
 
     /// @notice Status of a vulnerability submission through its lifecycle
-    enum SubmissionStatus { Committed, Revealed, Verified, Disputed, Finalized, Invalid }
+    enum SubmissionStatus {
+        Committed,
+        Revealed,
+        Verified,
+        Disputed,
+        Finalized,
+        Invalid,
+        JuryPending,
+        AwaitingOwnerAdjudication
+    }
+
+    /// @notice Authoritative source that committed the current final verdict.
+    enum VerdictSource { None, Verification, Jury, Owner }
+
+    /// @notice Whether the submission has reached a final validity outcome.
+    enum FinalValidity { None, Valid, Invalid }
 
     /// @notice Competition mode for project bounty programs
     enum CompetitionMode { UNIQUE, MULTI }
@@ -36,6 +51,8 @@ contract BountyHub is ReceiverTemplate {
         uint256 maxAttackerSeedWei;     // Max initial funds attacker can receive
         uint256 maxWarpSeconds;          // Max time warp allowed (0 = disabled)
         bool    allowImpersonation;      // Whether impersonation is allowed
+        uint256 juryWindow;              // Seconds after reveal before jury aggregation opens
+        uint256 adjudicationWindow;      // Seconds after jury deadline for owner adjudication
         SeverityThresholds thresholds;   // Severity calculation thresholds
     }
 
@@ -60,6 +77,8 @@ contract BountyHub is ReceiverTemplate {
         uint256 commitDeadline;      // MULTI: commit deadline (0 = no limit)
         uint256 revealDeadline;      // MULTI: reveal deadline (0 = no limit)
         uint256 disputeWindow;       // Seconds for dispute resolution
+        uint256 juryWindow;          // Seconds after reveal before jury aggregation opens
+        uint256 adjudicationWindow;  // Seconds after jury deadline for owner adjudication
         bytes32 rulesHash;           // keccak256(abi.encode(ProjectRules))
         // VNet fields
         VnetStatus vnetStatus;       // VNet creation status
@@ -105,16 +124,14 @@ contract BountyHub is ReceiverTemplate {
         uint256 groupSize;
     }
 
-    /// @notice Auditor-facing aggregates used by dashboard and leaderboard reads.
-    struct AuditorStats {
-        uint256 totalSubmissions;
-        uint256 activeValidCount;
-        uint256 pendingCount;
-        uint256 paidCount;
-        uint256 highPaidCount;
-        uint256 criticalPaidCount;
-        uint256 totalEarnedWei;
-        uint256 leaderboardIndex;
+    /// @notice First-class lifecycle state for jury/adjudication flows.
+    struct SubmissionLifecycle {
+        uint256 juryDeadline;
+        uint256 adjudicationDeadline;
+        VerdictSource verdictSource;
+        FinalValidity finalValidity;
+        bytes32 juryLedgerDigest;
+        bytes32 ownerTestimonyDigest;
     }
 
     /// @notice Pre-authorized reveal payload stored for delayed execution
@@ -145,11 +162,7 @@ contract BountyHub is ReceiverTemplate {
     mapping(uint256 => UniqueRevealState) public uniqueRevealStateByProject;
     mapping(uint256 => SubmissionJuryMetadata) internal s_submissionJuryMetadata;
     mapping(uint256 => SubmissionGroupingMetadata) internal s_submissionGroupingMetadata;
-    mapping(uint256 => uint256[]) private s_submissionIdsByProject;
-    mapping(address => uint256[]) private s_submissionIdsByAuditor;
-    mapping(address => AuditorStats) private s_auditorStats;
-    address[] private s_leaderboardAuditors;
-    mapping(address => bool) private s_leaderboardAuditorSeen;
+    mapping(uint256 => SubmissionLifecycle) internal s_submissionLifecycle;
 
     mapping(bytes32 => bool) public commitHashUsed;        // V2: duplicate commit check
     mapping(uint256 => bytes32) public submissionMetadataHash; // V2+: deterministic bridge linkage metadata
@@ -159,9 +172,6 @@ contract BountyHub is ReceiverTemplate {
     uint256 public constant COOLDOWN = 10 minutes;
     uint256 public constant MIN_CHALLENGE_BOND = 0.01 ether;
     uint256 public constant TIMEOUT_PENALTY_BPS = 500; // 5% in basis points
-    uint256 public constant MAX_SUBMISSION_PAGE_SIZE = 100;
-    uint256 public constant MAX_PROJECT_PAGE_SIZE = 100;
-    uint256 public constant MAX_LEADERBOARD_PAGE_SIZE = 100;
 
     bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant EIP712_NAME_HASH = keccak256("BountyHub");
@@ -173,9 +183,13 @@ contract BountyHub is ReceiverTemplate {
     uint256 private constant REPORT_METADATA_LENGTH = 62;
     uint256 private constant REPORT_TYPED_ENVELOPE_HEAD_LENGTH = 96;
     uint256 private constant REPORT_TYPED_ENVELOPE_MIN_LENGTH = 128;
+    uint256 private constant VERIFY_POC_TYPED_LEGACY_HEAD_LENGTH = 352;
     uint8 private constant REPORT_TYPE_VNET_SUCCESS = 1;
     uint8 private constant REPORT_TYPE_VNET_FAILED = 2;
     uint8 private constant REPORT_TYPE_VERIFY_POC_VERDICT = 3;
+    bytes32 private constant WORKFLOW_VERIFY_POC_ID = keccak256("verify-poc");
+    bytes32 private constant WORKFLOW_JURY_ORCHESTRATOR_ID = keccak256("jury-orchestrator");
+    bytes32 private constant WORKFLOW_VNET_INIT_ID = keccak256("vnet-init");
 
     mapping(bytes32 => bool) private s_authorizedWorkflows;
     uint256 private s_authorizedWorkflowCount;
@@ -216,6 +230,7 @@ contract BountyHub is ReceiverTemplate {
     event LegacyReportFallbackUpdated(bool enabled);
 
     error UnauthorizedWorkflowProvenance(bytes32 workflowId);
+    error ReportWorkflowMismatch(bytes32 workflowId, uint8 reportType);
     error InvalidReportMetadataLength(uint256 providedLength);
     error MalformedTypedReportEnvelope();
     error LegacyReportFallbackDisabled();
@@ -301,6 +316,8 @@ contract BountyHub is ReceiverTemplate {
         p.commitDeadline = _commitDeadline;
         p.revealDeadline = _revealDeadline;
         p.disputeWindow = _disputeWindow;
+        p.juryWindow = _rules.juryWindow;
+        p.adjudicationWindow = _rules.adjudicationWindow;
         p.rulesHash = keccak256(abi.encode(_rules));
 
         projectRules[projectId] = _rules;
@@ -353,6 +370,8 @@ contract BountyHub is ReceiverTemplate {
         p.commitDeadline = _commitDeadline;
         p.revealDeadline = _revealDeadline;
         p.disputeWindow = _disputeWindow;
+        p.juryWindow = _rules.juryWindow;
+        p.adjudicationWindow = _rules.adjudicationWindow;
         p.rulesHash = keccak256(abi.encode(_rules));
         p.repoUrl = _repoUrl;
 
@@ -523,9 +542,6 @@ contract BountyHub is ReceiverTemplate {
         sub.status = SubmissionStatus.Committed;
         bytes32 metadataHash = keccak256(bytes(_cipherURI));
         submissionMetadataHash[submissionId] = metadataHash;
-        s_submissionIdsByProject[_projectId].push(submissionId);
-        s_submissionIdsByAuditor[_auditor].push(submissionId);
-        s_auditorStats[_auditor].totalSubmissions += 1;
 
         emit PoCCommitted(submissionId, _projectId, _auditor, _commitHash);
         emit PoCCommitMetadata(submissionId, metadataHash);
@@ -741,10 +757,11 @@ contract BountyHub is ReceiverTemplate {
     /// @dev Legacy V2 verification format: (submissionId, isValid, drainAmountWei)
     /// @param report Encoded report data from CRE
     function _processReport(bytes calldata report) internal override {
-        _enforceWorkflowProvenance();
+        bytes32 workflowId = _enforceWorkflowProvenance();
 
         if (_isTypedReport(report)) {
             (uint8 reportType, bytes memory payload) = _decodeTypedReportEnvelope(report);
+            _enforceTypedReportWorkflowSemantics(workflowId, reportType, payload);
 
             if (reportType == REPORT_TYPE_VNET_SUCCESS) {
                 (uint256 projectId, string memory vnetRpcUrl, bytes32 baseSnapshotId) =
@@ -770,6 +787,8 @@ contract BountyHub is ReceiverTemplate {
         if (!legacyReportFallbackEnabled) {
             revert LegacyReportFallbackDisabled();
         }
+
+        _enforceLegacyVerificationWorkflowSemantics(workflowId);
 
         _processVerificationReport(report);
     }
@@ -811,17 +830,52 @@ contract BountyHub is ReceiverTemplate {
         }
     }
 
-    function _enforceWorkflowProvenance() internal view {
+    function _enforceWorkflowProvenance() internal view returns (bytes32 workflowId) {
         if (s_authorizedWorkflowCount == 0) {
-            return;
+            return bytes32(0);
         }
 
-        (bytes32 workflowId, uint256 metadataLength) = _decodeOnReportMetadataForGuardrail();
+        uint256 metadataLength;
+        (workflowId, metadataLength) = _decodeOnReportMetadataForGuardrail();
         if (metadataLength != REPORT_METADATA_LENGTH) {
             revert InvalidReportMetadataLength(metadataLength);
         }
         if (!s_authorizedWorkflows[workflowId]) {
             revert UnauthorizedWorkflowProvenance(workflowId);
+        }
+
+        return workflowId;
+    }
+
+    function _enforceTypedReportWorkflowSemantics(bytes32 workflowId, uint8 reportType, bytes memory payload) internal pure {
+        if (workflowId == bytes32(0)) {
+            return;
+        }
+
+        if (reportType == REPORT_TYPE_VNET_SUCCESS || reportType == REPORT_TYPE_VNET_FAILED) {
+            if (workflowId != WORKFLOW_VNET_INIT_ID) {
+                revert ReportWorkflowMismatch(workflowId, reportType);
+            }
+            return;
+        }
+
+        if (reportType == REPORT_TYPE_VERIFY_POC_VERDICT) {
+            if (_isFinalTypedVerificationLifecyclePayload(payload)) {
+                if (workflowId != WORKFLOW_JURY_ORCHESTRATOR_ID) {
+                    revert ReportWorkflowMismatch(workflowId, reportType);
+                }
+                return;
+            }
+
+            if (workflowId != WORKFLOW_VERIFY_POC_ID) {
+                revert ReportWorkflowMismatch(workflowId, reportType);
+            }
+        }
+    }
+
+    function _enforceLegacyVerificationWorkflowSemantics(bytes32 workflowId) internal pure {
+        if (workflowId != bytes32(0) && workflowId != WORKFLOW_VERIFY_POC_ID) {
+            revert ReportWorkflowMismatch(workflowId, REPORT_TYPE_VERIFY_POC_VERDICT);
         }
     }
 
@@ -855,6 +909,11 @@ contract BountyHub is ReceiverTemplate {
     }
 
     function _processTypedVerificationReport(bytes memory payload) internal {
+        if (_typedVerificationReportFirstDynamicOffset(payload) > VERIFY_POC_TYPED_LEGACY_HEAD_LENGTH) {
+            _processTypedVerificationLifecycleReport(payload);
+            return;
+        }
+
         (
             uint256 submissionId,
             bool isValid,
@@ -874,6 +933,148 @@ contract BountyHub is ReceiverTemplate {
 
         _applyVerificationReport(submissionId, isValid, drainAmountWei);
 
+        _applySubmissionMetadata(
+            submissionId,
+            hasJury,
+            juryAction,
+            juryRationale,
+            hasGrouping,
+            groupingCohort,
+            groupId,
+            groupRank,
+            groupSize
+        );
+    }
+
+    function _typedVerificationReportFirstDynamicOffset(bytes memory payload) internal pure returns (uint256 firstDynamicOffset) {
+        if (payload.length < 160) {
+            return 0;
+        }
+
+        assembly ("memory-safe") {
+            firstDynamicOffset := mload(add(payload, 160))
+        }
+    }
+
+    function _isFinalTypedVerificationLifecyclePayload(bytes memory payload) internal pure returns (bool) {
+        if (_typedVerificationReportFirstDynamicOffset(payload) <= VERIFY_POC_TYPED_LEGACY_HEAD_LENGTH) {
+            return false;
+        }
+
+        uint256 lifecycleStatusRaw;
+        uint256 verdictSourceRaw;
+        uint256 finalValidityRaw;
+        assembly ("memory-safe") {
+            lifecycleStatusRaw := mload(add(payload, 384))
+            verdictSourceRaw := mload(add(payload, 480))
+            finalValidityRaw := mload(add(payload, 512))
+        }
+
+        return (
+            (lifecycleStatusRaw == uint8(SubmissionStatus.Verified) ||
+                lifecycleStatusRaw == uint8(SubmissionStatus.Invalid)) &&
+            verdictSourceRaw != uint8(VerdictSource.None) &&
+            finalValidityRaw != uint8(FinalValidity.None)
+        );
+    }
+
+    function _processTypedVerificationLifecycleReport(bytes memory payload) internal {
+        (
+            uint256 submissionId,
+            bool isValid,
+            uint256 drainAmountWei,
+            bool hasJury,
+            string memory juryAction,
+            string memory juryRationale,
+            bool hasGrouping,
+            string memory groupingCohort,
+            string memory groupId,
+            uint256 groupRank,
+            uint256 groupSize,
+            uint8 lifecycleStatusRaw,
+            uint256 juryDeadline,
+            uint256 adjudicationDeadline,
+            uint8 verdictSourceRaw,
+            uint8 finalValidityRaw,
+            bytes32 juryLedgerDigest,
+            bytes32 ownerTestimonyDigest,
+            uint8 adjudicatedSeverityRaw
+        ) = abi.decode(
+            payload,
+            (uint256, bool, uint256, bool, string, string, bool, string, string, uint256, uint256, uint8, uint256, uint256, uint8, uint8, bytes32, bytes32, uint8)
+        );
+
+        require(lifecycleStatusRaw <= uint8(SubmissionStatus.AwaitingOwnerAdjudication), "Invalid lifecycle status");
+        require(verdictSourceRaw <= uint8(VerdictSource.Owner), "Invalid verdict source");
+        require(finalValidityRaw <= uint8(FinalValidity.Invalid), "Invalid final validity");
+        require(adjudicatedSeverityRaw <= uint8(Severity.CRITICAL), "Invalid adjudicated severity");
+
+        SubmissionStatus lifecycleStatus = SubmissionStatus(lifecycleStatusRaw);
+        VerdictSource verdictSource = VerdictSource(verdictSourceRaw);
+        FinalValidity finalValidity = FinalValidity(finalValidityRaw);
+        Severity adjudicatedSeverity = Severity(adjudicatedSeverityRaw);
+
+        if (
+            lifecycleStatus == SubmissionStatus.JuryPending ||
+            lifecycleStatus == SubmissionStatus.AwaitingOwnerAdjudication
+        ) {
+            require(!hasGrouping, "Grouping requires final verdict");
+            _applyAdjudicationLifecycleTransition(
+                submissionId,
+                lifecycleStatus,
+                juryDeadline,
+                adjudicationDeadline,
+                verdictSource,
+                finalValidity,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            );
+        } else {
+            require(
+                lifecycleStatus == SubmissionStatus.Verified || lifecycleStatus == SubmissionStatus.Invalid,
+                "Unsupported lifecycle status"
+            );
+            _updateSubmissionLifecycle(
+                submissionId,
+                juryDeadline,
+                adjudicationDeadline,
+                juryLedgerDigest,
+                ownerTestimonyDigest
+            );
+            _commitFinalVerdict(
+                submissionId,
+                isValid,
+                drainAmountWei,
+                verdictSource,
+                finalValidity,
+                adjudicatedSeverity
+            );
+        }
+
+        _applySubmissionMetadata(
+            submissionId,
+            hasJury,
+            juryAction,
+            juryRationale,
+            hasGrouping,
+            groupingCohort,
+            groupId,
+            groupRank,
+            groupSize
+        );
+    }
+
+    function _applySubmissionMetadata(
+        uint256 submissionId,
+        bool hasJury,
+        string memory juryAction,
+        string memory juryRationale,
+        bool hasGrouping,
+        string memory groupingCohort,
+        string memory groupId,
+        uint256 groupRank,
+        uint256 groupSize
+    ) internal {
         if (hasJury) {
             s_submissionJuryMetadata[submissionId] = SubmissionJuryMetadata({
                 present: true,
@@ -885,6 +1086,8 @@ contract BountyHub is ReceiverTemplate {
         }
 
         if (hasGrouping) {
+            SubmissionLifecycle storage lifecycle = s_submissionLifecycle[submissionId];
+            require(lifecycle.finalValidity == FinalValidity.Valid, "Grouping requires valid final verdict");
             s_submissionGroupingMetadata[submissionId] = SubmissionGroupingMetadata({
                 present: true,
                 cohort: groupingCohort,
@@ -897,17 +1100,122 @@ contract BountyHub is ReceiverTemplate {
         }
     }
 
+    function _applyAdjudicationLifecycleTransition(
+        uint256 submissionId,
+        SubmissionStatus lifecycleStatus,
+        uint256,
+        uint256,
+        VerdictSource verdictSource,
+        FinalValidity finalValidity,
+        bytes32 juryLedgerDigest,
+        bytes32 ownerTestimonyDigest
+    ) internal {
+        require(verdictSource == VerdictSource.None, "Verdict source reserved");
+        require(finalValidity == FinalValidity.None, "Final validity reserved");
+
+        Submission storage sub = submissions[submissionId];
+        SubmissionLifecycle storage lifecycle = s_submissionLifecycle[submissionId];
+        (uint256 derivedJuryDeadline, uint256 derivedAdjudicationDeadline) = _deriveSubmissionLifecycleDeadlines(sub);
+
+        if (lifecycleStatus == SubmissionStatus.JuryPending) {
+            require(sub.status == SubmissionStatus.Revealed, "Not revealed");
+
+            sub.status = SubmissionStatus.JuryPending;
+            lifecycle.juryDeadline = derivedJuryDeadline;
+            lifecycle.adjudicationDeadline = derivedAdjudicationDeadline;
+        } else {
+            require(sub.status == SubmissionStatus.JuryPending, "Jury not pending");
+
+            sub.status = SubmissionStatus.AwaitingOwnerAdjudication;
+            lifecycle.juryDeadline = derivedJuryDeadline;
+            lifecycle.adjudicationDeadline = derivedAdjudicationDeadline;
+        }
+
+        if (juryLedgerDigest != bytes32(0)) {
+            lifecycle.juryLedgerDigest = juryLedgerDigest;
+        }
+        if (ownerTestimonyDigest != bytes32(0)) {
+            lifecycle.ownerTestimonyDigest = ownerTestimonyDigest;
+        }
+
+        lifecycle.verdictSource = VerdictSource.None;
+        lifecycle.finalValidity = FinalValidity.None;
+    }
+
+    function _updateSubmissionLifecycle(
+        uint256 submissionId,
+        uint256,
+        uint256,
+        bytes32 juryLedgerDigest,
+        bytes32 ownerTestimonyDigest
+    ) internal {
+        Submission storage sub = submissions[submissionId];
+        SubmissionLifecycle storage lifecycle = s_submissionLifecycle[submissionId];
+        (uint256 derivedJuryDeadline, uint256 derivedAdjudicationDeadline) = _deriveSubmissionLifecycleDeadlines(sub);
+
+        lifecycle.juryDeadline = derivedJuryDeadline;
+        lifecycle.adjudicationDeadline = derivedAdjudicationDeadline;
+        if (juryLedgerDigest != bytes32(0)) {
+            lifecycle.juryLedgerDigest = juryLedgerDigest;
+        }
+        if (ownerTestimonyDigest != bytes32(0)) {
+            lifecycle.ownerTestimonyDigest = ownerTestimonyDigest;
+        }
+    }
+
     function _applyVerificationReport(
         uint256 submissionId,
         bool isValid,
         uint256 drainAmountWei
     ) internal {
+        _commitFinalVerdict(
+            submissionId,
+            isValid,
+            drainAmountWei,
+            VerdictSource.Verification,
+            isValid ? FinalValidity.Valid : FinalValidity.Invalid,
+            Severity.NONE
+        );
+    }
 
-        Submission storage sub = submissions[submissionId];
-        require(sub.status == SubmissionStatus.Revealed, "Not revealed");
+    function _deriveSubmissionLifecycleDeadlines(Submission storage sub)
+        internal
+        view
+        returns (uint256 juryDeadline, uint256 adjudicationDeadline)
+    {
+        require(sub.revealTimestamp > 0, "Reveal timestamp required");
 
         Project storage p = _projects[sub.projectId];
-        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
+        juryDeadline = sub.revealTimestamp + p.juryWindow;
+        adjudicationDeadline = juryDeadline + p.adjudicationWindow;
+    }
+
+    function _commitFinalVerdict(
+        uint256 submissionId,
+        bool isValid,
+        uint256 drainAmountWei,
+        VerdictSource verdictSource,
+        FinalValidity finalValidity,
+        Severity adjudicatedSeverity
+    ) internal {
+        require(verdictSource != VerdictSource.None, "Verdict source required");
+
+        if (finalValidity == FinalValidity.Valid) {
+            require(isValid && drainAmountWei > 0, "Invalid final verdict");
+        } else {
+            require(finalValidity == FinalValidity.Invalid && !isValid, "Invalid final verdict");
+        }
+
+        Submission storage sub = submissions[submissionId];
+        if (verdictSource == VerdictSource.Verification) {
+            require(sub.status == SubmissionStatus.Revealed, "Not revealed");
+        } else if (verdictSource == VerdictSource.Jury) {
+            require(sub.status == SubmissionStatus.JuryPending, "Jury not pending");
+        } else {
+            require(sub.status == SubmissionStatus.AwaitingOwnerAdjudication, "Owner adjudication not pending");
+        }
+
+        Project storage p = _projects[sub.projectId];
         UniqueRevealState storage uniqueState = uniqueRevealStateByProject[sub.projectId];
         if (p.mode == CompetitionMode.UNIQUE && sub.salt != bytes32(0)) {
             require(uniqueState.hasCandidate && uniqueState.candidateSubmissionId == submissionId, "Not active candidate");
@@ -915,11 +1223,17 @@ contract BountyHub is ReceiverTemplate {
         sub.drainAmountWei = drainAmountWei;
 
         if (isValid && drainAmountWei > 0) {
-            // Calculate severity from thresholds
-            ProjectRules storage rules = projectRules[sub.projectId];
-            sub.severity = _calculateSeverity(drainAmountWei, rules.thresholds);
+            if (verdictSource == VerdictSource.Verification) {
+                ProjectRules storage rules = projectRules[sub.projectId];
+                sub.severity = _calculateSeverity(drainAmountWei, rules.thresholds);
+            } else {
+                require(
+                    adjudicatedSeverity == Severity.HIGH || adjudicatedSeverity == Severity.MEDIUM,
+                    "Invalid adjudication severity"
+                );
+                sub.severity = adjudicatedSeverity;
+            }
             sub.payoutAmount = _calculatePayout(sub.severity, p.maxPayoutPerBug);
-            auditorStats.activeValidCount += 1;
 
             // For V1 projects (no dispute window), pay immediately
             if (p.disputeWindow == 0) {
@@ -929,7 +1243,6 @@ contract BountyHub is ReceiverTemplate {
                 // V2: Set dispute deadline and escrow
                 sub.status = SubmissionStatus.Verified;
                 sub.disputeDeadline = block.timestamp + p.disputeWindow;
-                auditorStats.pendingCount += 1;
             }
 
             if (p.mode == CompetitionMode.UNIQUE) {
@@ -942,6 +1255,9 @@ contract BountyHub is ReceiverTemplate {
             emit PoCVerified(submissionId, true, drainAmountWei, uint8(sub.severity));
         } else {
             sub.status = SubmissionStatus.Invalid;
+            sub.severity = Severity.NONE;
+            sub.payoutAmount = 0;
+            require(adjudicatedSeverity == Severity.NONE, "Invalid adjudication severity");
             if (p.mode == CompetitionMode.UNIQUE) {
                 uniqueState.hasCandidate = false;
                 uniqueState.candidateSubmissionId = 0;
@@ -949,6 +1265,10 @@ contract BountyHub is ReceiverTemplate {
             }
             emit PoCVerified(submissionId, false, 0, uint8(Severity.NONE));
         }
+
+        SubmissionLifecycle storage lifecycle = s_submissionLifecycle[submissionId];
+        lifecycle.verdictSource = verdictSource;
+        lifecycle.finalValidity = finalValidity;
     }
 
     /// @notice Calculate severity based on drain amount and thresholds
@@ -981,7 +1301,6 @@ contract BountyHub is ReceiverTemplate {
     /// @param sub The submission storage reference
     function _executePayout(uint256 _submissionId, Submission storage sub) internal {
         Project storage p = _projects[sub.projectId];
-        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
 
         uint256 payout = sub.payoutAmount;
         if (payout > p.maxPayoutPerBug) payout = p.maxPayoutPerBug;
@@ -989,21 +1308,6 @@ contract BountyHub is ReceiverTemplate {
 
         p.bountyPool -= payout;
         sub.payoutAmount = payout; // Store actual payout
-
-        if (!s_leaderboardAuditorSeen[sub.auditor]) {
-            s_leaderboardAuditorSeen[sub.auditor] = true;
-            auditorStats.leaderboardIndex = s_leaderboardAuditors.length;
-            s_leaderboardAuditors.push(sub.auditor);
-        }
-
-        auditorStats.paidCount += 1;
-        auditorStats.totalEarnedWei += payout;
-        if (sub.severity == Severity.HIGH) {
-            auditorStats.highPaidCount += 1;
-        }
-        if (sub.severity == Severity.CRITICAL) {
-            auditorStats.criticalPaidCount += 1;
-        }
 
         (bool success, ) = sub.auditor.call{value: payout}("");
         require(success, "Transfer failed");
@@ -1027,7 +1331,6 @@ contract BountyHub is ReceiverTemplate {
         sub.challenger = msg.sender;
         sub.challengeBond = msg.value;
         sub.status = SubmissionStatus.Disputed;
-        s_auditorStats[sub.auditor].pendingCount -= 1;
 
         emit DisputeRaised(_submissionId, msg.sender, msg.value);
     }
@@ -1038,7 +1341,6 @@ contract BountyHub is ReceiverTemplate {
     function resolveDispute(uint256 _submissionId, bool _overturn) external {
         Submission storage sub = submissions[_submissionId];
         Project storage p = _projects[sub.projectId];
-        AuditorStats storage auditorStats = s_auditorStats[sub.auditor];
 
         require(p.owner == msg.sender, "Not owner");
         require(sub.status == SubmissionStatus.Disputed, "Not disputed");
@@ -1048,7 +1350,6 @@ contract BountyHub is ReceiverTemplate {
             // Reject the submission, challenger wins bond
             sub.status = SubmissionStatus.Invalid;
             sub.payoutAmount = 0;
-            auditorStats.activeValidCount -= 1;
 
             // Return bond to challenger
             (bool success, ) = sub.challenger.call{value: sub.challengeBond}("");
@@ -1059,7 +1360,6 @@ contract BountyHub is ReceiverTemplate {
             sub.status = SubmissionStatus.Verified;
             p.bountyPool += sub.challengeBond;
             sub.challengeBond = 0;
-            auditorStats.pendingCount += 1;
         }
 
         emit DisputeResolved(_submissionId, _overturn);
@@ -1097,10 +1397,6 @@ contract BountyHub is ReceiverTemplate {
         if (timeoutPenalty > 0 && timeoutPenalty <= p.bountyPool) {
             p.bountyPool -= timeoutPenalty;
             sub.payoutAmount += timeoutPenalty;
-        }
-
-        if (sub.status == SubmissionStatus.Verified) {
-            s_auditorStats[sub.auditor].pendingCount -= 1;
         }
 
         sub.status = SubmissionStatus.Finalized;
@@ -1184,157 +1480,42 @@ contract BountyHub is ReceiverTemplate {
         );
     }
 
-    function getAuditorStats(address auditor) external view returns (
-        uint256 totalSubmissions,
-        uint256 activeValidCount,
-        uint256 pendingCount,
-        uint256 paidCount,
-        uint256 highPaidCount,
-        uint256 criticalPaidCount,
-        uint256 totalEarnedWei,
-        uint256 leaderboardIndex
-    ) {
-        AuditorStats storage stats = s_auditorStats[auditor];
+    function getProjectAdjudicationWindows(uint256 _projectId)
+        external
+        view
+        returns (uint256 juryWindow, uint256 adjudicationWindow)
+    {
+        Project storage p = _projects[_projectId];
+        return (p.juryWindow, p.adjudicationWindow);
+    }
+
+    /// @notice Returns authoritative lifecycle state for jury/adjudication flows.
+    function getSubmissionLifecycle(
+        uint256 _submissionId
+    )
+        external
+        view
+        returns (
+            SubmissionStatus status,
+            uint256 juryDeadline,
+            uint256 adjudicationDeadline,
+            VerdictSource verdictSource,
+            FinalValidity finalValidity,
+            bytes32 juryLedgerDigest,
+            bytes32 ownerTestimonyDigest
+        )
+    {
+        Submission storage sub = submissions[_submissionId];
+        SubmissionLifecycle storage lifecycle = s_submissionLifecycle[_submissionId];
         return (
-            stats.totalSubmissions,
-            stats.activeValidCount,
-            stats.pendingCount,
-            stats.paidCount,
-            stats.highPaidCount,
-            stats.criticalPaidCount,
-            stats.totalEarnedWei,
-            stats.leaderboardIndex
+            sub.status,
+            lifecycle.juryDeadline,
+            lifecycle.adjudicationDeadline,
+            lifecycle.verdictSource,
+            lifecycle.finalValidity,
+            lifecycle.juryLedgerDigest,
+            lifecycle.ownerTestimonyDigest
         );
-    }
-
-    function getLeaderboardAuditorCount() external view returns (uint256) {
-        return s_leaderboardAuditors.length;
-    }
-
-    /// @notice Returns a newest-first page of auditors who have received payouts.
-    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
-    function getLeaderboardAuditors(
-        uint256 cursor,
-        uint256 limit
-    ) external view returns (address[] memory auditors, uint256 nextCursor) {
-        return _paginateAddressIds(s_leaderboardAuditors, cursor, limit);
-    }
-
-    function getProjectCount() external view returns (uint256) {
-        return nextProjectId;
-    }
-
-    /// @notice Returns a newest-first page of registered project ids.
-    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
-    function getProjectIds(
-        uint256 cursor,
-        uint256 limit
-    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
-        uint256 total = nextProjectId;
-        if (total == 0 || limit == 0) {
-            return (new uint256[](0), 0);
-        }
-
-        uint256 cappedLimit = limit > MAX_PROJECT_PAGE_SIZE ? MAX_PROJECT_PAGE_SIZE : limit;
-        uint256 start = cursor == 0 ? total : cursor;
-        if (start > total) {
-            start = total;
-        }
-        if (start == 0) {
-            return (new uint256[](0), 0);
-        }
-
-        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
-        ids = new uint256[](pageSize);
-        for (uint256 i = 0; i < pageSize; i++) {
-            ids[i] = start - 1 - i;
-        }
-
-        nextCursor = start > pageSize ? start - pageSize : 0;
-    }
-
-    function getProjectSubmissionCount(uint256 projectId) external view returns (uint256) {
-        return s_submissionIdsByProject[projectId].length;
-    }
-
-    function getAuditorSubmissionCount(address auditor) external view returns (uint256) {
-        return s_submissionIdsByAuditor[auditor].length;
-    }
-
-    /// @notice Returns a newest-first page of submission ids for a project.
-    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
-    function getProjectSubmissionIds(
-        uint256 projectId,
-        uint256 cursor,
-        uint256 limit
-    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
-        return _paginateSubmissionIds(s_submissionIdsByProject[projectId], cursor, limit);
-    }
-
-    /// @notice Returns a newest-first page of submission ids for an auditor.
-    /// @dev Pass cursor = 0 for the first page; nextCursor = 0 means no more pages.
-    function getAuditorSubmissionIds(
-        address auditor,
-        uint256 cursor,
-        uint256 limit
-    ) external view returns (uint256[] memory ids, uint256 nextCursor) {
-        return _paginateSubmissionIds(s_submissionIdsByAuditor[auditor], cursor, limit);
-    }
-
-    function _paginateSubmissionIds(
-        uint256[] storage indexedSubmissionIds,
-        uint256 cursor,
-        uint256 limit
-    ) internal view returns (uint256[] memory ids, uint256 nextCursor) {
-        uint256 total = indexedSubmissionIds.length;
-        if (total == 0 || limit == 0) {
-            return (new uint256[](0), 0);
-        }
-
-        uint256 cappedLimit = limit > MAX_SUBMISSION_PAGE_SIZE ? MAX_SUBMISSION_PAGE_SIZE : limit;
-        uint256 start = cursor == 0 ? total : cursor;
-        if (start > total) {
-            start = total;
-        }
-        if (start == 0) {
-            return (new uint256[](0), 0);
-        }
-
-        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
-        ids = new uint256[](pageSize);
-        for (uint256 i = 0; i < pageSize; i++) {
-            ids[i] = indexedSubmissionIds[start - 1 - i];
-        }
-
-        nextCursor = start > pageSize ? start - pageSize : 0;
-    }
-
-    function _paginateAddressIds(
-        address[] storage indexedAddresses,
-        uint256 cursor,
-        uint256 limit
-    ) internal view returns (address[] memory ids, uint256 nextCursor) {
-        uint256 total = indexedAddresses.length;
-        if (total == 0 || limit == 0) {
-            return (new address[](0), 0);
-        }
-
-        uint256 cappedLimit = limit > MAX_LEADERBOARD_PAGE_SIZE ? MAX_LEADERBOARD_PAGE_SIZE : limit;
-        uint256 start = cursor == 0 ? total : cursor;
-        if (start > total) {
-            start = total;
-        }
-        if (start == 0) {
-            return (new address[](0), 0);
-        }
-
-        uint256 pageSize = start > cappedLimit ? cappedLimit : start;
-        ids = new address[](pageSize);
-        for (uint256 i = 0; i < pageSize; i++) {
-            ids[i] = indexedAddresses[start - 1 - i];
-        }
-
-        nextCursor = start > pageSize ? start - pageSize : 0;
     }
 
     /// @notice Check if a submission can be finalized

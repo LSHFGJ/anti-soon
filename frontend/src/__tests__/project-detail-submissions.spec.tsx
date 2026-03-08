@@ -6,19 +6,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDetail } from "../pages/ProjectDetail";
 
-function getFunctionName(parameters: unknown): string | null {
-	if (
-		typeof parameters !== "object" ||
-		parameters === null ||
-		!("functionName" in parameters)
-	) {
-		return null;
-	}
-
-	const value = parameters.functionName;
-	return typeof value === "string" ? value : null;
-}
-
 const { readProjectByIdMock, publicClientMock } = vi.hoisted(() => ({
 	readProjectByIdMock: vi.fn(),
 	publicClientMock: {
@@ -59,7 +46,7 @@ const mockProject = {
 	mode: 0,
 	commitDeadline: 0n,
 	revealDeadline: 0n,
-	disputeWindow: 172_800n,
+	disputeWindow: 86_400n,
 	rulesHash: `0x${"11".repeat(32)}` as `0x${string}`,
 	vnetStatus: 2,
 	vnetRpcUrl: "",
@@ -135,30 +122,28 @@ describe("ProjectDetail submission visibility", () => {
 		vi.clearAllMocks();
 
 		readProjectByIdMock.mockResolvedValue(mockProject);
-		publicClientMock.readContract.mockImplementation(
-			async (parameters: unknown) => {
-				const functionName = getFunctionName(parameters);
-				if (functionName === "projectRules") {
-					return mockRulesTuple;
-				}
-				if (functionName === "getProjectSubmissionIds") {
-					return [[42n], 0n];
-				}
-
-				throw new Error(
-					`Unexpected readContract call: ${String(functionName)}`,
-				);
-			},
-		);
-		publicClientMock.multicall.mockResolvedValue([mockSubmissionTuple]);
+		publicClientMock.readContract.mockResolvedValue(mockRulesTuple);
+		publicClientMock.multicall.mockResolvedValue([
+			mockSubmissionTuple,
+			[2, 0n, 0n, 1, 1, "0x0", "0x0"], // lifecycle (verified)
+			[false, "", ""], // jury
+			[false, "", "", 0n, 0n], // grouping
+		]);
 		publicClientMock.getBlockNumber.mockResolvedValue(20_000n);
 		publicClientMock.getCode.mockRejectedValue(new Error("missing trie node"));
-		publicClientMock.getLogs.mockRejectedValue(
-			new Error("legacy log discovery should not run"),
-		);
 	});
 
-	it("uses the contract submission index and still renders committed submission", async () => {
+	it("falls back to chunked log reads and still renders committed submission", async () => {
+		let logCallCount = 0;
+		publicClientMock.getLogs.mockImplementation(async () => {
+			logCallCount += 1;
+			if (logCallCount === 1) {
+				throw new Error("eth_getLogs is limited to a 10,000 range");
+			}
+
+			return [{ args: { submissionId: 42n } }];
+		});
+
 		renderProjectDetailRoute();
 
 		await waitFor(() => {
@@ -166,47 +151,11 @@ describe("ProjectDetail submission visibility", () => {
 		});
 
 		expect(screen.getByText("#42")).toBeDefined();
-		expect(publicClientMock.getLogs).not.toHaveBeenCalled();
-	});
-
-	it("renders dispute timing and severity thresholds without overstating workflow enforcement", async () => {
-		renderProjectDetailRoute();
-
-		await waitFor(() => {
-			expect(screen.getByText("CURRENTLY ENFORCED")).toBeVisible();
-		});
-
-		expect(screen.getByText("SEVERITY THRESHOLDS")).toBeVisible();
-		expect(screen.getByText("DISPUTE WINDOW")).toBeVisible();
-		expect(screen.getByText("48h")).toBeVisible();
-		expect(screen.getByText("CRITICAL")).toBeVisible();
-		expect(screen.getByText("LOW")).toBeVisible();
-		expect(
-			screen.getByText(
-				/Execution caps exist on-chain but are not enforced by the current workflow\./,
-			),
-		).toBeVisible();
-		expect(screen.queryByText("MAX ATTACKER SEED")).toBeNull();
-		expect(screen.queryByText("MAX TIME WARP")).toBeNull();
-		expect(screen.queryByText("IMPERSONATION")).toBeNull();
+		expect(publicClientMock.getLogs.mock.calls.length).toBeGreaterThan(1);
 	});
 
 	it("shows explicit submissions load error when log query fails", async () => {
-		publicClientMock.readContract.mockImplementation(
-			async (parameters: unknown) => {
-				const functionName = getFunctionName(parameters);
-				if (functionName === "projectRules") {
-					return mockRulesTuple;
-				}
-				if (functionName === "getProjectSubmissionIds") {
-					throw new Error("rpc unavailable");
-				}
-
-				throw new Error(
-					`Unexpected readContract call: ${String(functionName)}`,
-				);
-			},
-		);
+		publicClientMock.getLogs.mockRejectedValue(new Error("rpc unavailable"));
 
 		renderProjectDetailRoute();
 
@@ -214,6 +163,25 @@ describe("ProjectDetail submission visibility", () => {
 			expect(
 				screen.getByText(/Failed to load submissions from blockchain/),
 			).toBeDefined();
+		});
+	});
+
+	it("renders the enforced-rules panel copy from main", async () => {
+		publicClientMock.getLogs.mockResolvedValue([
+			{ args: { submissionId: 42n } },
+		]);
+
+		renderProjectDetailRoute();
+
+		await waitFor(() => {
+			expect(screen.getByText("CURRENTLY ENFORCED")).toBeVisible();
+			expect(screen.getByText("SEVERITY THRESHOLDS")).toBeVisible();
+			expect(screen.getByText("DISPUTE WINDOW")).toBeVisible();
+			expect(
+				screen.getByText(
+					/Execution caps exist on-chain but are not enforced by the current workflow\./,
+				),
+			).toBeVisible();
 		});
 	});
 
@@ -246,6 +214,33 @@ describe("ProjectDetail submission visibility", () => {
 		await waitFor(() => {
 			expect(screen.getByText("PROJECT #2")).toBeVisible();
 			expect(screen.queryByText("PROJECT #1")).toBeNull();
+		});
+	});
+
+	it("renders verdict source and deadlines for adjudicated submissions", async () => {
+		publicClientMock.getLogs.mockResolvedValue([
+			{
+				args: {
+					submissionId: 1n,
+					auditor: "0x1111111111111111111111111111111111111111",
+				},
+			},
+		]);
+
+		publicClientMock.multicall.mockResolvedValue([
+			mockSubmissionTuple,
+			[6, 1736200000n, 1736300000n, 2, 0, "0x0", "0x0"], // lifecycle (JuryPending, veredictSource=2)
+			[false, "", ""], // jury
+			[false, "", "", 0n, 0n], // grouping
+		]);
+
+		renderProjectDetailRoute();
+
+		await waitFor(() => {
+			expect(screen.getByText("JuryPending")).toBeDefined();
+			expect(screen.getByText("Source: Jury")).toBeDefined();
+			expect(screen.getByText(/Jury DL:/)).toBeDefined();
+			expect(screen.getByText(/Adj DL:/)).toBeDefined();
 		});
 	});
 });

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@metamask/sdk": "^0.34.0",
     "@monaco-editor/react": "^4.7.0",
     "@oasisprotocol/sapphire-paratime": "^2.3.0",
     "@oasisprotocol/sapphire-viem-v2": "^2.1.0",

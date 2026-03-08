@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, PublicClient, WalletClient } from "viem";
 import {
 	useAccount,
+	useConnect,
 	useDisconnect,
 	usePublicClient,
 	useSwitchChain,
@@ -36,6 +37,71 @@ const CHAIN_NAME_BY_ID: Record<number, string> = {
 	23294: "Oasis Sapphire",
 	23295: "Oasis Sapphire",
 };
+
+const METAMASK_CONNECTOR_IDS = new Set(["metamask", "metamasksdk"]);
+const METAMASK_CONNECTOR_RDNS = new Set(["io.metamask", "io.metamask.mobile"]);
+
+type WalletConnectorLike = {
+	id: string;
+	name: string;
+	type: string;
+	rdns?: string | readonly string[];
+	getProvider: () => Promise<unknown>;
+};
+
+function getConnectorRdns(connector: Pick<WalletConnectorLike, "rdns">): string[] {
+	if (!connector.rdns) return [];
+	return typeof connector.rdns === "string"
+		? [connector.rdns]
+		: Array.from(connector.rdns);
+}
+
+function isMetaMaskProvider(provider: unknown): provider is { isMetaMask: boolean } {
+	return (
+		typeof provider === "object" &&
+		provider !== null &&
+		"isMetaMask" in provider &&
+		(provider as { isMetaMask?: boolean }).isMetaMask === true
+	);
+}
+
+function isMetaMaskConnector(connector: WalletConnectorLike): boolean {
+	const normalizedId = connector.id.toLowerCase();
+	const normalizedName = connector.name.toLowerCase();
+	const normalizedType = connector.type.toLowerCase();
+	const connectorRdns = getConnectorRdns(connector);
+
+	return (
+		METAMASK_CONNECTOR_IDS.has(normalizedId) ||
+		normalizedName === "metamask" ||
+		normalizedType === "metamask" ||
+		connectorRdns.some((rdns) => METAMASK_CONNECTOR_RDNS.has(rdns))
+	);
+}
+
+async function findAvailableMetaMaskConnector<T extends WalletConnectorLike>(
+	connectors: readonly T[],
+): Promise<T | null> {
+	const explicitMetaMaskConnector = connectors.find((connector) =>
+		isMetaMaskConnector(connector),
+	);
+	if (explicitMetaMaskConnector) {
+		return explicitMetaMaskConnector;
+	}
+
+	let injectedMetaMaskConnector: T | null = null;
+
+	for (const connector of connectors) {
+		const provider = await connector.getProvider().catch(() => undefined);
+		if (!provider) continue;
+
+		if (injectedMetaMaskConnector === null && isMetaMaskProvider(provider)) {
+			injectedMetaMaskConnector = connector;
+		}
+	}
+
+	return injectedMetaMaskConnector;
+}
 
 function clearPersistedWalletState() {
 	if (typeof window === "undefined") return;
@@ -100,6 +166,7 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 	const { autoSwitchToSepolia = true } = options;
 	const { address, isConnected, chain, chainId: accountChainId } = useAccount();
 	const { open } = useAppKit();
+	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { switchChain, isPending: isSwitching } = useSwitchChain();
 	const { data: walletClient } = useWalletClient();
@@ -136,13 +203,19 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 
 		try {
 			setIsConnecting(true);
+			const metaMaskConnector = await findAvailableMetaMaskConnector(connectors);
+			if (metaMaskConnector) {
+				await connectAsync({ connector: metaMaskConnector });
+				return;
+			}
+
 			await open();
 		} catch (error) {
 			console.error("Failed to connect wallet:", error);
 		} finally {
 			setIsConnecting(false);
 		}
-	}, [open]);
+	}, [connectAsync, connectors, open]);
 
 	const disconnectAndClearState = useCallback(() => {
 		if (!confirmWalletOperationInterruption("Disconnecting wallet")) {

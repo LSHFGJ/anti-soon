@@ -104,6 +104,16 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+function mockSubmissionReadOnly(submission: ReturnType<typeof makeSubmissionTuple>) {
+  mockReadContract.mockImplementation(({ functionName }: { functionName?: string }) => {
+    if (functionName === 'submissions') return Promise.resolve(submission)
+    if (functionName === 'getSubmissionLifecycle') return Promise.resolve(null)
+    if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', ''])
+    if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n])
+    return Promise.resolve(null)
+  })
+}
+
 function renderRoutableSubmissionDetail(path = '/submission/1') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -152,7 +162,11 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(makeSubmissionTuple())
+    mockReadContract.mockImplementation((args) => {
+      const functionName = args.functionName;
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple());
+      return Promise.resolve(null);
+    })
 
     renderSubmissionDetail()
 
@@ -167,7 +181,7 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(
+    mockSubmissionReadOnly(
       makeSubmissionTuple({
         status: 3,
         challenged: true,
@@ -191,7 +205,7 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(
+    mockSubmissionReadOnly(
       makeSubmissionTuple({
         status: 2,
         challenged: false,
@@ -212,7 +226,7 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(
+    mockSubmissionReadOnly(
       makeSubmissionTuple({
         status: 2,
         challenged: false,
@@ -244,7 +258,7 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(
+    mockSubmissionReadOnly(
       makeSubmissionTuple({
         status: 3,
         challenged: true,
@@ -272,7 +286,8 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       isConnected: true,
     })
 
-    mockReadContract.mockImplementation(({ args }: { args?: [bigint] }) => {
+    mockReadContract.mockImplementation(({ functionName, args }: { functionName?: string, args?: [bigint] }) => {
+      if (functionName !== 'submissions') return Promise.resolve(null);
       if (args?.[0] === 1n) {
         return submissionOneDeferred.promise
       }
@@ -312,7 +327,12 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       walletClient: { writeContract: mockWriteContract },
       isConnected: true,
     })
-    mockReadContract.mockResolvedValue(makeSubmissionTuple())
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple());
+      return Promise.resolve(null);
+    })
 
     renderSubmissionDetail()
 
@@ -376,4 +396,84 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       expect(screen.getByText(/Failed to load submission from blockchain/i)).toBeVisible()
     })
   })
+  it('renders jury and adjudication statuses with correct actions', async () => {
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    
+    // We need to return an array of resolves because readContractWithRpcFallback is called multiple times now
+    // [submissions, getSubmissionLifecycle, getSubmissionJuryMetadata, getSubmissionGroupingMetadata]
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple({ status: 2, disputeDeadline: NOW_SECONDS - 100n }));
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve([6, NOW_SECONDS + 1000n, 0n, 2, 0, '0x0', '0x0']); // JuryPending
+      if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', '']);
+      if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n]);
+      return Promise.resolve(null);
+    });
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/JuryPending/i)[0]).toBeVisible();
+      expect(screen.getByText('[ PENDING REVIEW ]')).toBeVisible();
+    })
+    
+    // Actions should not be visible
+    expect(screen.queryByRole('button', { name: '[ CHALLENGE RESULT ]' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '[ FINALIZE PAYOUT ]' })).toBeNull()
+  })
+
+  it('renders submission detail gracefully even when auxiliary artifact lookups fail', async () => {
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple());
+      return Promise.resolve(null);
+    })
+
+    mockReadProjectById.mockRejectedValue(new Error('project rpc down'))
+    mockReadSubmissionCommitTxHash.mockRejectedValue(new Error('commit hash lookup failed'))
+    mockResolveSapphireTxHash.mockRejectedValue(new Error('sapphire lookup failed'))
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText(/SUBMISSION_#1/i)).toBeVisible()
+      expect(screen.getByText(/0x1111111111111111111111111111111111111111/)).toBeVisible() // AUDITOR
+    })
+  })
+
+  it('does not allow stale lifecycle data to override terminal statuses 5, 6, or 7', async () => {
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+
+      // Status 5 in submissions (terminal Invalid), but lifecycle still says 2 (Verified)
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple({ status: 5, disputeDeadline: NOW_SECONDS - 100n }));
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve([2, NOW_SECONDS + 1000n, 0n, 2, 0, '0x0', '0x0']);
+      if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', '']);
+      if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n]);
+      return Promise.resolve(null);
+    });
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText('[ INVALID ]')).toBeVisible()
+    })
+  })
+
 })

@@ -34,6 +34,12 @@ type MultiGroupingModule = {
   buildDeterministicMultiSubmissionGroups: (
     submissions: readonly MultiFixtureSubmission[],
   ) => MultiGroupingResult
+  buildPostVerdictMultiSubmissionGroups: (args: {
+    competitionMode: "MULTI" | "UNIQUE"
+    finalValidity: "NONE" | "VALID" | "INVALID"
+    severity: string
+    submissions: readonly MultiFixtureSubmission[]
+  }) => MultiGroupingResult | null
 }
 
 const seededMultiFixtures: MultiFixtureSubmission[] = [
@@ -254,5 +260,63 @@ describe("verify-poc MULTI similarity grouping", () => {
 
     expect(normalizeForSnapshot(second)).toBe(normalizeForSnapshot(first))
     expect(normalizeForSnapshot(third)).toBe(normalizeForSnapshot(first))
+  })
+
+  it("runs only after final high or medium validity", async () => {
+    const { buildPostVerdictMultiSubmissionGroups } = await loadMultiGroupingModule()
+
+    expect(
+      buildPostVerdictMultiSubmissionGroups({
+        competitionMode: "UNIQUE",
+        finalValidity: "VALID",
+        severity: "HIGH",
+        submissions: seededMultiFixtures,
+      }),
+    ).toBeNull()
+
+    expect(
+      buildPostVerdictMultiSubmissionGroups({
+        competitionMode: "MULTI",
+        finalValidity: "NONE",
+        severity: "HIGH",
+        submissions: seededMultiFixtures,
+      }),
+    ).toBeNull()
+
+    expect(
+      buildPostVerdictMultiSubmissionGroups({
+        competitionMode: "MULTI",
+        finalValidity: "INVALID",
+        severity: "HIGH",
+        submissions: seededMultiFixtures,
+      }),
+    ).toBeNull()
+
+    expect(
+      buildPostVerdictMultiSubmissionGroups({
+        competitionMode: "MULTI",
+        finalValidity: "VALID",
+        severity: "LOW",
+        submissions: seededMultiFixtures,
+      }),
+    ).toBeNull()
+
+    const highResult = buildPostVerdictMultiSubmissionGroups({
+      competitionMode: "MULTI",
+      finalValidity: "VALID",
+      severity: "CRITICAL",
+      submissions: seededMultiFixtures,
+    })
+    expect(highResult).not.toBeNull()
+    expect(highResult?.groups[0]?.cohort).toBe("HIGH")
+
+    const mediumResult = buildPostVerdictMultiSubmissionGroups({
+      competitionMode: "MULTI",
+      finalValidity: "VALID",
+      severity: "MEDIUM",
+      submissions: seededMultiFixtures,
+    })
+    expect(mediumResult).not.toBeNull()
+    expect(mediumResult?.groups.some((group) => group.cohort === "MEDIUM")).toBe(true)
   })
 })

@@ -23,6 +23,7 @@ export type VerifyPocReconciliationRecord = {
   sepoliaCommitted: boolean
   sepoliaRevealed: boolean
   reportWritten: boolean
+  strictFailedNoWrite?: boolean
 }
 
 export type VerifyPocReconciliationOutcome = {
@@ -57,7 +58,11 @@ function classifyOrphan(
     return "COMMITTED_NOT_REVEALED"
   }
 
-  if (record.sepoliaRevealed && !record.reportWritten) {
+  if (
+    record.sepoliaRevealed &&
+    !record.reportWritten &&
+    record.strictFailedNoWrite !== true
+  ) {
     return "REVEALED_NOT_REPORT_WRITTEN"
   }
 

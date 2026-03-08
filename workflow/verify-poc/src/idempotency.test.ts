@@ -178,6 +178,17 @@ describe("verify-poc idempotency", () => {
     expect(duplicateAfterComplete.reason).toBe("already_completed")
   })
 
+  it("blocks retries after strict-fail evidence has been durably emitted", () => {
+    const state = new Map<string, VerifyPocIdempotencyStatus>()
+    const key = "0xstrictfail"
+
+    state.set(key, "strict_failed" as VerifyPocIdempotencyStatus)
+
+    const retry = claimVerifyPocIdempotencySlot(state, key)
+    expect(retry.shouldProcess).toBe(false)
+    expect(retry.reason).toBe("strict_failed")
+  })
+
   it("stores mapping for source event and permits deterministic duplicate no-op", () => {
     const mappingState = new Map<string, VerifyPocIdempotencyMappingState>()
     const processingState = new Map<string, VerifyPocIdempotencyStatus>()

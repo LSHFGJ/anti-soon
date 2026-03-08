@@ -39,7 +39,7 @@ AntiSoon exists to reduce the delay and opacity that still define many smart con
 
 ## Getting Started
 
-The fastest local path is to run the frontend, sync the contract address used by the app, and open the main user routes.
+The fastest local path is to run the frontend, sync the contract address used by the app, and open the main user routes. The adjudication model splits authority between `verify-poc` for strict verification, `jury-orchestrator` for consensus-driven adjudication, and `BountyHub` as the irreversible protocol truth.
 
 ```bash
 cd frontend
@@ -114,7 +114,7 @@ AntiSoon is a small multi-surface system rather than a single app server:
 - `backend/cre-simulator/` - demo-only Bun HTTP service plus backend-owned trigger adapters and worker entrypoints for HTTP, CRON, and EVM-log simulation, all reusing the same operator core and durable `status` inspection while staying separate from the real CRE workflow packages.
 - `contracts/src/BountyHub.sol` - core protocol contract for project registration, commit-reveal submissions, verification results, disputes, and payout finalization.
 - `contracts/src/OasisPoCStore.sol` - Sapphire-side encrypted payload storage with explicit read grants.
-- `workflow/verify-poc/`, `workflow/vnet-init/`, `workflow/auto-reveal-relayer/`, `workflow/jury-orchestrator/` - workflow surfaces registered in `project.yaml`.
+- `workflow/verify-poc/`, `workflow/vnet-init/`, `workflow/auto-reveal-relayer/`, `workflow/jury-orchestrator/` - workflow surfaces for verification and adjudication.
 - `project.yaml` - staging workflow registry for the active Sepolia-based environment.
 
 That split matters because the product promise is not just a nicer frontend. The goal is to turn bounty operations into explicit state transitions across contracts, confidential storage, and workflow automation instead of leaving payout timing to opaque human coordination.

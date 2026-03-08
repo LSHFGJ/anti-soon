@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
-import type { LeaderboardEntry, Submission } from '../types'
+import type { LeaderboardEntry, Submission, ExtendedSubmission } from '../types'
+import { getActualStatus } from './status'
 
 export interface DashboardMetrics {
   totalEarned: bigint
@@ -26,9 +27,7 @@ type AuditorAggregate = {
 type RankedEntry = LeaderboardEntry & { firstSeenIndex: number }
 
 export function deriveDashboardMetrics(
-  submissions: Submission[],
-  finalizedStatus = 4,
-  verifiedStatus = 2
+  submissions: ExtendedSubmission[]
 ): DashboardMetrics {
   let totalEarned = 0n
   let validCount = 0
@@ -36,19 +35,26 @@ export function deriveDashboardMetrics(
   const pendingPayouts: Submission[] = []
 
   for (const submission of submissions) {
-    if (submission.status === finalizedStatus) {
+    const status = getActualStatus(submission.status, submission.lifecycle?.status);
+    const finalValidity = submission.lifecycle?.finalValidity ?? 0;
+
+    // 4 = Finalized
+    if (status === 4) {
       totalEarned += submission.payoutAmount
     }
 
+    const isLegacyFinalized = status === 4 && finalValidity === 0;
+    const isPendingValid = status === 2 || status === 3 || status === 6 || status === 7;
+
     if (
       submission.severity > 0 &&
-      submission.status >= verifiedStatus &&
-      submission.status <= finalizedStatus
+      (finalValidity === 1 || isLegacyFinalized || isPendingValid)
     ) {
       validCount += 1
     }
 
-    if (submission.status === verifiedStatus) {
+    // Pending counts all valid intermediate states
+    if (status === 2 || status === 3 || status === 6 || status === 7) {
       pendingCount += 1
       if (submission.payoutAmount > 0n) {
         pendingPayouts.push(submission)

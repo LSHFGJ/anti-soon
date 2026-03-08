@@ -13,11 +13,18 @@ vi.mock('../hooks/useWallet', () => ({
   useWallet: (...args: unknown[]) => mockUseWallet(...args),
 }))
 
-vi.mock('../lib/publicClient', () => ({
-  publicClient: {
-    getBalance: (...args: unknown[]) => mockSepoliaGetBalance(...args),
-  },
-}))
+vi.mock('../lib/publicClient', async () => {
+  const actual = await vi.importActual<typeof import('../lib/publicClient')>('../lib/publicClient')
+
+  return {
+    ...actual,
+    getBalanceWithRpcFallback: (...args: unknown[]) => mockSepoliaGetBalance(...args),
+    publicClient: {
+      ...actual.publicClient,
+      getBalance: (...args: unknown[]) => mockSepoliaGetBalance(...args),
+    },
+  }
+})
 
 vi.mock('viem', async () => {
   const actual = await vi.importActual<typeof import('viem')>('viem')

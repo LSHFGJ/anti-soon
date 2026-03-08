@@ -35,6 +35,7 @@ import {
   loadVerifyPocIdempotencyStore,
   markDurableVerifyPocIdempotencyCompleted,
   markDurableVerifyPocIdempotencyQuarantined,
+  markDurableVerifyPocIdempotencyStrictFailed,
   type VerifyPocIdempotencyStore,
 } from "./src/idempotencyStore"
 import {
@@ -133,6 +134,10 @@ export type VerifyPocStrictGateDecision =
       reasonCode?: VerifyPocSyncReasonCode
     }
   | {
+      outcome: "EMIT_EVIDENCE"
+      reasonCode?: VerifyPocSyncReasonCode
+    }
+  | {
       outcome: "RETRY_SYNC"
       reasonCode:
         | typeof SYNC_REASON_RETRYABLE_RPC
@@ -220,11 +225,19 @@ export function isRetryableVerifyPocSyncReasonCode(
 }
 
 export function decideVerifyPocStrictGate(args: {
+  isValid: boolean
   reasonCode?: VerifyPocSyncReasonCode
 }): VerifyPocStrictGateDecision {
   if (isRetryableVerifyPocSyncReasonCode(args.reasonCode)) {
     return {
       outcome: "RETRY_SYNC",
+      reasonCode: args.reasonCode,
+    }
+  }
+
+  if (!args.isValid) {
+    return {
+      outcome: "EMIT_EVIDENCE",
       reasonCode: args.reasonCode,
     }
   }
@@ -346,17 +359,27 @@ const BountyResultParamsV2 = parseAbiParameters(
 const VerifyPocTypedContractReportParams = parseAbiParameters(
   "uint256 submissionId, bool isValid, uint256 drainAmountWei, bool hasJury, string juryAction, string juryRationale, bool hasGrouping, string groupingCohort, string groupId, uint256 groupRank, uint256 groupSize",
 )
-
 const TypedReportEnvelopeParams = parseAbiParameters(
   "bytes4 magic, uint8 reportType, bytes payload",
+)
+const VerifyPocStrictFailJuryDigestParams = parseAbiParameters(
+  "string version, uint256 submissionId, uint256 projectId, bytes32 syncId, bytes32 sourceEventKey, bytes32 mappingFingerprint, bytes32 envelopeHash",
 )
 
 const VERIFY_POC_REPORT_ENVELOPE_MAGIC = "ASRP" as const
 const VERIFY_POC_REPORT_ENVELOPE_MAGIC_HEX = "0x41535250" as const
 const VERIFY_POC_TYPED_REPORT_V1 = "verified-report/v1" as const
 const VERIFY_POC_TYPED_REPORT_V2 = "verified-report/v2" as const
+const VERIFY_POC_TYPED_REPORT_V3 = "verified-report/v3" as const
+const VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE = "adjudication-final/v1" as const
+const VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE =
+  "owner-adjudication-expired/v1" as const
 const VERIFY_POC_JURY_RECOMMENDATION_REPORT_TYPE =
   "jury-recommendation/v1" as const
+const VERIFY_POC_JURY_COMMITMENT_VERSION =
+  "anti-soon.verify-poc.jury-commitment.v1" as const
+const VERIFY_POC_ADJUDICATION_VERSION =
+  "anti-soon.verify-poc.adjudication.v1" as const
 const VERIFY_POC_LEGACY_REPORT_TYPE = "legacy-verify-poc/v0" as const
 const VERIFY_POC_CONTRACT_TYPED_REPORT_TYPE = 3
 const VERIFY_POC_TYPED_REPORT_V1_KEYS = [
@@ -371,6 +394,24 @@ const VERIFY_POC_TYPED_REPORT_V2_KEYS = [
   "jury",
   "testimony",
   "grouping",
+] as const
+const VERIFY_POC_TYPED_REPORT_V3_KEYS = [
+  "magic",
+  "reportType",
+  "payload",
+  "juryCommitment",
+  "adjudication",
+] as const
+const VERIFY_POC_ADJUDICATION_FINAL_REPORT_KEYS = [
+  "magic",
+  "reportType",
+  "payload",
+  "grouping",
+] as const
+const VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_KEYS = [
+  "magic",
+  "reportType",
+  "payload",
 ] as const
 const VERIFY_POC_TYPED_REPORT_PAYLOAD_KEYS = [
   "submissionId",
@@ -399,7 +440,76 @@ const VERIFY_POC_GROUPING_METADATA_KEYS = [
   "groupSize",
   "representativeSubmissionId",
 ] as const
-
+const VERIFY_POC_JURY_COMMITMENT_METADATA_KEYS = [
+  "commitmentVersion",
+  "juryLedgerDigest",
+  "sourceEventKey",
+  "mappingFingerprint",
+] as const
+const VERIFY_POC_ADJUDICATION_METADATA_KEYS = [
+  "adjudicationVersion",
+  "syncId",
+  "idempotencyKey",
+  "cipherURI",
+  "severity",
+  "juryWindow",
+  "adjudicationWindow",
+  "commitTimestampSec",
+  "revealTimestampSec",
+  "sapphireWriteTimestampSec",
+  "reasonCode",
+  "chainSelectorName",
+  "bountyHubAddress",
+  "txHash",
+  "logIndex",
+  "oasis",
+] as const
+const VERIFY_POC_ADJUDICATION_OASIS_KEYS = [
+  "chain",
+  "contract",
+  "slotId",
+  "envelopeHash",
+] as const
+const VERIFY_POC_ADJUDICATION_FINAL_PAYLOAD_KEYS = [
+  "submissionId",
+  "projectId",
+  "juryRoundId",
+  "lifecycleStatus",
+  "verdictSource",
+  "finalValidity",
+  "isValid",
+  "drainAmountWei",
+  "rationale",
+  "juryDeadlineTimestampSec",
+  "adjudicationDeadlineTimestampSec",
+  "evidenceReportType",
+  "juryLedgerDigest",
+  "ownerTestimonyDigest",
+  "sourceEventKey",
+  "mappingFingerprint",
+  "syncId",
+  "idempotencyKey",
+  "cipherURI",
+  "severity",
+  "chainSelectorName",
+  "bountyHubAddress",
+  "oasisEnvelopeHash",
+  "rosterCommitment",
+] as const
+const VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_PAYLOAD_KEYS = [
+  "submissionId",
+  "projectId",
+  "juryRoundId",
+  "lifecycleStatus",
+  "resolution",
+  "scopeKey",
+  "juryDeadlineTimestampSec",
+  "adjudicationDeadlineTimestampSec",
+  "submittedAtTimestampSec",
+  "evidenceReportType",
+  "oasisEnvelopeHash",
+  "reason",
+] as const
 export type VerifyPocTypedReportPayload = {
   submissionId: bigint
   projectId: bigint
@@ -431,6 +541,39 @@ export type VerifyPocGroupingMetadata = {
   representativeSubmissionId: bigint
 }
 
+export type VerifyPocJuryCommitmentMetadata = {
+  commitmentVersion: typeof VERIFY_POC_JURY_COMMITMENT_VERSION
+  juryLedgerDigest: `0x${string}`
+  sourceEventKey: `0x${string}`
+  mappingFingerprint: `0x${string}`
+}
+
+export type VerifyPocAdjudicationOasisMetadata = {
+  chain: string
+  contract: `0x${string}`
+  slotId: string
+  envelopeHash: `0x${string}`
+}
+
+export type VerifyPocAdjudicationMetadata = {
+  adjudicationVersion: typeof VERIFY_POC_ADJUDICATION_VERSION
+  syncId: `0x${string}`
+  idempotencyKey: `0x${string}`
+  cipherURI: string
+  severity: number
+  juryWindow: bigint
+  adjudicationWindow: bigint
+  commitTimestampSec: bigint
+  revealTimestampSec: bigint
+  sapphireWriteTimestampSec?: bigint
+  reasonCode?: VerifyPocSyncReasonCode
+  chainSelectorName: string
+  bountyHubAddress: `0x${string}`
+  txHash?: `0x${string}`
+  logIndex?: bigint
+  oasis: VerifyPocAdjudicationOasisMetadata
+}
+
 export type VerifyPocTypedReportEnvelopeV1 = {
   magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
   reportType: typeof VERIFY_POC_TYPED_REPORT_V1
@@ -446,9 +589,86 @@ export type VerifyPocTypedReportEnvelopeV2 = {
   grouping?: VerifyPocGroupingMetadata
 }
 
+export type VerifyPocTypedReportEnvelopeV3 = {
+  magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
+  reportType: typeof VERIFY_POC_TYPED_REPORT_V3
+  payload: VerifyPocTypedReportPayload
+  juryCommitment: VerifyPocJuryCommitmentMetadata
+  adjudication: VerifyPocAdjudicationMetadata
+}
+
+export type VerifyPocAdjudicationFinalLifecycleStatus =
+  | "VERIFIED"
+  | "INVALID"
+
+export type VerifyPocAdjudicationFinalVerdictSource =
+  | "JURY"
+  | "OWNER"
+
+export type VerifyPocAdjudicationFinalValidity =
+  | "HIGH"
+  | "MEDIUM"
+  | "INVALID"
+
+export type VerifyPocAdjudicationFinalPayload = {
+  submissionId: bigint
+  projectId: bigint
+  juryRoundId: bigint
+  lifecycleStatus: VerifyPocAdjudicationFinalLifecycleStatus
+  verdictSource: VerifyPocAdjudicationFinalVerdictSource
+  finalValidity: VerifyPocAdjudicationFinalValidity
+  isValid: boolean
+  drainAmountWei: bigint
+  rationale: string
+  juryDeadlineTimestampSec: bigint
+  adjudicationDeadlineTimestampSec: bigint
+  evidenceReportType: typeof VERIFY_POC_TYPED_REPORT_V3
+  juryLedgerDigest: `0x${string}`
+  ownerTestimonyDigest?: `0x${string}`
+  sourceEventKey: `0x${string}`
+  mappingFingerprint: `0x${string}`
+  syncId: `0x${string}`
+  idempotencyKey: `0x${string}`
+  cipherURI: string
+  severity: number
+  chainSelectorName: string
+  bountyHubAddress: `0x${string}`
+  oasisEnvelopeHash: `0x${string}`
+  rosterCommitment: Record<string, unknown>
+}
+
+export type VerifyPocAdjudicationFinalEnvelope = {
+  magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
+  reportType: typeof VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE
+  payload: VerifyPocAdjudicationFinalPayload
+  grouping?: VerifyPocGroupingMetadata
+}
+
+export type VerifyPocOwnerAdjudicationExpiredPayload = {
+  submissionId: bigint
+  projectId: bigint
+  juryRoundId: bigint
+  lifecycleStatus: "OWNER_ADJUDICATION_EXPIRED"
+  resolution: "UNRESOLVED"
+  scopeKey: `0x${string}`
+  juryDeadlineTimestampSec: bigint
+  adjudicationDeadlineTimestampSec: bigint
+  submittedAtTimestampSec: bigint
+  evidenceReportType: typeof VERIFY_POC_TYPED_REPORT_V3
+  oasisEnvelopeHash: `0x${string}`
+  reason: string
+}
+
+export type VerifyPocOwnerAdjudicationExpiredEnvelope = {
+  magic: typeof VERIFY_POC_REPORT_ENVELOPE_MAGIC
+  reportType: typeof VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE
+  payload: VerifyPocOwnerAdjudicationExpiredPayload
+}
+
 export type VerifyPocTypedReportEnvelope =
   | VerifyPocTypedReportEnvelopeV1
   | VerifyPocTypedReportEnvelopeV2
+  | VerifyPocTypedReportEnvelopeV3
 
 export type VerifyPocLegacyDecodedReport = {
   reportType: typeof VERIFY_POC_LEGACY_REPORT_TYPE
@@ -462,6 +682,8 @@ export type VerifyPocLegacyDecodedReport = {
 export type VerifyPocDecodedReportEnvelope =
   | VerifyPocLegacyDecodedReport
   | VerifyPocTypedReportEnvelope
+  | VerifyPocAdjudicationFinalEnvelope
+  | VerifyPocOwnerAdjudicationExpiredEnvelope
 
 function requireReportObject(
   value: unknown,
@@ -495,6 +717,30 @@ function requireReportString(value: unknown, fieldName: string): string {
   }
 
   return value.trim()
+}
+
+function requireReportBytes32String(
+  value: unknown,
+  fieldName: string,
+): `0x${string}` {
+  const normalized = requireReportString(value, fieldName).toLowerCase()
+  if (!/^0x[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a 0x-prefixed 32-byte hex string`)
+  }
+
+  return normalized as `0x${string}`
+}
+
+function requireReportAddressString(
+  value: unknown,
+  fieldName: string,
+): `0x${string}` {
+  const normalized = requireReportString(value, fieldName).toLowerCase()
+  if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a 0x-prefixed address`)
+  }
+
+  return normalized as `0x${string}`
 }
 
 function requireReportBoolean(value: unknown, fieldName: string): boolean {
@@ -542,6 +788,18 @@ function requireReportPositiveSafeInteger(
   return Number(parsed)
 }
 
+function requireReportNonNegativeSafeInteger(
+  value: unknown,
+  fieldName: string,
+): number {
+  const parsed = requireReportBigIntLike(value, fieldName)
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${fieldName} must be a safe integer`)
+  }
+
+  return Number(parsed)
+}
+
 function requireReportStringArray(value: unknown, fieldName: string): string[] {
   if (!Array.isArray(value)) {
     throw new Error(`${fieldName} must be an array`)
@@ -578,6 +836,28 @@ function requireVerifyPocGroupingCohort(
   }
 
   return cohort
+}
+
+function parseOptionalVerifyPocSyncReasonCode(
+  value: unknown,
+  fieldName: string,
+): VerifyPocSyncReasonCode | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const reasonCode = requireReportString(value, fieldName)
+  if (
+    reasonCode !== SYNC_REASON_RETRYABLE_RPC &&
+    reasonCode !== SYNC_REASON_RETRY_EXHAUSTED &&
+    reasonCode !== SYNC_REASON_BINDING_MISMATCH &&
+    reasonCode !== SYNC_REASON_ORPHAN_RECOVERED &&
+    reasonCode !== SYNC_REASON_ORPHAN_QUARANTINED
+  ) {
+    throw new Error(`${fieldName} must be a supported verify-poc sync reason code`)
+  }
+
+  return reasonCode
 }
 
 function parseVerifyPocTypedPayload(value: unknown): VerifyPocTypedReportPayload {
@@ -720,6 +1000,509 @@ function parseVerifyPocGroupingMetadata(
   }
 }
 
+function parseVerifyPocJuryCommitmentMetadata(
+  value: unknown,
+): VerifyPocJuryCommitmentMetadata {
+  const source = requireReportObject(value, "verify-poc jury commitment metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_JURY_COMMITMENT_METADATA_KEYS,
+    "verify-poc jury commitment metadata",
+  )
+
+  const commitmentVersion = requireReportString(
+    source.commitmentVersion,
+    "verifyPoc.juryCommitment.commitmentVersion",
+  )
+  if (commitmentVersion !== VERIFY_POC_JURY_COMMITMENT_VERSION) {
+    throw new Error(
+      `verifyPoc.juryCommitment.commitmentVersion must be ${VERIFY_POC_JURY_COMMITMENT_VERSION}`,
+    )
+  }
+
+  return {
+    commitmentVersion: VERIFY_POC_JURY_COMMITMENT_VERSION,
+    juryLedgerDigest: requireReportBytes32String(
+      source.juryLedgerDigest,
+      "verifyPoc.juryCommitment.juryLedgerDigest",
+    ),
+    sourceEventKey: requireReportBytes32String(
+      source.sourceEventKey,
+      "verifyPoc.juryCommitment.sourceEventKey",
+    ),
+    mappingFingerprint: requireReportBytes32String(
+      source.mappingFingerprint,
+      "verifyPoc.juryCommitment.mappingFingerprint",
+    ),
+  }
+}
+
+function parseVerifyPocAdjudicationOasisMetadata(
+  value: unknown,
+): VerifyPocAdjudicationOasisMetadata {
+  const source = requireReportObject(value, "verify-poc adjudication oasis metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_ADJUDICATION_OASIS_KEYS,
+    "verify-poc adjudication oasis metadata",
+  )
+
+  return {
+    chain: requireReportString(source.chain, "verifyPoc.adjudication.oasis.chain"),
+    contract: requireReportAddressString(
+      source.contract,
+      "verifyPoc.adjudication.oasis.contract",
+    ),
+    slotId: requireReportString(source.slotId, "verifyPoc.adjudication.oasis.slotId"),
+    envelopeHash: requireReportBytes32String(
+      source.envelopeHash,
+      "verifyPoc.adjudication.oasis.envelopeHash",
+    ),
+  }
+}
+
+function parseVerifyPocAdjudicationMetadata(
+  value: unknown,
+): VerifyPocAdjudicationMetadata {
+  const source = requireReportObject(value, "verify-poc adjudication metadata")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_ADJUDICATION_METADATA_KEYS,
+    "verify-poc adjudication metadata",
+  )
+
+  const adjudicationVersion = requireReportString(
+    source.adjudicationVersion,
+    "verifyPoc.adjudication.adjudicationVersion",
+  )
+  if (adjudicationVersion !== VERIFY_POC_ADJUDICATION_VERSION) {
+    throw new Error(
+      `verifyPoc.adjudication.adjudicationVersion must be ${VERIFY_POC_ADJUDICATION_VERSION}`,
+    )
+  }
+
+  return {
+    adjudicationVersion: VERIFY_POC_ADJUDICATION_VERSION,
+    syncId: requireReportBytes32String(source.syncId, "verifyPoc.adjudication.syncId"),
+    idempotencyKey: requireReportBytes32String(
+      source.idempotencyKey,
+      "verifyPoc.adjudication.idempotencyKey",
+    ),
+    cipherURI: requireReportString(source.cipherURI, "verifyPoc.adjudication.cipherURI"),
+    severity: requireReportNonNegativeSafeInteger(
+      source.severity,
+      "verifyPoc.adjudication.severity",
+    ),
+    juryWindow: requireReportBigIntLike(
+      source.juryWindow,
+      "verifyPoc.adjudication.juryWindow",
+    ),
+    adjudicationWindow: requireReportBigIntLike(
+      source.adjudicationWindow,
+      "verifyPoc.adjudication.adjudicationWindow",
+    ),
+    commitTimestampSec: requireReportBigIntLike(
+      source.commitTimestampSec,
+      "verifyPoc.adjudication.commitTimestampSec",
+    ),
+    revealTimestampSec: requireReportBigIntLike(
+      source.revealTimestampSec,
+      "verifyPoc.adjudication.revealTimestampSec",
+    ),
+    sapphireWriteTimestampSec:
+      source.sapphireWriteTimestampSec === undefined
+        ? undefined
+        : requireReportBigIntLike(
+            source.sapphireWriteTimestampSec,
+            "verifyPoc.adjudication.sapphireWriteTimestampSec",
+          ),
+    reasonCode: parseOptionalVerifyPocSyncReasonCode(
+      source.reasonCode,
+      "verifyPoc.adjudication.reasonCode",
+    ),
+    chainSelectorName: requireReportString(
+      source.chainSelectorName,
+      "verifyPoc.adjudication.chainSelectorName",
+    ),
+    bountyHubAddress: requireReportAddressString(
+      source.bountyHubAddress,
+      "verifyPoc.adjudication.bountyHubAddress",
+    ),
+    txHash:
+      source.txHash === undefined
+        ? undefined
+        : requireReportBytes32String(source.txHash, "verifyPoc.adjudication.txHash"),
+    logIndex:
+      source.logIndex === undefined
+        ? undefined
+        : requireReportBigIntLike(source.logIndex, "verifyPoc.adjudication.logIndex"),
+    oasis: parseVerifyPocAdjudicationOasisMetadata(source.oasis),
+  }
+}
+
+function parseVerifyPocAdjudicationFinalLifecycleStatus(
+  value: unknown,
+  fieldName: string,
+): VerifyPocAdjudicationFinalLifecycleStatus {
+  const normalized = requireReportString(value, fieldName)
+  if (normalized !== "VERIFIED" && normalized !== "INVALID") {
+    throw new Error(`${fieldName} must be VERIFIED or INVALID`)
+  }
+
+  return normalized
+}
+
+function parseVerifyPocAdjudicationFinalVerdictSource(
+  value: unknown,
+  fieldName: string,
+): VerifyPocAdjudicationFinalVerdictSource {
+  const normalized = requireReportString(value, fieldName)
+  if (normalized !== "JURY" && normalized !== "OWNER") {
+    throw new Error(`${fieldName} must be JURY or OWNER`)
+  }
+
+  return normalized
+}
+
+function parseVerifyPocAdjudicationFinalValidity(
+  value: unknown,
+  fieldName: string,
+): VerifyPocAdjudicationFinalValidity {
+  const normalized = requireReportString(value, fieldName)
+  if (
+    normalized !== "HIGH" &&
+    normalized !== "MEDIUM" &&
+    normalized !== "INVALID"
+  ) {
+    throw new Error(`${fieldName} must be HIGH, MEDIUM, or INVALID`)
+  }
+
+  return normalized
+}
+
+function parseOptionalVerifyPocBytes32String(
+  value: unknown,
+  fieldName: string,
+): `0x${string}` | undefined {
+  return value === undefined
+    ? undefined
+    : requireReportBytes32String(value, fieldName)
+}
+
+function parseVerifyPocAdjudicationFinalPayload(
+  value: unknown,
+): VerifyPocAdjudicationFinalPayload {
+  const source = requireReportObject(value, "verify-poc adjudication final payload")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_ADJUDICATION_FINAL_PAYLOAD_KEYS,
+    "verify-poc adjudication final payload",
+  )
+
+  const lifecycleStatus = parseVerifyPocAdjudicationFinalLifecycleStatus(
+    source.lifecycleStatus,
+    "verifyPoc.adjudicationFinal.lifecycleStatus",
+  )
+  const verdictSource = parseVerifyPocAdjudicationFinalVerdictSource(
+    source.verdictSource,
+    "verifyPoc.adjudicationFinal.verdictSource",
+  )
+  const finalValidity = parseVerifyPocAdjudicationFinalValidity(
+    source.finalValidity,
+    "verifyPoc.adjudicationFinal.finalValidity",
+  )
+  const isValid = requireReportBoolean(
+    source.isValid,
+    "verifyPoc.adjudicationFinal.isValid",
+  )
+  const drainAmountWei = requireReportBigIntLike(
+    source.drainAmountWei,
+    "verifyPoc.adjudicationFinal.drainAmountWei",
+  )
+  const ownerTestimonyDigest = parseOptionalVerifyPocBytes32String(
+    source.ownerTestimonyDigest,
+    "verifyPoc.adjudicationFinal.ownerTestimonyDigest",
+  )
+
+  if (lifecycleStatus === "VERIFIED") {
+    if (
+      (finalValidity !== "HIGH" && finalValidity !== "MEDIUM") ||
+      !isValid
+    ) {
+      throw new Error(
+        "verifyPoc.adjudicationFinal lifecycleStatus VERIFIED requires HIGH or MEDIUM final validity and isValid=true",
+      )
+    }
+    if (drainAmountWei === 0n) {
+      throw new Error(
+        "verifyPoc.adjudicationFinal.drainAmountWei must be positive when finalValidity is HIGH or MEDIUM",
+      )
+    }
+  } else {
+    if (finalValidity !== "INVALID" || isValid) {
+      throw new Error(
+        "verifyPoc.adjudicationFinal lifecycleStatus INVALID requires INVALID final validity and isValid=false",
+      )
+    }
+    if (drainAmountWei !== 0n) {
+      throw new Error(
+        "verifyPoc.adjudicationFinal.drainAmountWei must be zero when finalValidity is INVALID",
+      )
+    }
+  }
+
+  if (verdictSource === "OWNER" && ownerTestimonyDigest === undefined) {
+    throw new Error(
+      "verifyPoc.adjudicationFinal.ownerTestimonyDigest is required when verdictSource is OWNER",
+    )
+  }
+
+  if (verdictSource === "JURY" && ownerTestimonyDigest !== undefined) {
+    throw new Error(
+      "verifyPoc.adjudicationFinal.ownerTestimonyDigest cannot be set when verdictSource is JURY",
+    )
+  }
+
+  const evidenceReportType = requireReportString(
+    source.evidenceReportType,
+    "verifyPoc.adjudicationFinal.evidenceReportType",
+  )
+  if (evidenceReportType !== VERIFY_POC_TYPED_REPORT_V3) {
+    throw new Error(
+      `verifyPoc.adjudicationFinal.evidenceReportType must be ${VERIFY_POC_TYPED_REPORT_V3}`,
+    )
+  }
+
+  return {
+    submissionId: requireReportBigIntLike(
+      source.submissionId,
+      "verifyPoc.adjudicationFinal.submissionId",
+    ),
+    projectId: requireReportBigIntLike(
+      source.projectId,
+      "verifyPoc.adjudicationFinal.projectId",
+    ),
+    juryRoundId: requireReportBigIntLike(
+      source.juryRoundId,
+      "verifyPoc.adjudicationFinal.juryRoundId",
+    ),
+    lifecycleStatus,
+    verdictSource,
+    finalValidity,
+    isValid,
+    drainAmountWei,
+    rationale: requireReportString(
+      source.rationale,
+      "verifyPoc.adjudicationFinal.rationale",
+    ),
+    juryDeadlineTimestampSec: requireReportBigIntLike(
+      source.juryDeadlineTimestampSec,
+      "verifyPoc.adjudicationFinal.juryDeadlineTimestampSec",
+    ),
+    adjudicationDeadlineTimestampSec: requireReportBigIntLike(
+      source.adjudicationDeadlineTimestampSec,
+      "verifyPoc.adjudicationFinal.adjudicationDeadlineTimestampSec",
+    ),
+    evidenceReportType: VERIFY_POC_TYPED_REPORT_V3,
+    juryLedgerDigest: requireReportBytes32String(
+      source.juryLedgerDigest,
+      "verifyPoc.adjudicationFinal.juryLedgerDigest",
+    ),
+    ownerTestimonyDigest,
+    sourceEventKey: requireReportBytes32String(
+      source.sourceEventKey,
+      "verifyPoc.adjudicationFinal.sourceEventKey",
+    ),
+    mappingFingerprint: requireReportBytes32String(
+      source.mappingFingerprint,
+      "verifyPoc.adjudicationFinal.mappingFingerprint",
+    ),
+    syncId: requireReportBytes32String(
+      source.syncId,
+      "verifyPoc.adjudicationFinal.syncId",
+    ),
+    idempotencyKey: requireReportBytes32String(
+      source.idempotencyKey,
+      "verifyPoc.adjudicationFinal.idempotencyKey",
+    ),
+    cipherURI: requireReportString(
+      source.cipherURI,
+      "verifyPoc.adjudicationFinal.cipherURI",
+    ),
+    severity: requireReportNonNegativeSafeInteger(
+      source.severity,
+      "verifyPoc.adjudicationFinal.severity",
+    ),
+    chainSelectorName: requireReportString(
+      source.chainSelectorName,
+      "verifyPoc.adjudicationFinal.chainSelectorName",
+    ),
+    bountyHubAddress: requireReportAddressString(
+      source.bountyHubAddress,
+      "verifyPoc.adjudicationFinal.bountyHubAddress",
+    ),
+    oasisEnvelopeHash: requireReportBytes32String(
+      source.oasisEnvelopeHash,
+      "verifyPoc.adjudicationFinal.oasisEnvelopeHash",
+    ),
+    rosterCommitment: requireReportObject(
+      source.rosterCommitment,
+      "verifyPoc.adjudicationFinal.rosterCommitment",
+    ),
+  }
+}
+
+function parseVerifyPocAdjudicationFinalEnvelopeObject(
+  value: unknown,
+): VerifyPocAdjudicationFinalEnvelope {
+  const source = requireReportObject(value, "verify-poc adjudication final envelope")
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_ADJUDICATION_FINAL_REPORT_KEYS,
+    "verify-poc adjudication final envelope",
+  )
+
+  const magic = requireReportString(source.magic, "verifyPoc.magic")
+  if (magic !== VERIFY_POC_REPORT_ENVELOPE_MAGIC) {
+    throw new Error(`verifyPoc.magic must be ${VERIFY_POC_REPORT_ENVELOPE_MAGIC}`)
+  }
+
+  const reportType = requireReportString(source.reportType, "verifyPoc.reportType")
+  if (reportType !== VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE) {
+    throw new Error(
+      `verifyPoc.reportType must be ${VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE}`,
+    )
+  }
+
+  return {
+    magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+    reportType: VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE,
+    payload: parseVerifyPocAdjudicationFinalPayload(source.payload),
+    grouping:
+      source.grouping === undefined
+        ? undefined
+        : parseVerifyPocGroupingMetadata(source.grouping),
+  }
+}
+
+function parseVerifyPocOwnerAdjudicationExpiredPayload(
+  value: unknown,
+): VerifyPocOwnerAdjudicationExpiredPayload {
+  const source = requireReportObject(
+    value,
+    "verify-poc owner adjudication expired payload",
+  )
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_PAYLOAD_KEYS,
+    "verify-poc owner adjudication expired payload",
+  )
+
+  const lifecycleStatus = requireReportString(
+    source.lifecycleStatus,
+    "verifyPoc.ownerAdjudicationExpired.lifecycleStatus",
+  )
+  if (lifecycleStatus !== "OWNER_ADJUDICATION_EXPIRED") {
+    throw new Error(
+      "verifyPoc.ownerAdjudicationExpired.lifecycleStatus must be OWNER_ADJUDICATION_EXPIRED",
+    )
+  }
+
+  const resolution = requireReportString(
+    source.resolution,
+    "verifyPoc.ownerAdjudicationExpired.resolution",
+  )
+  if (resolution !== "UNRESOLVED") {
+    throw new Error(
+      "verifyPoc.ownerAdjudicationExpired.resolution must be UNRESOLVED",
+    )
+  }
+
+  const evidenceReportType = requireReportString(
+    source.evidenceReportType,
+    "verifyPoc.ownerAdjudicationExpired.evidenceReportType",
+  )
+  if (evidenceReportType !== VERIFY_POC_TYPED_REPORT_V3) {
+    throw new Error(
+      `verifyPoc.ownerAdjudicationExpired.evidenceReportType must be ${VERIFY_POC_TYPED_REPORT_V3}`,
+    )
+  }
+
+  return {
+    submissionId: requireReportBigIntLike(
+      source.submissionId,
+      "verifyPoc.ownerAdjudicationExpired.submissionId",
+    ),
+    projectId: requireReportBigIntLike(
+      source.projectId,
+      "verifyPoc.ownerAdjudicationExpired.projectId",
+    ),
+    juryRoundId: requireReportBigIntLike(
+      source.juryRoundId,
+      "verifyPoc.ownerAdjudicationExpired.juryRoundId",
+    ),
+    lifecycleStatus: "OWNER_ADJUDICATION_EXPIRED",
+    resolution: "UNRESOLVED",
+    scopeKey: requireReportBytes32String(
+      source.scopeKey,
+      "verifyPoc.ownerAdjudicationExpired.scopeKey",
+    ),
+    juryDeadlineTimestampSec: requireReportBigIntLike(
+      source.juryDeadlineTimestampSec,
+      "verifyPoc.ownerAdjudicationExpired.juryDeadlineTimestampSec",
+    ),
+    adjudicationDeadlineTimestampSec: requireReportBigIntLike(
+      source.adjudicationDeadlineTimestampSec,
+      "verifyPoc.ownerAdjudicationExpired.adjudicationDeadlineTimestampSec",
+    ),
+    submittedAtTimestampSec: requireReportBigIntLike(
+      source.submittedAtTimestampSec,
+      "verifyPoc.ownerAdjudicationExpired.submittedAtTimestampSec",
+    ),
+    evidenceReportType: VERIFY_POC_TYPED_REPORT_V3,
+    oasisEnvelopeHash: requireReportBytes32String(
+      source.oasisEnvelopeHash,
+      "verifyPoc.ownerAdjudicationExpired.oasisEnvelopeHash",
+    ),
+    reason: requireReportString(
+      source.reason,
+      "verifyPoc.ownerAdjudicationExpired.reason",
+    ),
+  }
+}
+
+function parseVerifyPocOwnerAdjudicationExpiredEnvelopeObject(
+  value: unknown,
+): VerifyPocOwnerAdjudicationExpiredEnvelope {
+  const source = requireReportObject(
+    value,
+    "verify-poc owner adjudication expired envelope",
+  )
+  assertReportKeysExact(
+    source,
+    VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_KEYS,
+    "verify-poc owner adjudication expired envelope",
+  )
+
+  const magic = requireReportString(source.magic, "verifyPoc.magic")
+  if (magic !== VERIFY_POC_REPORT_ENVELOPE_MAGIC) {
+    throw new Error(`verifyPoc.magic must be ${VERIFY_POC_REPORT_ENVELOPE_MAGIC}`)
+  }
+
+  const reportType = requireReportString(source.reportType, "verifyPoc.reportType")
+  if (reportType !== VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE) {
+    throw new Error(
+      `verifyPoc.reportType must be ${VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE}`,
+    )
+  }
+
+  return {
+    magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+    reportType: VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE,
+    payload: parseVerifyPocOwnerAdjudicationExpiredPayload(source.payload),
+  }
+}
+
 function parseVerifyPocTypedReportEnvelopeObject(
   value: unknown,
 ): VerifyPocTypedReportEnvelope {
@@ -772,8 +1555,24 @@ function parseVerifyPocTypedReportEnvelopeObject(
     }
   }
 
+  if (reportType === VERIFY_POC_TYPED_REPORT_V3) {
+    assertReportKeysExact(
+      source,
+      VERIFY_POC_TYPED_REPORT_V3_KEYS,
+      "verify-poc report envelope",
+    )
+
+    return {
+      magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+      reportType: VERIFY_POC_TYPED_REPORT_V3,
+      payload: parseVerifyPocTypedPayload(source.payload),
+      juryCommitment: parseVerifyPocJuryCommitmentMetadata(source.juryCommitment),
+      adjudication: parseVerifyPocAdjudicationMetadata(source.adjudication),
+    }
+  }
+
   throw new Error(
-    `verifyPoc.reportType must be ${VERIFY_POC_TYPED_REPORT_V1} or ${VERIFY_POC_TYPED_REPORT_V2}`,
+    `verifyPoc.reportType must be ${VERIFY_POC_TYPED_REPORT_V1}, ${VERIFY_POC_TYPED_REPORT_V2}, or ${VERIFY_POC_TYPED_REPORT_V3}`,
   )
 }
 
@@ -788,7 +1587,7 @@ export function encodeVerifyPocTypedReportEnvelope(
 }
 
 export function decodeVerifyPocReportEnvelope(
-  report: string | VerifyPocTypedReportEnvelope,
+  report: string | VerifyPocDecodedReportEnvelope,
 ): VerifyPocDecodedReportEnvelope {
   if (typeof report === "string" && report.startsWith("0x")) {
     const [submissionId, isValid, drainAmountWei] = decodeAbiParameters(
@@ -807,6 +1606,43 @@ export function decodeVerifyPocReportEnvelope(
   }
 
   const source = typeof report === "string" ? JSON.parse(report) : report
+  const envelopeSource = requireReportObject(source, "verify-poc report envelope")
+  const reportType = requireReportString(
+    envelopeSource.reportType,
+    "verifyPoc.reportType",
+  )
+  if (reportType === VERIFY_POC_LEGACY_REPORT_TYPE) {
+    const payloadSource = requireReportObject(
+      envelopeSource.payload,
+      "verify-poc legacy report payload",
+    )
+    return {
+      reportType: VERIFY_POC_LEGACY_REPORT_TYPE,
+      payload: {
+        submissionId: requireReportBigIntLike(
+          payloadSource.submissionId,
+          "verifyPoc.legacy.submissionId",
+        ),
+        isValid: requireReportBoolean(
+          payloadSource.isValid,
+          "verifyPoc.legacy.isValid",
+        ),
+        drainAmountWei: requireReportBigIntLike(
+          payloadSource.drainAmountWei,
+          "verifyPoc.legacy.drainAmountWei",
+        ),
+      },
+    }
+  }
+
+  if (reportType === VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE) {
+    return parseVerifyPocAdjudicationFinalEnvelopeObject(envelopeSource)
+  }
+
+  if (reportType === VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE) {
+    return parseVerifyPocOwnerAdjudicationExpiredEnvelopeObject(envelopeSource)
+  }
+
   return parseVerifyPocTypedReportEnvelopeObject(source)
 }
 
@@ -823,27 +1659,47 @@ export function encodeVerifyPocLegacyReport(
 }
 
 export function encodeVerifyPocContractReport(
-  report: VerifyPocDecodedReportEnvelope,
+  report: VerifyPocDecodedReportEnvelope | string,
 ): `0x${string}` {
-  if (report.reportType === VERIFY_POC_LEGACY_REPORT_TYPE) {
+  const normalized = decodeVerifyPocReportEnvelope(report)
+
+  if (normalized.reportType === VERIFY_POC_LEGACY_REPORT_TYPE) {
     return encodeVerifyPocLegacyReport(
-      report.payload.submissionId,
-      report.payload.isValid,
-      report.payload.drainAmountWei,
+      normalized.payload.submissionId,
+      normalized.payload.isValid,
+      normalized.payload.drainAmountWei,
+    )
+  }
+
+  if (normalized.reportType === VERIFY_POC_TYPED_REPORT_V3) {
+    throw new Error("verified-report/v3 evidence packages are not contract-writable")
+  }
+
+  if (normalized.reportType === VERIFY_POC_OWNER_ADJUDICATION_EXPIRED_REPORT_TYPE) {
+    throw new Error(
+      "owner-adjudication-expired/v1 cannot be committed as a final verdict",
+    )
+  }
+
+  if (normalized.reportType === VERIFY_POC_ADJUDICATION_FINAL_REPORT_TYPE) {
+    throw new Error(
+      "adjudication-final/v1 must be encoded by jury-orchestrator",
     )
   }
 
   const jury =
-    report.reportType === VERIFY_POC_TYPED_REPORT_V2 ? report.jury : undefined
+    normalized.reportType === VERIFY_POC_TYPED_REPORT_V2
+      ? normalized.jury
+      : undefined
   const grouping =
-    report.reportType === VERIFY_POC_TYPED_REPORT_V2
-      ? report.grouping
+    normalized.reportType === VERIFY_POC_TYPED_REPORT_V2
+      ? normalized.grouping
       : undefined
 
   const payload = encodeAbiParameters(VerifyPocTypedContractReportParams, [
-    report.payload.submissionId,
-    report.payload.isValid,
-    report.payload.drainAmountWei,
+    normalized.payload.submissionId,
+    normalized.payload.isValid,
+    normalized.payload.drainAmountWei,
     jury !== undefined,
     jury?.action ?? "",
     jury?.rationale ?? "",
@@ -861,6 +1717,132 @@ export function encodeVerifyPocContractReport(
   ])
 }
 
+export function buildVerifyPocStrictPassReportEnvelope(args: {
+  submissionId: bigint
+  projectId: bigint
+  verifyResult: Pick<VerificationResult, "isValid" | "drainAmountWei">
+}): VerifyPocTypedReportEnvelopeV2 {
+  return {
+    magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+    reportType: VERIFY_POC_TYPED_REPORT_V2,
+    payload: {
+      submissionId: args.submissionId,
+      projectId: args.projectId,
+      isValid: args.verifyResult.isValid,
+      drainAmountWei: args.verifyResult.drainAmountWei,
+      observedCalldata: [],
+    },
+  }
+}
+
+function deriveVerifyPocStrictFailJuryLedgerDigest(args: {
+  submissionId: bigint
+  projectId: bigint
+  syncId: `0x${string}`
+  sourceEventKey: `0x${string}`
+  mappingFingerprint: `0x${string}`
+  envelopeHash: `0x${string}`
+}): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(VerifyPocStrictFailJuryDigestParams, [
+      VERIFY_POC_JURY_COMMITMENT_VERSION,
+      args.submissionId,
+      args.projectId,
+      args.syncId,
+      args.sourceEventKey,
+      args.mappingFingerprint,
+      args.envelopeHash,
+    ]),
+  )
+}
+
+export function buildVerifyPocStrictFailEvidenceEnvelope(args: {
+  submissionId: bigint
+  projectId: bigint
+  cipherURI: string
+  severity: number
+  juryWindow: bigint
+  adjudicationWindow: bigint
+  commitTimestampSec: bigint
+  revealTimestampSec: bigint
+  syncId: `0x${string}`
+  oasisReference: {
+    pointer: {
+      chain: string
+      contract: `0x${string}`
+      slotId: string
+    }
+    envelopeHash: `0x${string}`
+  }
+  sourceEventKey: `0x${string}`
+  idempotencyKey: `0x${string}`
+  mappingFingerprint: `0x${string}`
+  verifyResult: VerificationResult
+  chainSelectorName: string
+  bountyHubAddress: `0x${string}`
+  txHash?: `0x${string}` | string
+  logIndex?: bigint | number | string
+}): VerifyPocTypedReportEnvelopeV3 {
+  const txHash =
+    typeof args.txHash === "string" && args.txHash.length > 0
+      ? (args.txHash.toLowerCase() as `0x${string}`)
+      : undefined
+  const logIndex =
+    args.logIndex === undefined
+      ? undefined
+      : typeof args.logIndex === "bigint"
+        ? args.logIndex
+        : BigInt(args.logIndex)
+
+  return {
+    magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
+    reportType: VERIFY_POC_TYPED_REPORT_V3,
+    payload: {
+      submissionId: args.submissionId,
+      projectId: args.projectId,
+      isValid: args.verifyResult.isValid,
+      drainAmountWei: args.verifyResult.drainAmountWei,
+      observedCalldata: [],
+    },
+    juryCommitment: {
+      commitmentVersion: VERIFY_POC_JURY_COMMITMENT_VERSION,
+      juryLedgerDigest: deriveVerifyPocStrictFailJuryLedgerDigest({
+        submissionId: args.submissionId,
+        projectId: args.projectId,
+        syncId: args.syncId,
+        sourceEventKey: args.sourceEventKey,
+        mappingFingerprint: args.mappingFingerprint,
+        envelopeHash: args.oasisReference.envelopeHash,
+      }),
+      sourceEventKey: args.sourceEventKey,
+      mappingFingerprint: args.mappingFingerprint,
+    },
+    adjudication: {
+      adjudicationVersion: VERIFY_POC_ADJUDICATION_VERSION,
+      syncId: args.syncId,
+      idempotencyKey: args.idempotencyKey,
+      cipherURI: args.cipherURI,
+      severity: args.severity,
+      juryWindow: args.juryWindow,
+      adjudicationWindow: args.adjudicationWindow,
+      commitTimestampSec: args.commitTimestampSec,
+      revealTimestampSec: args.revealTimestampSec,
+      sapphireWriteTimestampSec: args.verifyResult.sapphireWriteTimestampSec,
+      reasonCode: args.verifyResult.reasonCode,
+      chainSelectorName: args.chainSelectorName,
+      bountyHubAddress: args.bountyHubAddress.toLowerCase() as `0x${string}`,
+      txHash,
+      logIndex,
+      oasis: {
+        chain: args.oasisReference.pointer.chain,
+        contract: args.oasisReference.pointer.contract.toLowerCase() as `0x${string}`,
+        slotId: args.oasisReference.pointer.slotId,
+        envelopeHash: args.oasisReference.envelopeHash.toLowerCase() as `0x${string}`,
+      },
+    },
+  }
+}
+
 const VNET_STATUS_ACTIVE = 2
 const VERIFY_POC_REVEALED_IDEMPOTENCY_MAPPING_VERSION =
   "anti-soon.verify-poc.revealed-map.v1"
@@ -873,7 +1855,11 @@ const SEPOLIA_RPC_URL = "https://rpc.sepolia.org"
 let verifyPocIdempotencyStore: VerifyPocIdempotencyStore | undefined
 
 const ProjectStructAbi = parseAbiParameters(
-  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
+  "address owner, uint256 bountyPool, uint256 maxPayoutPerBug, address targetContract, uint256 forkBlock, bool active, uint8 mode, uint256 commitDeadline, uint256 revealDeadline, uint256 disputeWindow, uint256 juryWindow, uint256 adjudicationWindow, bytes32 rulesHash, uint8 vnetStatus, string vnetRpcUrl, bytes32 baseSnapshotId, uint256 vnetCreatedAt, string repoUrl"
+)
+
+const ProjectAdjudicationWindowsAbi = parseAbiParameters(
+  "uint256 juryWindow, uint256 adjudicationWindow",
 )
 
 const OasisPoCStoreReadAbi = parseAbi([
@@ -941,6 +1927,11 @@ type ProjectVnetInfo = {
   vnetRpcUrl: string
   baseSnapshotId: string
   vnetStatus: number
+}
+
+type ProjectAdjudicationWindows = {
+  juryWindow: bigint
+  adjudicationWindow: bigint
 }
 
 export function reconcileVerifyPocSyncDrift(
@@ -1014,10 +2005,60 @@ function decodeProjectVnetInfo(hexResult: string): ProjectVnetInfo {
   const projectResult = normalizeProjectReadResult(hexResult)
   const decoded = decodeAbiParameters(ProjectStructAbi, projectResult)
   return {
-    vnetRpcUrl: decoded[12] as string,
-    baseSnapshotId: decoded[13] as string,
-    vnetStatus: Number(decoded[11]),
+    vnetRpcUrl: decoded[14] as string,
+    baseSnapshotId: decoded[15] as string,
+    vnetStatus: Number(decoded[13]),
   }
+}
+
+function encodeProjectAdjudicationWindowsCall(projectId: bigint): string {
+  const selector = keccak256(toBytes("getProjectAdjudicationWindows(uint256)")).slice(0, 10)
+  const encodedId = encodeAbiParameters(parseAbiParameters("uint256"), [projectId])
+  return selector + encodedId.slice(2)
+}
+
+function decodeProjectAdjudicationWindows(
+  hexResult: string,
+): ProjectAdjudicationWindows {
+  const normalized = normalizeProjectReadResult(hexResult)
+  const [juryWindow, adjudicationWindow] = decodeAbiParameters(
+    ProjectAdjudicationWindowsAbi,
+    normalized,
+  )
+
+  return {
+    juryWindow,
+    adjudicationWindow,
+  }
+}
+
+function readProjectAdjudicationWindowsInNode(
+  nodeRuntime: NodeRuntime<Config>,
+  projectId: bigint,
+): ProjectAdjudicationWindows {
+  const callData = encodeProjectAdjudicationWindowsCall(projectId)
+  const callResult = runEthCallReadWithRetry(nodeRuntime, {
+    network: "sepolia",
+    operation: "sepolia.projectAdjudicationWindows.read",
+    endpoints: getSepoliaReadEndpoints(nodeRuntime.config),
+    retryPolicy: nodeRuntime.config.rpcReadRetry,
+    callParams: [
+      {
+        to: nodeRuntime.config.bountyHubAddress,
+        data: callData,
+      },
+      "latest",
+    ],
+    requestId: 8,
+    httpErrorPrefix: `Failed to read project adjudication windows for ${projectId}`,
+    rpcErrorPrefix: `Failed to read project adjudication windows for ${projectId}`,
+    invalidResponseMessage:
+      `Failed to read project adjudication windows for ${projectId}: invalid eth_call response`,
+    emptyResponseMessage:
+      `Failed to read project adjudication windows for ${projectId}: returned empty payload`,
+  })
+
+  return decodeProjectAdjudicationWindows(callResult)
 }
 
 function normalizeProjectReadResult(hexResult: string): `0x${string}` {
@@ -1785,6 +2826,7 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
     )
 
     const strictGateDecision = decideVerifyPocStrictGate({
+      isValid: verifyResult.isValid,
       reasonCode: verifyResult.reasonCode,
     })
     if (strictGateDecision.outcome === "RETRY_SYNC") {
@@ -1794,6 +2836,47 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
       throw new Error(
         `VERIFY_POC_STRICT_GATE_RETRY:${strictGateDecision.reasonCode}`,
       )
+    }
+
+    if (strictGateDecision.outcome === "EMIT_EVIDENCE") {
+      const projectWindows = runtime
+        .runInNodeMode(
+          readProjectAdjudicationWindowsInNode,
+          consensusIdenticalAggregation<ProjectAdjudicationWindows>(),
+        )(projectId)
+        .result()
+      const evidenceEnvelope = buildVerifyPocStrictFailEvidenceEnvelope({
+        submissionId,
+        projectId,
+        cipherURI,
+        severity: submission.severity,
+        juryWindow: projectWindows.juryWindow,
+        adjudicationWindow: projectWindows.adjudicationWindow,
+        commitTimestampSec: submission.commitTimestamp,
+        revealTimestampSec: submission.revealTimestamp,
+        syncId,
+        oasisReference: {
+          pointer: {
+            ...syncReference.pointer,
+            contract: syncReference.pointer.contract as `0x${string}`,
+          },
+          envelopeHash: syncReference.envelopeHash,
+        },
+        sourceEventKey: mappedIdempotency.sourceEventKey,
+        idempotencyKey,
+        mappingFingerprint: mappedIdempotency.mappingFingerprint,
+        verifyResult,
+        chainSelectorName: runtime.config.chainSelectorName,
+        bountyHubAddress: runtime.config.bountyHubAddress as `0x${string}`,
+        txHash: idempotencyInput.txHash,
+        logIndex: idempotencyInput.logIndex,
+      })
+      const encodedEvidence = encodeVerifyPocTypedReportEnvelope(evidenceEnvelope)
+      markDurableVerifyPocIdempotencyStrictFailed(idempotencyStore, idempotencyKey)
+      runtime.log(
+        `Strict fail emitted evidence package. syncId=${syncId}, idempotencyKey=${idempotencyKey}, reasonCode=${strictGateDecision.reasonCode ?? "NONE"}`,
+      )
+      return encodedEvidence
     }
 
     const network = getNetwork({
@@ -1808,17 +2891,13 @@ const onPoCRevealed = (runtime: Runtime<Config>, log: EVMLog): string => {
 
     const evmClient = new EVMClient(network.chainSelector.selector)
 
-    const reportData = encodeVerifyPocContractReport({
-      magic: VERIFY_POC_REPORT_ENVELOPE_MAGIC,
-      reportType: VERIFY_POC_TYPED_REPORT_V2,
-      payload: {
+    const reportData = encodeVerifyPocContractReport(
+      buildVerifyPocStrictPassReportEnvelope({
         submissionId,
         projectId,
-        isValid: verifyResult.isValid,
-        drainAmountWei: verifyResult.drainAmountWei,
-        observedCalldata: [],
-      },
-    })
+        verifyResult,
+      }),
+    )
 
     const report = runtime
       .report({

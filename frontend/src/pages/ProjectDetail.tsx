@@ -1,12 +1,11 @@
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { type Address, formatEther } from "viem";
+import {
+	type Address,
+	formatEther,
+	type GetLogsReturnType,
+	parseAbiItem,
+} from "viem";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,19 +27,46 @@ import {
 	StatusBanner,
 } from "../components/shared/ui-primitives";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI } from "../config";
+import {
+	discoverDeploymentBlockWithFallback,
+	getLogsWithRangeFallback,
+} from "../lib/chainLogs";
 import { readProjectById } from "../lib/projectReads";
 import {
+	getBlockNumberWithRpcFallback,
+	getLogsWithRpcFallback,
 	multicallWithRpcFallback,
 	readContractWithRpcFallback,
 } from "../lib/publicClient";
-import { readAllProjectSubmissionIds } from "../lib/submissionIndex";
+import { getActualStatus } from "../lib/status";
 import {
 	type ExtendedSubmission,
 	type Project,
 	type ProjectRules,
 	STATUS_LABELS,
-	type Submission,
+	VERDICT_SOURCE_LABELS,
 } from "../types";
+
+const POC_COMMITTED_EVENT = parseAbiItem(
+	"event PoCCommitted(uint256 indexed submissionId, uint256 indexed projectId, address indexed auditor, bytes32 commitHash)",
+);
+type PoCCommittedLog = GetLogsReturnType<
+	typeof POC_COMMITTED_EVENT,
+	[typeof POC_COMMITTED_EVENT],
+	true
+>[number];
+
+type RulesTuple = readonly [
+	maxAttackerSeedWei: bigint,
+	maxWarpSeconds: bigint,
+	allowImpersonation: boolean,
+	thresholds: {
+		criticalDrainWei: bigint;
+		highDrainWei: bigint;
+		mediumDrainWei: bigint;
+		lowDrainWei: bigint;
+	},
+];
 
 type SubmissionTuple = readonly [
 	auditor: Address,
@@ -60,19 +86,78 @@ type SubmissionTuple = readonly [
 	challengeBond: bigint,
 ];
 
-type RulesTuple = readonly [
-	maxAttackerSeedWei: bigint,
-	maxWarpSeconds: bigint,
-	allowImpersonation: boolean,
-	thresholds: {
-		criticalDrainWei: bigint;
-		highDrainWei: bigint;
-		mediumDrainWei: bigint;
-		lowDrainWei: bigint;
-	},
+type SubmissionLifecycleTuple = readonly [
+	status: number,
+	juryDeadline: bigint,
+	adjudicationDeadline: bigint,
+	verdictSource: number,
+	finalValidity: number,
+	juryLedgerDigest: `0x${string}`,
+	ownerTestimonyDigest: `0x${string}`,
+];
+
+type SubmissionJuryTuple = readonly [
+	exists: boolean,
+	action: string,
+	rationale: string,
+];
+
+type SubmissionGroupingTuple = readonly [
+	exists: boolean,
+	cohort: string,
+	groupId: string,
+	groupRank: bigint,
+	groupSize: bigint,
 ];
 
 const SUBMISSION_LOAD_ERROR = "Failed to load submissions from blockchain";
+
+function mapSubmissionWithMetadata(
+	id: bigint,
+	data: SubmissionTuple,
+	lifecycleData: SubmissionLifecycleTuple,
+	juryData: SubmissionJuryTuple,
+	groupingData: SubmissionGroupingTuple,
+): ExtendedSubmission {
+	return {
+		id,
+		auditor: data[0],
+		projectId: data[1],
+		commitHash: data[2],
+		cipherURI: data[3],
+		salt: data[4],
+		commitTimestamp: data[5],
+		revealTimestamp: data[6],
+		status: data[7],
+		drainAmountWei: data[8],
+		severity: data[9],
+		payoutAmount: data[10],
+		disputeDeadline: data[11],
+		challenged: data[12],
+		challenger: data[13],
+		challengeBond: data[14],
+		lifecycle: {
+			status: lifecycleData[0],
+			juryDeadline: lifecycleData[1],
+			adjudicationDeadline: lifecycleData[2],
+			verdictSource: lifecycleData[3],
+			finalValidity: lifecycleData[4],
+			juryLedgerDigest: lifecycleData[5],
+			ownerTestimonyDigest: lifecycleData[6],
+		},
+		jury: juryData[0]
+			? { action: juryData[1], rationale: juryData[2] }
+			: undefined,
+		grouping: groupingData[0]
+			? {
+					cohort: groupingData[1],
+					groupId: groupingData[2],
+					groupRank: Number(groupingData[3]),
+					groupSize: Number(groupingData[4]),
+				}
+			: undefined,
+	};
+}
 
 function formatRuleEther(amountWei: bigint): string {
 	const raw = formatEther(amountWei);
@@ -100,7 +185,7 @@ function RuleMetric({
 	valueClassName = "text-[var(--color-text)]",
 }: {
 	label: string;
-	value: ReactNode;
+	value: React.ReactNode;
 	valueClassName?: string;
 }) {
 	return (
@@ -134,7 +219,7 @@ function ThresholdRow({
 	);
 }
 
-function SectionHeader({ children }: { children: ReactNode }) {
+function SectionHeader({ children }: { children: React.ReactNode }) {
 	return (
 		<h2 className="text-sm font-mono tracking-widest text-[var(--color-text-dim)] uppercase mb-4 pb-2 border-b border-[var(--color-bg-light)]">
 			{children}
@@ -338,7 +423,31 @@ export function ProjectDetail() {
 	const fetchSubmissions = useCallback(async () => {
 		const requestId = ++submissionsRequestIdRef.current;
 		try {
-			const submissionIds = await readAllProjectSubmissionIds(projectId);
+			const logs = await getLogsWithRangeFallback<PoCCommittedLog>({
+				fetchLogs: (range) =>
+					getLogsWithRpcFallback({
+						address: BOUNTY_HUB_ADDRESS,
+						event: POC_COMMITTED_EVENT,
+						strict: true,
+						args: { projectId },
+						...(range ?? {}),
+						toBlock: range?.toBlock ?? "latest",
+					}) as Promise<PoCCommittedLog[]>,
+				getLatestBlock: () => getBlockNumberWithRpcFallback(),
+				getStartBlock: async (latestBlock) =>
+					discoverDeploymentBlockWithFallback(BOUNTY_HUB_ADDRESS, latestBlock),
+			});
+
+			const submissionIds = Array.from(
+				new Set(
+					logs
+						.map((log) => log.args.submissionId)
+						.filter(
+							(submissionId): submissionId is bigint =>
+								submissionId !== undefined,
+						),
+				),
+			);
 
 			if (submissionIds.length === 0) {
 				if (submissionsRequestIdRef.current !== requestId) {
@@ -348,36 +457,58 @@ export function ProjectDetail() {
 				return;
 			}
 
-			const submissionContracts = submissionIds.map((subId) => ({
-				address: BOUNTY_HUB_ADDRESS,
-				abi: BOUNTY_HUB_V2_ABI,
-				functionName: "submissions" as const,
-				args: [subId] as const,
-			}));
+			const submissionContracts = submissionIds.flatMap((subId) => [
+				{
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "submissions",
+					args: [subId],
+				},
+				{
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "getSubmissionLifecycle",
+					args: [subId],
+				},
+				{
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "getSubmissionJuryMetadata",
+					args: [subId],
+				},
+				{
+					address: BOUNTY_HUB_ADDRESS,
+					abi: BOUNTY_HUB_V2_ABI,
+					functionName: "getSubmissionGroupingMetadata",
+					args: [subId],
+				},
+			]);
 
 			const results = (await multicallWithRpcFallback({
 				contracts: submissionContracts,
 				allowFailure: false,
-			})) as SubmissionTuple[];
+			})) as readonly unknown[];
 
-			const fetchedSubmissions: Submission[] = results.map((data, index) => ({
-				id: submissionIds[index],
-				auditor: data[0],
-				projectId: data[1],
-				commitHash: data[2],
-				cipherURI: data[3],
-				salt: data[4],
-				commitTimestamp: data[5],
-				revealTimestamp: data[6],
-				status: data[7],
-				drainAmountWei: data[8],
-				severity: data[9],
-				payoutAmount: data[10],
-				disputeDeadline: data[11],
-				challenged: data[12],
-				challenger: data[13],
-				challengeBond: data[14],
-			}));
+			const fetchedSubmissions: ExtendedSubmission[] = submissionIds.map(
+				(id, index) => {
+					const data = results[index * 4] as SubmissionTuple;
+					const lifecycleData = results[
+						index * 4 + 1
+					] as SubmissionLifecycleTuple;
+					const juryData = results[index * 4 + 2] as SubmissionJuryTuple;
+					const groupingData = results[
+						index * 4 + 3
+					] as SubmissionGroupingTuple;
+
+					return mapSubmissionWithMetadata(
+						id,
+						data,
+						lifecycleData,
+						juryData,
+						groupingData,
+					);
+				},
+			);
 
 			if (submissionsRequestIdRef.current !== requestId) {
 				return;
@@ -719,20 +850,53 @@ export function ProjectDetail() {
 												</td>
 												<td className="px-4 py-4">
 													<div className="flex flex-col gap-1 items-start">
-														<Badge variant={getStatusVariant(sub.status)}>
-															{STATUS_LABELS[sub.status]}
+														<Badge
+															variant={getStatusVariant(
+																getActualStatus(
+																	sub.status,
+																	sub.lifecycle?.status,
+																),
+															)}
+														>
+															{
+																STATUS_LABELS[
+																	getActualStatus(
+																		sub.status,
+																		sub.lifecycle?.status,
+																	)
+																]
+															}
 														</Badge>
-														{sub.jury && (
-															<span
-																className="text-[0.65rem] text-[var(--color-secondary)] tracking-wider mt-1"
-																title={sub.jury.rationale}
-															>
-																⚖️{" "}
-																{sub.jury.action
-																	.replace("_RESULT", "")
-																	.replace(/_/g, " ")}
-															</span>
-														)}
+														{sub.lifecycle &&
+															sub.lifecycle.verdictSource > 0 && (
+																<span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
+																	Source:{" "}
+																	{
+																		VERDICT_SOURCE_LABELS[
+																			sub.lifecycle.verdictSource
+																		]
+																	}
+																</span>
+															)}
+														{sub.lifecycle &&
+															sub.lifecycle.juryDeadline > 0n && (
+																<span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
+																	Jury DL:{" "}
+																	{new Date(
+																		Number(sub.lifecycle.juryDeadline) * 1000,
+																	).toLocaleDateString()}
+																</span>
+															)}
+														{sub.lifecycle &&
+															sub.lifecycle.adjudicationDeadline > 0n && (
+																<span className="text-[0.65rem] text-[var(--color-text-dim)] tracking-wider mt-1">
+																	Adj DL:{" "}
+																	{new Date(
+																		Number(sub.lifecycle.adjudicationDeadline) *
+																			1000,
+																	).toLocaleDateString()}
+																</span>
+															)}
 													</div>
 												</td>
 												<td className="px-4 py-4">

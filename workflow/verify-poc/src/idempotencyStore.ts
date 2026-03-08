@@ -6,6 +6,7 @@ import {
   deriveVerifyPocSourceEventKey,
   markVerifyPocIdempotencyCompleted,
   markVerifyPocIdempotencyQuarantined,
+  markVerifyPocIdempotencyStrictFailed,
   type VerifyPocIdempotencyDecision,
   type VerifyPocIdempotencyInput,
   type VerifyPocIdempotencyMappingState,
@@ -151,7 +152,8 @@ export function loadVerifyPocIdempotencyStore(
     if (
       record.status !== "processing" &&
       record.status !== "completed" &&
-      record.status !== "quarantined"
+      record.status !== "quarantined" &&
+      record.status !== "strict_failed"
     ) {
       throw new Error(
         `Invalid verify-poc idempotency status for syncId=${syncId}: ${record.status}`,
@@ -268,6 +270,16 @@ export function markDurableVerifyPocIdempotencyQuarantined(
   nowMs: number = Date.now(),
 ): void {
   markVerifyPocIdempotencyQuarantined(store.syncStatusBySyncId, syncId)
+  store.syncStatusUpdatedAtMsBySyncId.set(syncId, nowMs)
+  persistVerifyPocIdempotencyStore(store)
+}
+
+export function markDurableVerifyPocIdempotencyStrictFailed(
+  store: VerifyPocIdempotencyStore,
+  syncId: string,
+  nowMs: number = Date.now(),
+): void {
+  markVerifyPocIdempotencyStrictFailed(store.syncStatusBySyncId, syncId)
   store.syncStatusUpdatedAtMsBySyncId.set(syncId, nowMs)
   persistVerifyPocIdempotencyStore(store)
 }

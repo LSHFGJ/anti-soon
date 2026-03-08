@@ -24,7 +24,7 @@ contract VNetFlowTest is Test {
 
     function test_fullFlow_registerToVnetCreated() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 commitDeadline = block.timestamp + 7 days;
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
@@ -44,7 +44,7 @@ contract VNetFlowTest is Test {
 
     function test_fullFlow_setProjectVnet() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -80,7 +80,7 @@ contract VNetFlowTest is Test {
 
     function test_fullFlow_typedVnetInitReport_updatesProjectState() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -112,7 +112,7 @@ contract VNetFlowTest is Test {
     function test_fullFlow_verifyPoCWithVnet() public {
         // Register project
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 10 ether}(
             TARGET,
@@ -165,7 +165,7 @@ contract VNetFlowTest is Test {
 
     function test_fullFlow_legacyVerifyPocReport_verifiesSubmission() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 10 ether}(
             TARGET,
@@ -201,7 +201,7 @@ contract VNetFlowTest is Test {
 
     function test_fullFlow_malformedLegacyVerifyPocPayload_revertsWithoutStateMutation() public {
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 10 ether}(
             TARGET,
@@ -241,7 +241,7 @@ contract VNetFlowTest is Test {
     function test_fullFlow_vnetCreationFailure() public {
         // Register project
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(100 ether, 10 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 1 ether}(
             TARGET,
@@ -270,7 +270,7 @@ contract VNetFlowTest is Test {
     function test_concurrentPoCVerification() public {
         // Register project
         BountyHub.SeverityThresholds memory thresholds = BountyHub.SeverityThresholds(10 ether, 5 ether, 1 ether, 0.1 ether);
-        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, thresholds);
+        BountyHub.ProjectRules memory rules = BountyHub.ProjectRules(100 ether, 3600, true, 3600, 3600, thresholds);
 
         uint256 projectId = hub.registerProjectV2{value: 20 ether}(
             TARGET,
