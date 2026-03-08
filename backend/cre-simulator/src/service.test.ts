@@ -3,16 +3,16 @@ import { existsSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import {
-	buildDefaultCreSimulatorScenarioPath,
 	buildDefaultCreSimulatorTriggerConfigPath,
-	executeCreSimulatorCommand,
+	executeCreSimulatorAdapter,
+	executeCreSimulatorStatus,
 	executeCreSimulatorTrigger,
 	getCreSimulatorTriggerStatus,
 } from "./service"
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..")
-const LEGACY_DEMO_OPERATOR_PATH = join(REPO_ROOT, "workflow", "demo-operator")
-const LEGACY_PATH_FRAGMENT = ["workflow", "demo-operator"].join("/")
+const STAGING_BOUNTY_HUB_ADDRESS = "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf"
+const POC_REVEALED_TOPIC0 = "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
 
 function withTempTriggerConfig(
 	run: (configPath: string) => Promise<void> | void,
@@ -29,19 +29,34 @@ function withTempTriggerConfig(
 				schemaVersion: "anti-soon.cre-simulator.trigger-config.v1",
 				stateFilePath,
 				httpTriggers: {
-					"manual-run": { command: "run" },
-					"manual-verify": { command: "verify" },
+					"manual-reveal": { adapter: "auto-reveal-relayer" },
+					"manual-verify": {
+						adapter: "cre-workflow-simulate",
+						adapterConfig: {
+							workflowPath: "workflow/verify-poc",
+							target: "staging-settings",
+							triggerIndex: 0,
+							evmInput: "event-coordinates",
+							idempotencyStorePath: "workflow/verify-poc/.verify-poc-idempotency-store.json",
+						},
+					},
 				},
 				cronTriggers: {
-					"demo-run": { intervalMs: 60000, command: "run" },
+					"reveal-relay": { intervalMs: 60000, adapter: "auto-reveal-relayer" },
 				},
 				evmLogTriggers: {
 					"poc-revealed": {
-						command: "verify",
-						wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-						contractAddress: "0x17797b473864806072186f6997801d4473aaf6e8",
-						topic0:
-							"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						adapter: "cre-workflow-simulate",
+						adapterConfig: {
+							workflowPath: "workflow/verify-poc",
+							target: "staging-settings",
+							triggerIndex: 0,
+							evmInput: "event-coordinates",
+							idempotencyStorePath: "workflow/verify-poc/.verify-poc-idempotency-store.json",
+						},
+						wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+						contractAddress: STAGING_BOUNTY_HUB_ADDRESS,
+						topic0: POC_REVEALED_TOPIC0,
 					},
 				},
 			},
@@ -60,81 +75,119 @@ function withTempTriggerConfig(
 }
 
 describe("cre-simulator service", () => {
-	it("defaults to the checked-in async demo scenario path", () => {
-		expect(buildDefaultCreSimulatorScenarioPath(REPO_ROOT)).toBe(
-			join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-		)
-	})
-
 	it("defaults to the checked-in backend trigger config path", () => {
 		expect(buildDefaultCreSimulatorTriggerConfigPath(REPO_ROOT)).toBe(
 			join(REPO_ROOT, "backend/cre-simulator/triggers.json"),
 		)
 	})
 
-	it("delegates command execution to the shared demo-operator service", async () => {
-		const result = await executeCreSimulatorCommand(
+	it("returns a live-only status payload", async () => {
+		const result = await executeCreSimulatorStatus(
 			{
-				command: "status",
 				repoRoot: REPO_ROOT,
 			},
 			{},
-			{
-				executeDemoOperator: async ({ request }) => {
-					expect(request.command).toBe("status")
-					expect(request.scenario).toBe(
-						join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-					)
-					return { command: "status", healthy: true }
-				},
-			},
 		)
 
 		expect(result).toEqual({
 			command: "status",
-			scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-			result: { command: "status", healthy: true },
+			result: expect.objectContaining({
+				mode: "live-only",
+				runtimeEnv: {
+					required: [
+						"CRE_SIM_TENDERLY_API_KEY",
+						"CRE_SIM_PRIVATE_KEY",
+						"CRE_SIM_SEPOLIA_RPC_URL",
+						"CRE_SIM_ADMIN_RPC_URL",
+						"CRE_SIM_BOUNTY_HUB_ADDRESS",
+						"CRE_SIM_OASIS_STORAGE_CONTRACT",
+					],
+					evmLogRequired: ["CRE_SIM_WS_RPC_URL"],
+				},
+			}),
 		})
 	})
 
-	it("accepts run as a backend command and delegates it like other commands", async () => {
-		const result = await executeCreSimulatorCommand(
+	it("delegates generic cre-workflow-simulate execution to the adapter runtime", async () => {
+		const result = await executeCreSimulatorAdapter(
 			{
-				command: "run",
+				adapter: "cre-workflow-simulate",
+				adapterConfig: {
+					workflowPath: "workflow/verify-poc",
+					target: "staging-settings",
+					triggerIndex: 0,
+					evmInput: "event-coordinates",
+				},
 				repoRoot: REPO_ROOT,
+				evmTxHash:
+					"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				evmEventIndex: 3,
 			},
 			{},
 			{
-				executeDemoOperator: async ({ request }) => {
-					expect(request.command).toBe("run")
-					return { command: "run", stages: { register: { projectId: "77" } } }
+				adapterExecutors: {
+					"cre-workflow-simulate": async ({ evmTxHash, evmEventIndex }) => {
+						expect(evmTxHash).toBe(
+							"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+						)
+						expect(evmEventIndex).toBe(3)
+						return { submissionId: "12" }
+					},
 				},
 			},
 		)
 
 		expect(result).toEqual({
-			command: "run",
-			scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-			result: { command: "run", stages: { register: { projectId: "77" } } },
+			adapter: "cre-workflow-simulate",
+			result: { submissionId: "12" },
 		})
 	})
 
-	it("dispatches configured manual triggers through the shared backend service", async () => {
+	it("requires EVM coordinates for generic workflow adapters that expect event input", async () => {
+		await expect(
+			executeCreSimulatorAdapter(
+				{
+					adapter: "cre-workflow-simulate",
+					adapterConfig: {
+						workflowPath: "workflow/verify-poc",
+						target: "staging-settings",
+						triggerIndex: 0,
+						evmInput: "event-coordinates",
+					},
+					repoRoot: REPO_ROOT,
+				},
+				{},
+			),
+		).rejects.toThrow("cre-workflow-simulate requires evmTxHash and evmEventIndex")
+	})
+
+	it("rejects unsupported adapters", async () => {
+		await expect(
+			executeCreSimulatorAdapter(
+				{
+					adapter: "not-real" as never,
+					repoRoot: REPO_ROOT,
+				},
+				{},
+			),
+		).rejects.toThrow("Unsupported live-only adapter: not-real")
+	})
+
+	it("dispatches configured manual triggers through the live backend service", async () => {
 		await withTempTriggerConfig(async (configPath) => {
 			const result = await executeCreSimulatorTrigger(
 				{
-					triggerName: "manual-run",
+					triggerName: "manual-reveal",
 					repoRoot: REPO_ROOT,
 					configPath,
 				},
 				{},
 				{
-					executeCommand: async (request) => {
-						expect(request.command).toBe("run")
+					executeAdapter: async (request) => {
+						expect(request.adapter).toBe("auto-reveal-relayer")
 						return {
-							command: "run",
-							scenarioPath: join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-							result: { command: "run", stages: { register: { projectId: "77" } } },
+							adapter: "auto-reveal-relayer",
+							result: { mode: "run-once" },
 						}
 					},
 				},
@@ -142,8 +195,8 @@ describe("cre-simulator service", () => {
 
 			expect(result).toMatchObject({
 				triggerType: "http",
-				triggerName: "manual-run",
-				command: "run",
+				triggerName: "manual-reveal",
+				adapter: "auto-reveal-relayer",
 			})
 		})
 	})
@@ -162,36 +215,41 @@ describe("cre-simulator service", () => {
 				healthy: true,
 				configPath,
 				httpTriggers: {
-					0: { triggerName: "manual-run", command: "run" },
-					1: { triggerName: "manual-verify", command: "verify" },
+					0: { triggerName: "manual-reveal", adapter: "auto-reveal-relayer" },
+					1: { triggerName: "manual-verify", adapter: "cre-workflow-simulate" },
 				},
 				cronTriggers: {
-					0: { triggerName: "demo-run", command: "run" },
+					0: { triggerName: "reveal-relay", adapter: "auto-reveal-relayer" },
 				},
 				evmLogTriggers: {
-					0: { triggerName: "poc-revealed", command: "verify" },
+					0: { triggerName: "poc-revealed", adapter: "cre-workflow-simulate" },
 				},
 			})
 		})
 	})
 
-	it("rejects override paths that escape the repo root", async () => {
+	it("rejects no-longer-supported scenario override paths", async () => {
 		await expect(
-			executeCreSimulatorCommand(
+			executeCreSimulatorStatus(
 				{
-					command: "status",
 					repoRoot: REPO_ROOT,
 					scenarioPath: "/tmp/outside.json",
 				},
 				{},
 			),
-		).rejects.toThrow("scenarioPath must stay within repoRoot")
+		).rejects.toThrow("scenarioPath is not supported in live-only mode")
 	})
 
-	it("owns the operator core under backend instead of importing workflow internals", async () => {
+	it("keeps only the live helper modules under backend operator utilities", async () => {
+		expect(
+			existsSync(join(REPO_ROOT, "backend/cre-simulator/src/operator/bountyHubClient.ts")),
+		).toBe(true)
+		expect(
+			existsSync(join(REPO_ROOT, "backend/cre-simulator/src/operator/creWorkflowRuntime.ts")),
+		).toBe(true)
 		expect(
 			existsSync(join(REPO_ROOT, "backend/cre-simulator/src/operator/service.ts")),
-		).toBe(true)
+		).toBe(false)
 
 		const serviceSource = await Bun.file(
 			join(REPO_ROOT, "backend/cre-simulator/src/service.ts"),
@@ -200,19 +258,12 @@ describe("cre-simulator service", () => {
 			join(REPO_ROOT, "backend/cre-simulator/src/types.ts"),
 		).text()
 
-		expect(serviceSource).not.toContain(LEGACY_PATH_FRAGMENT)
-		expect(typesSource).not.toContain(LEGACY_PATH_FRAGMENT)
+		expect(serviceSource).not.toContain("workflow/demo-operator")
+		expect(typesSource).not.toContain("workflow/demo-operator")
 	})
 
 	it("removes the legacy workflow demo-operator path from checked-in defaults", async () => {
-		expect(existsSync(LEGACY_DEMO_OPERATOR_PATH)).toBe(false)
-
-		const scenario = (await Bun.file(
-			join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"),
-		).json()) as { stateFilePath: string }
-
-		expect(scenario.stateFilePath).toBe(
-			"backend/cre-simulator/.demo-operator-state.json",
-		)
+		expect(existsSync(join(REPO_ROOT, "backend/cre-simulator/default-scenario.json"))).toBe(false)
+		expect(existsSync(join(REPO_ROOT, "backend/cre-simulator/.demo-operator-state.json"))).toBe(false)
 	})
 })

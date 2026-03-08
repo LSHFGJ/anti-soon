@@ -1,0 +1,49 @@
+{
+  "workflowConfig": {
+    "chainSelectorName": "ethereum-testnet-sepolia",
+  "bountyHubAddress": "0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf",
+    "gasLimit": "300000",
+    "juryPolicy": {
+      "allowDirectSettlement": false,
+      "requireOwnerResolution": true
+    }
+  },
+  "rosterSelection": {
+    "llmJurors": [
+      { "jurorId": "llm:gpt-4.1" },
+      { "jurorId": "llm:claude-3.7-sonnet" },
+      { "jurorId": "llm:gemini-2.5-pro" },
+      { "jurorId": "llm:llama-3.1-405b" },
+      { "jurorId": "llm:qwen-2.5-72b" }
+    ],
+    "humanCandidates": [
+      { "jurorId": "human:alice" },
+      { "jurorId": "human:bob" },
+      { "jurorId": "human:carol" },
+      { "jurorId": "human:dora" },
+      { "jurorId": "human:erin" }
+    ],
+    "humanSelection": {
+      "selectionVersion": "anti-soon.human-juror-selection.v1",
+      "randomnessDigest": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "selectionSource": "manual-seeded-roster",
+      "selectionNonce": "0x2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "oasisPointer": {
+    "chain": "oasis-sapphire-testnet",
+    "contract": "0x1111111111111111111111111111111111111111",
+    "slotPrefix": "jury-round"
+  },
+  "llm": {
+    "apiUrl": "https://openrouter.ai/api/v1/chat/completions",
+    "apiKeyEnvVar": "CRE_SIM_LLM_API_KEY"
+  },
+  "submission": {
+    "enabled": true,
+    "rpcUrlEnvVar": "CRE_SIM_ADMIN_RPC_URL",
+    "privateKeyEnvVar": "CRE_SIM_PRIVATE_KEY",
+    "workflowOwner": "0xC1A97C6a4030a2089e1D9dA771De552bd67234a3",
+    "workflowName10": "juryorc001"
+  }
+}

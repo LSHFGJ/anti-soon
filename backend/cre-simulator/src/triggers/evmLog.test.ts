@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { dispatchEvmLogTriggerEvent } from "./evmLog"
 import {
@@ -18,7 +18,8 @@ function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<vo
 }
 
 const CONFIG_SCHEMA_VERSION = "anti-soon.cre-simulator.trigger-config.v1"
-const TOPIC0 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const TOPIC0 = "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
+const BOUNTY_HUB_ADDRESS = "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf"
 const ACTUAL_REPO_ROOT = join(import.meta.dir, "../../../..")
 
 describe("cre-simulator EVM-log triggers", () => {
@@ -35,9 +36,15 @@ describe("cre-simulator EVM-log triggers", () => {
 						cronTriggers: {},
 						evmLogTriggers: {
 							"poc-revealed": {
-								command: "verify",
-								wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-								contractAddress: "0x1111111111111111111111111111111111111111",
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
 								topic0: TOPIC0,
 							},
 						},
@@ -52,9 +59,9 @@ describe("cre-simulator EVM-log triggers", () => {
 			const request = {
 				repoRoot: tempDir,
 				configPath,
-				triggerName: "poc-revealed",
-				event: {
-					address: "0x1111111111111111111111111111111111111111",
+					triggerName: "poc-revealed",
+					event: {
+						address: BOUNTY_HUB_ADDRESS,
 					topic0: TOPIC0,
 					txHash:
 						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -65,19 +72,18 @@ describe("cre-simulator EVM-log triggers", () => {
 
 			const first = await dispatchEvmLogTriggerEvent(request, {}, {
 				nowMs: () => 1000,
-				executeCommand: async () => {
-					callCount += 1
-					return {
-						command: "verify",
-						scenarioPath: join(tempDir, "scenario.json"),
-						result: { submissionId: "12" },
-					}
-				},
+						executeAdapter: async () => {
+							callCount += 1
+							return {
+								adapter: "cre-workflow-simulate",
+								result: { submissionId: "12" },
+							}
+						},
 			})
 
 			const second = await dispatchEvmLogTriggerEvent(request, {}, {
 				nowMs: () => 2000,
-				executeCommand: async () => {
+				executeAdapter: async () => {
 					throw new Error("duplicate should not dispatch")
 				},
 			})
@@ -101,9 +107,15 @@ describe("cre-simulator EVM-log triggers", () => {
 						cronTriggers: {},
 						evmLogTriggers: {
 							"poc-revealed": {
-								command: "verify",
-								wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-								contractAddress: "0x1111111111111111111111111111111111111111",
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
 								topic0: TOPIC0,
 							},
 						},
@@ -121,7 +133,7 @@ describe("cre-simulator EVM-log triggers", () => {
 						configPath,
 						triggerName: "poc-revealed",
 						event: {
-							address: "0x1111111111111111111111111111111111111111",
+							address: BOUNTY_HUB_ADDRESS,
 							topic0: TOPIC0,
 							txHash:
 								"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -132,7 +144,7 @@ describe("cre-simulator EVM-log triggers", () => {
 					{},
 					{
 						nowMs: () => 1000,
-						executeCommand: async () => {
+						executeAdapter: async () => {
 							throw new Error("verify failed")
 						},
 					},
@@ -161,9 +173,15 @@ describe("cre-simulator EVM-log triggers", () => {
 						cronTriggers: {},
 						evmLogTriggers: {
 							"poc-revealed": {
-								command: "verify",
-								wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-								contractAddress: "0x1111111111111111111111111111111111111111",
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
 								topic0: TOPIC0,
 							},
 						},
@@ -192,7 +210,7 @@ describe("cre-simulator EVM-log triggers", () => {
 						configPath,
 						triggerName: "poc-revealed",
 						event: {
-							address: "0x1111111111111111111111111111111111111111",
+							address: BOUNTY_HUB_ADDRESS,
 							topic0: TOPIC0,
 							txHash:
 								"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -203,7 +221,7 @@ describe("cre-simulator EVM-log triggers", () => {
 					{},
 					{
 						nowMs: () => 2000,
-						executeCommand: async () => {
+						executeAdapter: async () => {
 							throw new Error("should not dispatch")
 						},
 					},
@@ -227,9 +245,15 @@ describe("cre-simulator EVM-log triggers", () => {
 					cronTriggers: {},
 					evmLogTriggers: {
 						"poc-revealed": {
-							command: "verify",
-							wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-							contractAddress: "0x17797b473864806072186f6997801d4473aaf6e8",
+							adapter: "cre-workflow-simulate",
+							adapterConfig: {
+								workflowPath: "workflow/verify-poc",
+								target: "staging-settings",
+								triggerIndex: 0,
+								evmInput: "event-coordinates",
+							},
+							wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+							contractAddress: BOUNTY_HUB_ADDRESS,
 							topic0: TOPIC0,
 						},
 					},
@@ -246,7 +270,7 @@ describe("cre-simulator EVM-log triggers", () => {
 					triggerName: "poc-revealed",
 					configPath: "backend/cre-simulator/.evm-default-config.test.json",
 					event: {
-						address: "0x17797b473864806072186f6997801d4473aaf6e8",
+						address: BOUNTY_HUB_ADDRESS,
 						topic0: TOPIC0,
 						txHash:
 							"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -256,16 +280,15 @@ describe("cre-simulator EVM-log triggers", () => {
 				},
 				{},
 				{
-					nowMs: () => 20_000,
-					executeCommand: async (request) => ({
-						command: request.command,
-						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-						result: { command: request.command },
-					}),
-				},
+						nowMs: () => 20_000,
+						executeAdapter: async (request) => ({
+							adapter: request.adapter,
+							result: { adapter: request.adapter },
+						}),
+					},
 			)
 
-			expect(result.command).toBe("verify")
+			expect(result.adapter).toBe("cre-workflow-simulate")
 			expect(result.deduped).toBe(false)
 		} finally {
 			rmSync(configPath, { force: true })

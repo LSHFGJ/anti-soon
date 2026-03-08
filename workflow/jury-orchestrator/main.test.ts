@@ -385,9 +385,10 @@ describe("jury-orchestrator workflow config", () => {
 			new URL("./config.production.json", import.meta.url),
 		).json();
 
-		expect(parseJuryWorkflowConfig(stagingConfig)).toEqual(
-			validJuryWorkflowConfig,
-		);
+			expect(parseJuryWorkflowConfig(stagingConfig)).toEqual({
+				...validJuryWorkflowConfig,
+				bountyHubAddress: "0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf",
+			});
 		expect(parseJuryWorkflowConfig(productionConfig)).toEqual(
 			validJuryWorkflowConfig,
 		);

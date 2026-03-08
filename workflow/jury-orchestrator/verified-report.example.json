@@ -1,0 +1,36 @@
+{
+  "magic": "ASRP",
+  "reportType": "verified-report/v3",
+  "payload": {
+    "submissionId": "9",
+    "projectId": "3",
+    "isValid": false,
+    "drainAmountWei": "0",
+    "observedCalldata": []
+  },
+  "juryCommitment": {
+    "commitmentVersion": "anti-soon.verify-poc.jury-commitment.v1",
+    "juryLedgerDigest": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceEventKey": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mappingFingerprint": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "adjudication": {
+    "adjudicationVersion": "anti-soon.verify-poc.adjudication.v1",
+    "syncId": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "idempotencyKey": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "cipherURI": "oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "severity": 2,
+    "juryWindow": "3600",
+    "adjudicationWindow": "7200",
+    "commitTimestampSec": "1700000000",
+    "revealTimestampSec": "1700000060",
+    "chainSelectorName": "ethereum-testnet-sepolia",
+    "bountyHubAddress": "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf",
+    "oasis": {
+      "chain": "oasis-sapphire-testnet",
+      "contract": "0x1111111111111111111111111111111111111111",
+      "slotId": "slot-42",
+      "envelopeHash": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  }
+}
