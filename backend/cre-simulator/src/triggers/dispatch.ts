@@ -1,8 +1,9 @@
 import { resolve } from "node:path"
 
-import type { EnvRecord } from "../operator/config"
-import { executeCreSimulatorCommand } from "../service"
-import type { CreSimulatorExecuteCommand } from "../types"
+import type { CreSimulatorAdapterRequest, CreSimulatorAdapterResult } from "../adapter-types"
+import type { EnvRecord } from "../env"
+import { executeCreSimulatorAdapter, executeCreSimulatorStatus } from "../service"
+import type { CreSimulatorExecuteAdapter, CreSimulatorExecuteStatus } from "../types"
 import { loadCreSimulatorTriggerConfig } from "./config"
 import {
 	assertCreSimulatorTriggerStateStoreHealthy,
@@ -19,8 +20,9 @@ import type {
 	CreSimulatorTriggerRequest,
 } from "./types"
 
-	type DispatchDeps = {
-	executeCommand?: CreSimulatorExecuteCommand
+type DispatchDeps = {
+	executeAdapter?: CreSimulatorExecuteAdapter
+	executeStatus?: CreSimulatorExecuteStatus
 	nowMs?: () => number
 }
 
@@ -96,15 +98,14 @@ export async function dispatchCreSimulatorTrigger(
 	)
 	if (!claimDecision.shouldProcess) {
 		if (claimDecision.reason === "already-completed") {
-			const executeCommand = deps.executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env))
+			const executeStatus = deps.executeStatus ?? ((statusRequest) => executeCreSimulatorStatus(statusRequest, env))
 			return {
 				triggerType: resolved.triggerType,
 				triggerName: resolved.trigger.triggerName,
-				command: resolved.trigger.command,
+				adapter: resolved.trigger.adapter,
 				executionKey,
 				deduped: true,
-				result: await executeCommand({
-					command: "status",
+				result: await executeStatus({
 					repoRoot,
 				}),
 			}
@@ -112,23 +113,27 @@ export async function dispatchCreSimulatorTrigger(
 		throw new Error(`Trigger ${resolved.trigger.triggerName} is not runnable because it is ${claimDecision.reason}`)
 	}
 
-	const executeCommand = deps.executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env))
+	const executeAdapter = deps.executeAdapter
+		?? ((adapterRequest: CreSimulatorAdapterRequest): Promise<CreSimulatorAdapterResult> =>
+			executeCreSimulatorAdapter(adapterRequest, env))
 	try {
-		const result = await executeCommand({
-			command: resolved.trigger.command,
+		const result = await executeAdapter({
+			adapter: resolved.trigger.adapter,
+			...(resolved.trigger.adapterConfig ? { adapterConfig: resolved.trigger.adapterConfig } : {}),
 			repoRoot,
-			...(resolved.trigger.scenarioPath ? { scenarioPath: resolved.trigger.scenarioPath } : {}),
-			...(resolved.trigger.stateFilePath ? { stateFilePath: resolved.trigger.stateFilePath } : {}),
 			...(resolved.trigger.evidenceDir ? { evidenceDir: resolved.trigger.evidenceDir } : {}),
-			...(request.scenarioPath ? { scenarioPath: request.scenarioPath } : {}),
-			...(request.stateFilePath ? { stateFilePath: request.stateFilePath } : {}),
 			...(request.evidenceDir ? { evidenceDir: request.evidenceDir } : {}),
+			...(request.evmTxHash ? { evmTxHash: request.evmTxHash } : {}),
+			...(request.evmEventIndex !== undefined
+				? { evmEventIndex: request.evmEventIndex }
+				: {}),
+			...(request.adapterConfig ? { adapterConfig: request.adapterConfig } : {}),
 		})
 		markCreSimulatorTriggerExecutionCompleted(store, executionKey, nowMs)
 		return {
 			triggerType: resolved.triggerType,
 			triggerName: resolved.trigger.triggerName,
-			command: resolved.trigger.command,
+			adapter: resolved.trigger.adapter,
 			executionKey,
 			deduped: false,
 			result,

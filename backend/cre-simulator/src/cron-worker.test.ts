@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 
-import { getCreSimulatorModeRequiredEnv } from "./deploy-preflight"
 import { createCreSimulatorCronWorkerRunner } from "./cron-worker"
+import { getCreSimulatorModeRequiredEnv } from "./deploy-preflight"
 
 describe("cre-simulator cron worker", () => {
 	it("skips overlapping ticks while a previous tick is still running", async () => {
@@ -26,7 +26,7 @@ describe("cre-simulator cron worker", () => {
 
 	it("uses the base deployment env contract", () => {
 		expect(getCreSimulatorModeRequiredEnv("cron")).not.toContain(
-			"DEMO_OPERATOR_WS_RPC_URL",
+			"CRE_SIM_WS_RPC_URL",
 		)
 	})
 })

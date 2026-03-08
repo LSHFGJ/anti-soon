@@ -17,6 +17,7 @@ node_modules/.tmp/
 .env.*
 !.env.example
 !backend/cre-simulator/.env.railway.example
+backend/cre-simulator/.runtime.local.json
 
 # Markdown (only README.md is committed)
 *.md
@@ -55,6 +56,8 @@ logo/
 !frontend/public/logo/*.svg
 workflow/**/.cre_build_tmp.js
 workflow/**/tmp-min.*
+workflow/jury-orchestrator/.cli-local-config.json
+workflow/jury-orchestrator/.human-opinions-invalid.json
 
 # Logs
 *.log

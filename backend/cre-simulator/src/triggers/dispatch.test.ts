@@ -30,7 +30,7 @@ describe("cre-simulator trigger dispatch", () => {
 					{
 						schemaVersion: CONFIG_SCHEMA_VERSION,
 						stateFilePath: ".trigger-state.json",
-						httpTriggers: { "manual-run": { command: "run" } },
+						httpTriggers: { "manual-reveal": { adapter: "auto-reveal-relayer" } },
 						cronTriggers: {},
 						evmLogTriggers: {},
 					},
@@ -44,17 +44,16 @@ describe("cre-simulator trigger dispatch", () => {
 				{
 					repoRoot: tempDir,
 					configPath,
-					triggerName: "manual-run",
+					triggerName: "manual-reveal",
 					triggerType: "http",
 				},
 				{},
 				{
-					executeCommand: async (request) => {
-						expect(request.command).toBe("run")
+					executeAdapter: async (request) => {
+						expect(request.adapter).toBe("auto-reveal-relayer")
 						return {
-							command: "run",
-							scenarioPath: join(tempDir, "backend/cre-simulator/default-scenario.json"),
-							result: { command: "run", stages: { register: { projectId: "77" } } },
+							adapter: "auto-reveal-relayer",
+							result: { mode: "run-once" },
 						}
 					},
 					nowMs: () => 5000,
@@ -63,9 +62,9 @@ describe("cre-simulator trigger dispatch", () => {
 
 			expect(result).toMatchObject({
 				triggerType: "http",
-				triggerName: "manual-run",
-				command: "run",
-				result: { result: { command: "run" } },
+				triggerName: "manual-reveal",
+				adapter: "auto-reveal-relayer",
+				result: { result: { mode: "run-once" } },
 			})
 		})
 	})
@@ -79,7 +78,7 @@ describe("cre-simulator trigger dispatch", () => {
 					{
 						schemaVersion: CONFIG_SCHEMA_VERSION,
 						stateFilePath: ".trigger-state.json",
-						httpTriggers: { "manual-run": { command: "run" } },
+						httpTriggers: { "manual-reveal": { adapter: "auto-reveal-relayer" } },
 						cronTriggers: {},
 						evmLogTriggers: {},
 					},
@@ -94,18 +93,18 @@ describe("cre-simulator trigger dispatch", () => {
 				stateFilePath: join(tempDir, ".trigger-state.json"),
 			}
 			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 1000)
-			claimCreSimulatorTriggerExecution(store, "http:manual-run:previous", {
-				triggerName: "manual-run",
+			claimCreSimulatorTriggerExecution(store, "http:manual-reveal:previous", {
+				triggerName: "manual-reveal",
 				triggerType: "http",
 			}, 1000)
-			markCreSimulatorTriggerExecutionQuarantined(store, "http:manual-run:previous", "boom", 1001)
+			markCreSimulatorTriggerExecutionQuarantined(store, "http:manual-reveal:previous", "boom", 1001)
 
 			await expect(
 				dispatchCreSimulatorTrigger(
 					{
 						repoRoot: tempDir,
 						configPath,
-						triggerName: "manual-run",
+						triggerName: "manual-reveal",
 						triggerType: "http",
 					},
 					{},
@@ -127,13 +126,13 @@ describe("cre-simulator trigger dispatch", () => {
 		writeFileSync(
 			configPath,
 			`${JSON.stringify(
-				{
-					schemaVersion: CONFIG_SCHEMA_VERSION,
-					stateFilePath: "backend/cre-simulator/.dispatch-default-state.test.json",
-					httpTriggers: { "manual-run": { command: "run" } },
-					cronTriggers: {},
-					evmLogTriggers: {},
-				},
+					{
+						schemaVersion: CONFIG_SCHEMA_VERSION,
+						stateFilePath: "backend/cre-simulator/.dispatch-default-state.test.json",
+						httpTriggers: { "manual-reveal": { adapter: "auto-reveal-relayer" } },
+						cronTriggers: {},
+						evmLogTriggers: {},
+					},
 				null,
 				2,
 			)}\n`,
@@ -143,27 +142,26 @@ describe("cre-simulator trigger dispatch", () => {
 		try {
 			const result = await dispatchCreSimulatorTrigger(
 				{
-					triggerName: "manual-run",
+					triggerName: "manual-reveal",
 					triggerType: "http",
 					configPath: "backend/cre-simulator/.dispatch-default-config.test.json",
 				},
 				{},
 				{
-					executeCommand: async (request) => {
+					executeAdapter: async (request) => {
 						expect(request.repoRoot).toBe(ACTUAL_REPO_ROOT)
-						expect(request.command).toBe("run")
+						expect(request.adapter).toBe("auto-reveal-relayer")
 						return {
-							command: "run",
-							scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-							result: { command: "run" },
+							adapter: "auto-reveal-relayer",
+							result: { mode: "run-once" },
 						}
 					},
 					nowMs: () => 10_000,
 				},
 			)
 
-			expect(result.command).toBe("run")
-			expect(result.triggerName).toBe("manual-run")
+			expect(result.adapter).toBe("auto-reveal-relayer")
+			expect(result.triggerName).toBe("manual-reveal")
 		} finally {
 			rmSync(configPath, { force: true })
 			rmSync(

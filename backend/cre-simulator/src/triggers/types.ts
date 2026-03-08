@@ -1,4 +1,4 @@
-import type { CreSimulatorCommand, CreSimulatorCommandResult } from "../types"
+import type { CreSimulatorAdapterBinding, CreSimulatorAdapterKey, CreSimulatorAdapterRequest, CreSimulatorAdapterResult } from "../adapter-types"
 
 export const TRIGGER_CONFIG_SCHEMA_VERSION =
 	"anti-soon.cre-simulator.trigger-config.v1" as const
@@ -36,23 +36,18 @@ export type CreSimulatorListenerCursor = {
 	lastEventKey?: string
 }
 
-export type CreSimulatorTriggerCommandMapping = {
-	command: CreSimulatorCommand
-	scenarioPath?: string
-	stateFilePath?: string
-	evidenceDir?: string
-}
+export type CreSimulatorTriggerAdapterBinding = CreSimulatorAdapterBinding
 
-export type CreSimulatorHttpTriggerConfig = CreSimulatorTriggerCommandMapping & {
+export type CreSimulatorHttpTriggerConfig = CreSimulatorTriggerAdapterBinding & {
 	triggerName: string
 }
 
-export type CreSimulatorCronTriggerConfig = CreSimulatorTriggerCommandMapping & {
+export type CreSimulatorCronTriggerConfig = CreSimulatorTriggerAdapterBinding & {
 	triggerName: string
 	intervalMs: number
 }
 
-export type CreSimulatorEvmLogTriggerConfig = CreSimulatorTriggerCommandMapping & {
+export type CreSimulatorEvmLogTriggerConfig = CreSimulatorTriggerAdapterBinding & {
 	triggerName: string
 	wsRpcUrlEnvVar: string
 	contractAddress: `0x${string}`
@@ -74,19 +69,20 @@ export type CreSimulatorTriggerRequest = {
 	repoRoot?: string
 	configPath?: string
 	cwd?: string
-	scenarioPath?: string
-	stateFilePath?: string
 	evidenceDir?: string
+	evmTxHash?: `0x${string}`
+	evmEventIndex?: number
+	adapterConfig?: CreSimulatorAdapterRequest["adapterConfig"]
 	metadata?: Record<string, unknown>
 }
 
 export type CreSimulatorTriggerDispatchResult = {
 	triggerType: CreSimulatorTriggerType
 	triggerName: string
-	command: CreSimulatorCommand
+	adapter: CreSimulatorAdapterKey
 	executionKey: string
 	deduped: boolean
-	result: CreSimulatorCommandResult
+	result: CreSimulatorAdapterResult | { command: "status"; result: unknown }
 }
 
 export type CreSimulatorTriggerStatusPayload = {
@@ -97,17 +93,17 @@ export type CreSimulatorTriggerStatusPayload = {
 	quarantinedExecutionCount: number
 	httpTriggers: Array<{
 		triggerName: string
-		command: CreSimulatorCommand
+		adapter: CreSimulatorAdapterKey
 	}>
 	cronTriggers: Array<{
 		triggerName: string
-		command: CreSimulatorCommand
+		adapter: CreSimulatorAdapterKey
 		intervalMs: number
 		lastRunAtMs?: number
 	}>
 	evmLogTriggers: Array<{
 		triggerName: string
-		command: CreSimulatorCommand
+		adapter: CreSimulatorAdapterKey
 		contractAddress: `0x${string}`
 		topic0: `0x${string}`
 		lastSeenBlockNumber?: string

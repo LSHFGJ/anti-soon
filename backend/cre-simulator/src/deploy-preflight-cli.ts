@@ -1,3 +1,5 @@
+import { resolve } from "node:path"
+
 import {
 	getCreSimulatorModeRequiredEnv,
 	type CreSimulatorDeployMode,
@@ -54,6 +56,7 @@ export function runCreSimulatorDeployPreflight(
 		string,
 		string | undefined
 	>,
+	repoRoot: string = resolve(import.meta.dir, "../../.."),
 ): {
 	exitCode: number
 	payload:
@@ -70,7 +73,7 @@ export function runCreSimulatorDeployPreflight(
 	}
 
 	const required = getCreSimulatorModeRequiredEnv(args.mode)
-	const validation = validateCreSimulatorDeployEnv(args.mode, env)
+	const validation = validateCreSimulatorDeployEnv(args.mode, env, repoRoot)
 	if (!validation.ok) {
 		return {
 			exitCode: 1,

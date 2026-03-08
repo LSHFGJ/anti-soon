@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
-import type { EnvRecord } from "../operator/config"
-import type { CreSimulatorExecuteCommand } from "../types"
+import type { EnvRecord } from "../env"
+import type { CreSimulatorExecuteAdapter, CreSimulatorExecuteStatus } from "../types"
 import { loadCreSimulatorTriggerConfig } from "./config"
 import { dispatchCreSimulatorTrigger } from "./dispatch"
 import {
@@ -11,7 +11,8 @@ import {
 } from "./stateStore"
 
 type RunCronTriggerTickDeps = {
-	executeCommand?: CreSimulatorExecuteCommand
+	executeAdapter?: CreSimulatorExecuteAdapter
+	executeStatus?: CreSimulatorExecuteStatus
 	nowMs?: () => number
 }
 
@@ -29,7 +30,7 @@ export async function runCronTriggerTick(
 	deps: RunCronTriggerTickDeps = {},
 ): Promise<{
 	timestampMs: number
-	executed: Array<{ triggerName: string; command: string }>
+	executed: Array<{ triggerName: string; adapter: string }>
 	skipped: string[]
 }> {
 	const repoRoot = request.repoRoot ?? resolve(import.meta.dir, "../../../..")
@@ -45,7 +46,7 @@ export async function runCronTriggerTick(
 	const initialStore = loadCreSimulatorTriggerStateStore(config.stateFilePath, binding, nowMs)
 	assertCreSimulatorTriggerStateStoreHealthy(initialStore)
 
-	const executed: Array<{ triggerName: string; command: string }> = []
+	const executed: Array<{ triggerName: string; adapter: string }> = []
 	const skipped: string[] = []
 
 	for (const trigger of config.cronTriggers) {
@@ -64,14 +65,15 @@ export async function runCronTriggerTick(
 			},
 			env,
 			{
-				executeCommand: deps.executeCommand,
+				executeAdapter: deps.executeAdapter,
+				executeStatus: deps.executeStatus,
 				nowMs: deps.nowMs,
 			},
 		)
 
 		const freshStore = loadCreSimulatorTriggerStateStore(config.stateFilePath, binding, nowMs)
 		recordCronTriggerRun(freshStore, trigger.triggerName, nowMs)
-		executed.push({ triggerName: trigger.triggerName, command: trigger.command })
+		executed.push({ triggerName: trigger.triggerName, adapter: trigger.adapter })
 	}
 
 	return { timestampMs: nowMs, executed, skipped }

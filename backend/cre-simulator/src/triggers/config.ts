@@ -1,7 +1,12 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-import type { CreSimulatorCommand } from "../types"
+import type {
+	AutoRevealRelayerAdapterConfig,
+	CreSimulatorAdapterBinding,
+	CreSimulatorAdapterKey,
+	CreWorkflowSimulateAdapterConfig,
+} from "../types"
 import type {
 	CreSimulatorCronTriggerConfig,
 	CreSimulatorEvmLogTriggerConfig,
@@ -13,9 +18,8 @@ import { TRIGGER_CONFIG_SCHEMA_VERSION } from "./types"
 export { TRIGGER_CONFIG_SCHEMA_VERSION }
 
 type RawMapping = {
-	command?: unknown
-	scenarioPath?: unknown
-	stateFilePath?: unknown
+	adapter?: unknown
+	adapterConfig?: unknown
 	evidenceDir?: unknown
 }
 
@@ -31,18 +35,90 @@ function ensureRepoScopedPath(repoRoot: string, rawPath: string, label: string):
 	throw new Error(`${label} must stay within repoRoot`)
 }
 
-function parseCommand(value: unknown, label: string): CreSimulatorCommand {
-	if (
-		value === "register"
-		|| value === "submit"
-		|| value === "reveal"
-		|| value === "verify"
-		|| value === "run"
-		|| value === "status"
-	) {
+function parseAdapter(value: unknown, label: string): CreSimulatorAdapterKey {
+	if (value === "auto-reveal-relayer" || value === "cre-workflow-simulate") {
 		return value
 	}
-	throw new Error(`${label} must be a valid cre-simulator command`)
+	throw new Error(`${label} must be a valid cre-simulator adapter`)
+}
+
+function parseCreWorkflowSimulateAdapterConfig(
+	repoRoot: string,
+	triggerName: string,
+	value: unknown,
+): CreWorkflowSimulateAdapterConfig {
+	if (!isObject(value)) {
+		throw new Error(`Invalid cre-workflow-simulate config for trigger=${triggerName}`)
+	}
+	if (typeof value.workflowPath !== "string") {
+		throw new Error(`cre-workflow-simulate trigger ${triggerName} must define workflowPath`)
+	}
+	if (typeof value.target !== "string" || value.target.trim().length === 0) {
+		throw new Error(`cre-workflow-simulate trigger ${triggerName} must define target`)
+	}
+	if (typeof value.triggerIndex !== "number" || !Number.isInteger(value.triggerIndex) || value.triggerIndex < 0) {
+		throw new Error(`cre-workflow-simulate trigger ${triggerName} must define a non-negative triggerIndex`)
+	}
+	if (value.evmInput !== undefined && value.evmInput !== "event-coordinates") {
+		throw new Error(`cre-workflow-simulate trigger ${triggerName} has unsupported evmInput`)
+	}
+	return {
+		workflowPath: (ensureRepoScopedPath(repoRoot, value.workflowPath, "workflowPath"), value.workflowPath),
+		target: value.target.trim(),
+		triggerIndex: value.triggerIndex,
+		...(value.evmInput === "event-coordinates" ? { evmInput: value.evmInput } : {}),
+		...(typeof value.idempotencyStorePath === "string"
+			? {
+				idempotencyStorePath: (ensureRepoScopedPath(
+					repoRoot,
+					value.idempotencyStorePath,
+					"idempotencyStorePath",
+				), value.idempotencyStorePath),
+			}
+			: {}),
+	}
+}
+
+function parseAutoRevealAdapterConfig(
+	repoRoot: string,
+	triggerName: string,
+	value: unknown,
+): AutoRevealRelayerAdapterConfig {
+	if (value === undefined) {
+		return {}
+	}
+	if (!isObject(value)) {
+		throw new Error(`Invalid auto-reveal-relayer config for trigger=${triggerName}`)
+	}
+	return {
+		...(typeof value.configPath === "string"
+			? { configPath: (ensureRepoScopedPath(repoRoot, value.configPath, "configPath"), value.configPath) }
+			: {}),
+	}
+}
+
+function parseAdapterBinding(
+	repoRoot: string,
+	triggerName: string,
+	record: RawMapping,
+): CreSimulatorAdapterBinding {
+	const adapter = parseAdapter(record.adapter, `${triggerName}.adapter`)
+	if (adapter === "cre-workflow-simulate") {
+		return {
+			adapter,
+			adapterConfig: parseCreWorkflowSimulateAdapterConfig(
+				repoRoot,
+				triggerName,
+				record.adapterConfig,
+			),
+		}
+	}
+	return {
+		adapter,
+		...(record.adapterConfig !== undefined
+			? { adapterConfig: parseAutoRevealAdapterConfig(repoRoot, triggerName, record.adapterConfig) }
+			: {}),
+	}
 }
 
 function parseBaseMapping(
@@ -55,13 +131,7 @@ function parseBaseMapping(
 	}
 	const record = value as RawMapping
 	return {
-		command: parseCommand(record.command, `${triggerName}.command`),
-		...(typeof record.scenarioPath === "string"
-			? { scenarioPath: ensureRepoScopedPath(repoRoot, record.scenarioPath, "scenarioPath") }
-			: {}),
-		...(typeof record.stateFilePath === "string"
-			? { stateFilePath: ensureRepoScopedPath(repoRoot, record.stateFilePath, "stateFilePath") }
-			: {}),
+		...parseAdapterBinding(repoRoot, triggerName, record),
 		...(typeof record.evidenceDir === "string"
 			? { evidenceDir: ensureRepoScopedPath(repoRoot, record.evidenceDir, "evidenceDir") }
 			: {}),

@@ -20,12 +20,10 @@ describe("cre-simulator server", () => {
 	it("maps GET status to the shared command service", async () => {
 		const handler = createCreSimulatorHttpHandler({
 			repoRoot: REPO_ROOT,
-			executeCommand: async (request) => {
-				expect(request.command).toBe("status")
+			executeStatus: async () => {
 				return {
 					command: "status",
-					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-					result: { healthy: true },
+					result: { mode: "live-only" },
 				}
 			},
 		})
@@ -37,23 +35,23 @@ describe("cre-simulator server", () => {
 		expect(payload).toMatchObject({
 			ok: true,
 			command: "status",
-			result: { healthy: true },
+			result: { mode: "live-only" },
 		})
 	})
 
 	it("exposes trigger status through the shared trigger service", async () => {
 		const handler = createCreSimulatorHttpHandler({
 			repoRoot: REPO_ROOT,
-			executeTriggerStatus: async () => ({
-				healthy: true,
-				configPath: "/repo/backend/cre-simulator/triggers.json",
-				stateFilePath: "/repo/backend/cre-simulator/.trigger-state.json",
-				recoveredProcessingCount: 0,
-				quarantinedExecutionCount: 0,
-				httpTriggers: [{ triggerName: "manual-run", command: "run" }],
-				cronTriggers: [],
-				evmLogTriggers: [],
-			}),
+				executeTriggerStatus: async () => ({
+					healthy: true,
+					configPath: "/repo/backend/cre-simulator/triggers.json",
+					stateFilePath: "/repo/backend/cre-simulator/.trigger-state.json",
+					recoveredProcessingCount: 0,
+					quarantinedExecutionCount: 0,
+					httpTriggers: [{ triggerName: "manual-reveal", adapter: "auto-reveal-relayer" }],
+					cronTriggers: [],
+					evmLogTriggers: [],
+				}),
 		})
 
 		const response = await handler(
@@ -64,29 +62,41 @@ describe("cre-simulator server", () => {
 		expect(await response.json()).toMatchObject({
 			ok: true,
 			healthy: true,
-			httpTriggers: [{ triggerName: "manual-run", command: "run" }],
+			httpTriggers: [{ triggerName: "manual-reveal", adapter: "auto-reveal-relayer" }],
 		})
 	})
 
-	it("maps POST command routes to the shared command service", async () => {
+	it("maps POST adapter routes to the shared adapter service", async () => {
 		const handler = createCreSimulatorHttpHandler({
 			repoRoot: REPO_ROOT,
-			executeCommand: async (request) => {
-				expect(request.command).toBe("verify")
-				expect(request.stateFilePath).toBe("/tmp/state.json")
+			executeAdapter: async (request) => {
+				expect(request.adapter).toBe("cre-workflow-simulate")
+				expect(request.evmTxHash).toBe(
+					"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				)
+				expect(request.evmEventIndex).toBe(7)
 				return {
-					command: "verify",
-					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
+					adapter: "cre-workflow-simulate",
 					result: { submissionId: "12" },
 				}
 			},
 		})
 
 		const response = await handler(
-			new Request("http://localhost/api/cre-simulator/commands/verify", {
+			new Request("http://localhost/api/cre-simulator/adapters/cre-workflow-simulate", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ stateFilePath: "/tmp/state.json" }),
+				body: JSON.stringify({
+					adapterConfig: {
+						workflowPath: "workflow/verify-poc",
+						target: "staging-settings",
+						triggerIndex: 0,
+						evmInput: "event-coordinates",
+					},
+					evmTxHash:
+						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+						evmEventIndex: 7,
+				}),
 			}),
 		)
 		const payload = await response.json()
@@ -94,61 +104,48 @@ describe("cre-simulator server", () => {
 		expect(response.status).toBe(200)
 		expect(payload).toMatchObject({
 			ok: true,
-			command: "verify",
+			adapter: "cre-workflow-simulate",
 			result: { submissionId: "12" },
 		})
 	})
 
-	it("maps POST run routes to the orchestrated backend command", async () => {
+	it("rejects unsupported adapter routes", async () => {
 		const handler = createCreSimulatorHttpHandler({
 			repoRoot: REPO_ROOT,
-			executeCommand: async (request) => {
-				expect(request.command).toBe("run")
-				return {
-					command: "run",
-					scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-					result: { stages: { register: { projectId: "77" } } },
-				}
-			},
 		})
 
 		const response = await handler(
-			new Request("http://localhost/api/cre-simulator/commands/run", {
+			new Request("http://localhost/api/cre-simulator/adapters/not-real", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({}),
 			}),
 		)
-		const payload = await response.json()
-
-		expect(response.status).toBe(200)
-		expect(payload).toMatchObject({
-			ok: true,
-			command: "run",
-			result: { stages: { register: { projectId: "77" } } },
-		})
+		expect(response.status).toBe(404)
+		expect(await response.json()).toEqual({ ok: false, error: "Not found" })
 	})
 
 	it("maps POST trigger routes to the shared trigger service", async () => {
 		const handler = createCreSimulatorHttpHandler({
 			repoRoot: REPO_ROOT,
 			executeTrigger: async (request) => {
-				expect(request.triggerName).toBe("manual-run")
+				expect(request.triggerName).toBe("manual-reveal")
 				return {
 					triggerType: "http",
-					triggerName: "manual-run",
-					command: "run",
+					triggerName: "manual-reveal",
+					adapter: "auto-reveal-relayer",
+					executionKey: "http:manual-reveal:1",
+					deduped: false,
 					result: {
-						command: "run",
-						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-						result: { command: "run" },
+						adapter: "auto-reveal-relayer",
+						result: { mode: "run-once" },
 					},
 				}
 			},
 		})
 
 		const response = await handler(
-			new Request("http://localhost/api/cre-simulator/triggers/manual-run", {
+			new Request("http://localhost/api/cre-simulator/triggers/manual-reveal", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({}),
@@ -159,15 +156,15 @@ describe("cre-simulator server", () => {
 		expect(await response.json()).toMatchObject({
 			ok: true,
 			triggerType: "http",
-			triggerName: "manual-run",
-			command: "run",
+			triggerName: "manual-reveal",
+			adapter: "auto-reveal-relayer",
 		})
 	})
 
-	it("rejects malformed JSON bodies on the run route cleanly", async () => {
+	it("rejects malformed JSON bodies on the adapter route cleanly", async () => {
 		const handler = createCreSimulatorHttpHandler({ repoRoot: REPO_ROOT })
 		const response = await handler(
-			new Request("http://localhost/api/cre-simulator/commands/run", {
+			new Request("http://localhost/api/cre-simulator/adapters/auto-reveal-relayer", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(["bad"]),
@@ -206,7 +203,7 @@ describe("cre-simulator server", () => {
 		})
 	})
 
-	it("rejects invalid override paths with a client error", async () => {
+	it("rejects no-longer-supported scenario overrides with a client error", async () => {
 		const handler = createCreSimulatorHttpHandler({ repoRoot: REPO_ROOT })
 		const response = await handler(
 			new Request(
@@ -217,7 +214,7 @@ describe("cre-simulator server", () => {
 		expect(response.status).toBe(400)
 		expect(await response.json()).toEqual({
 			ok: false,
-			error: "scenarioPath must stay within repoRoot",
+			error: "scenarioPath is not supported in live-only mode",
 		})
 	})
 })

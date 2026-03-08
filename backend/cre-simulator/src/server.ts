@@ -1,32 +1,32 @@
-import type { EnvRecord } from "./operator/config"
+import type { CreSimulatorAdapterKey, CreSimulatorAdapterRequest } from "./adapter-types"
+import type { EnvRecord } from "./env"
+import { resolveCreSimulatorRuntimeEnv } from "./runtime-env"
 
 import {
 	CreSimulatorRequestError,
-	executeCreSimulatorCommand,
+	executeCreSimulatorAdapter,
+	executeCreSimulatorStatus,
 	executeCreSimulatorTrigger,
 	getCreSimulatorTriggerStatus,
 } from "./service"
 import type {
-	CreSimulatorCommand,
-	CreSimulatorCommandRequest,
-	CreSimulatorExecuteCommand,
+	CreSimulatorExecuteAdapter,
+	CreSimulatorExecuteStatus,
 	CreSimulatorExecuteTrigger,
 	CreSimulatorGetTriggerStatus,
+	CreSimulatorStatusRequest,
 } from "./types"
 
-const CRE_SIMULATOR_COMMANDS = [
-	"register",
-	"run",
-	"submit",
-	"reveal",
-	"verify",
-	"status",
-] as const satisfies readonly CreSimulatorCommand[]
+const CRE_SIMULATOR_ADAPTERS = [
+	"auto-reveal-relayer",
+	"cre-workflow-simulate",
+] as const satisfies readonly CreSimulatorAdapterKey[]
 
 type CreateCreSimulatorHttpHandlerArgs = {
 	repoRoot: string
 	env?: EnvRecord
-	executeCommand?: CreSimulatorExecuteCommand
+	executeAdapter?: CreSimulatorExecuteAdapter
+	executeStatus?: CreSimulatorExecuteStatus
 	executeTrigger?: CreSimulatorExecuteTrigger
 	executeTriggerStatus?: CreSimulatorGetTriggerStatus
 }
@@ -40,8 +40,8 @@ function jsonResponse(status: number, payload: unknown): Response {
 	})
 }
 
-function isCreSimulatorCommand(value: string): value is CreSimulatorCommand {
-	return (CRE_SIMULATOR_COMMANDS as readonly string[]).includes(value)
+function isCreSimulatorAdapter(value: string): value is CreSimulatorAdapterKey {
+	return (CRE_SIMULATOR_ADAPTERS as readonly string[]).includes(value)
 }
 
 function toErrorStatus(error: unknown): number {
@@ -62,49 +62,74 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 }
 
 function buildRequestFromQuery(
-	command: CreSimulatorCommand,
-	url: URL,
 	repoRoot: string,
-): CreSimulatorCommandRequest {
+	url: URL,
+): CreSimulatorStatusRequest {
+	if (url.searchParams.get("scenarioPath")) {
+		throw new CreSimulatorRequestError("scenarioPath is not supported in live-only mode")
+	}
+	if (url.searchParams.get("stateFilePath")) {
+		throw new CreSimulatorRequestError("stateFilePath is not supported in live-only mode")
+	}
 	return {
-		command,
 		repoRoot,
-		...(url.searchParams.get("scenarioPath")
-			? { scenarioPath: String(url.searchParams.get("scenarioPath")) }
-			: {}),
-		...(url.searchParams.get("stateFilePath")
-			? { stateFilePath: String(url.searchParams.get("stateFilePath")) }
+		...(url.searchParams.get("configPath")
+			? { configPath: String(url.searchParams.get("configPath")) }
 			: {}),
 		...(url.searchParams.get("evidenceDir")
 			? { evidenceDir: String(url.searchParams.get("evidenceDir")) }
 			: {}),
+		...(url.searchParams.get("evmTxHash")
+			? { evmTxHash: String(url.searchParams.get("evmTxHash")) as `0x${string}` }
+			: {}),
+		...(url.searchParams.get("evmEventIndex")
+			? { evmEventIndex: Number(url.searchParams.get("evmEventIndex")) }
+			: {}),
 	}
 }
 
-function buildRequestFromBody(
-	command: CreSimulatorCommand,
+function buildAdapterRequestFromBody(
+	adapter: CreSimulatorAdapterKey,
 	body: Record<string, unknown>,
 	repoRoot: string,
-): CreSimulatorCommandRequest {
+): CreSimulatorAdapterRequest {
+	if (typeof body.scenarioPath === "string") {
+		throw new CreSimulatorRequestError("scenarioPath is not supported in live-only mode")
+	}
+	if (typeof body.stateFilePath === "string") {
+		throw new CreSimulatorRequestError("stateFilePath is not supported in live-only mode")
+	}
 	return {
-		command,
+		adapter,
 		repoRoot,
-		...(typeof body.scenarioPath === "string" ? { scenarioPath: body.scenarioPath } : {}),
-		...(typeof body.stateFilePath === "string"
-			? { stateFilePath: body.stateFilePath }
-			: {}),
 		...(typeof body.evidenceDir === "string" ? { evidenceDir: body.evidenceDir } : {}),
+		...(typeof body.evmTxHash === "string"
+			? { evmTxHash: body.evmTxHash as `0x${string}` }
+			: {}),
+		...(typeof body.evmEventIndex === "number"
+			? { evmEventIndex: body.evmEventIndex }
+			: {}),
+		...(body.adapterConfig && typeof body.adapterConfig === "object" && !Array.isArray(body.adapterConfig)
+			? { adapterConfig: body.adapterConfig as CreSimulatorAdapterRequest["adapterConfig"] }
+			: {}),
 	}
 }
 
 export function createCreSimulatorHttpHandler(
 	args: CreateCreSimulatorHttpHandlerArgs,
 ): (request: Request) => Promise<Response> {
-	const env = args.env ?? (process.env as EnvRecord)
-	const executeCommand =
-		args.executeCommand ??
-		((request: CreSimulatorCommandRequest) =>
-			executeCreSimulatorCommand(request, env))
+	const env = resolveCreSimulatorRuntimeEnv({
+		repoRoot: args.repoRoot,
+		env: args.env ?? (process.env as EnvRecord),
+	})
+	const executeAdapter =
+		args.executeAdapter ??
+		((request: CreSimulatorAdapterRequest) =>
+			executeCreSimulatorAdapter(request, env))
+	const executeStatus =
+		args.executeStatus ??
+		((request: CreSimulatorStatusRequest) =>
+			executeCreSimulatorStatus(request, env))
 	const executeTrigger =
 		args.executeTrigger ??
 		((request) => executeCreSimulatorTrigger(request, env))
@@ -121,8 +146,8 @@ export function createCreSimulatorHttpHandler(
 
 		if (request.method === "GET" && url.pathname === "/api/cre-simulator/status") {
 			try {
-				const result = await executeCommand(
-					buildRequestFromQuery("status", url, args.repoRoot),
+				const result = await executeStatus(
+					buildRequestFromQuery(args.repoRoot, url),
 				)
 				return jsonResponse(200, { ok: true, ...result })
 			} catch (error) {
@@ -166,9 +191,13 @@ export function createCreSimulatorHttpHandler(
 					triggerName,
 					repoRoot: args.repoRoot,
 					...(typeof body.configPath === "string" ? { configPath: body.configPath } : {}),
-					...(typeof body.scenarioPath === "string" ? { scenarioPath: body.scenarioPath } : {}),
-					...(typeof body.stateFilePath === "string" ? { stateFilePath: body.stateFilePath } : {}),
 					...(typeof body.evidenceDir === "string" ? { evidenceDir: body.evidenceDir } : {}),
+					...(typeof body.evmTxHash === "string"
+						? { evmTxHash: body.evmTxHash as `0x${string}` }
+						: {}),
+					...(typeof body.evmEventIndex === "number"
+						? { evmEventIndex: body.evmEventIndex }
+						: {}),
 				})
 				return jsonResponse(200, { ok: true, ...result })
 			} catch (error) {
@@ -180,19 +209,16 @@ export function createCreSimulatorHttpHandler(
 			}
 		}
 
-		if (
-			request.method === "POST" &&
-			url.pathname.startsWith("/api/cre-simulator/commands/")
-		) {
-			const command = url.pathname.split("/").at(-1)
-			if (!command || !isCreSimulatorCommand(command)) {
+		if (request.method === "POST" && url.pathname.startsWith("/api/cre-simulator/adapters/")) {
+			const adapter = url.pathname.split("/").at(-1)
+			if (!adapter || !isCreSimulatorAdapter(adapter)) {
 				return jsonResponse(404, { ok: false, error: "Not found" })
 			}
 
 			try {
 				const body = await readJsonBody(request)
-				const result = await executeCommand(
-					buildRequestFromBody(command, body, args.repoRoot),
+				const result = await executeAdapter(
+					buildAdapterRequestFromBody(adapter, body, args.repoRoot),
 				)
 				return jsonResponse(200, { ok: true, ...result })
 			} catch (error) {

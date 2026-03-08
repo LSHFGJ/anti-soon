@@ -5,7 +5,7 @@ import { createCreSimulatorHttpHandler } from "./server"
 const HELP_TEXT = [
 	"Usage: bun ./src/index.ts [options]",
 	"",
-	"Demo-only backend surface for triggering the async CRE simulator.",
+	"Live-only backend surface for CRE-triggered reveal and verify flows.",
 	"",
 	"Options:",
 	"  --help              Show this help message",

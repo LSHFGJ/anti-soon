@@ -33,28 +33,18 @@ Run these locally before configuring Railway:
 
 ## Environment model
 
-Base env for all three services:
+Shared env for all three services:
 
-- `CRE_ETH_PRIVATE_KEY`
-- `DEMO_AUDITOR_ADDRESS`
-- `DEMO_AUDITOR_PRIVATE_KEY`
-- `DEMO_OPERATOR_ADDRESS`
-- `DEMO_OPERATOR_ADMIN_RPC_URL`
-- `DEMO_OPERATOR_PRIVATE_KEY`
-- `DEMO_OPERATOR_PUBLIC_RPC_URL`
-- `DEMO_PROJECT_OWNER_ADDRESS`
-- `DEMO_PROJECT_OWNER_PRIVATE_KEY`
-- `TENDERLY_API_KEY`
+- `CRE_SIM_PRIVATE_KEY`
+- `CRE_SIM_TENDERLY_API_KEY`
+- `CRE_SIM_SEPOLIA_RPC_URL`
+- `CRE_SIM_ADMIN_RPC_URL`
+- `CRE_SIM_WS_RPC_URL` for the EVM-log worker
+- `CRE_SIM_SAPPHIRE_RPC_URL` (optional if you use the default Sapphire testnet RPC)
+- `CRE_SIM_BOUNTY_HUB_ADDRESS`
+- `CRE_SIM_OASIS_STORAGE_CONTRACT`
 
-Choose one Oasis upload mode:
-
-- `VITE_OASIS_STORAGE_CONTRACT`, or
-- `DEMO_OPERATOR_OASIS_UPLOAD_API_URL`, or
-- `VITE_OASIS_UPLOAD_API_URL`
-
-EVM-log listener only:
-
-- `DEMO_OPERATOR_WS_RPC_URL`
+The backend accepts the canonical env surface from `backend/cre-simulator/.env.example`, then derives the internal workflow env required by the adapters and trigger workers. Runtime-config JSON/file fallbacks and older simulator alias env names are not part of the supported Railway deploy contract.
 
 ## Smoke tests
 
@@ -70,7 +60,10 @@ curl -sS http://127.0.0.1:8787/api/cre-simulator/status
 ### Manual trigger dispatch
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8787/api/cre-simulator/triggers/manual-run
+curl -sS -X POST http://127.0.0.1:8787/api/cre-simulator/triggers/manual-reveal
+curl -sS -X POST http://127.0.0.1:8787/api/cre-simulator/triggers/manual-verify \
+  -H 'content-type: application/json' \
+  -d '{"evmTxHash":"0x<PoCRevealed tx hash>","evmEventIndex":0}'
 ```
 
 If the trigger enters quarantine, inspect `GET /api/cre-simulator/triggers/status` and the worker logs before retrying.
@@ -89,15 +82,15 @@ This should perform a single scheduler tick and exit.
 cd backend/cre-simulator && bun run start:evm-log
 ```
 
-If `DEMO_OPERATOR_WS_RPC_URL` is missing or invalid, the worker should fail immediately with a clear environment error.
+If `CRE_SIM_WS_RPC_URL` is missing, the worker should fail immediately with a clear environment error.
 
 ## Writable state paths
 
-The staging demo still relies on filesystem-backed durable state. These paths must remain writable in the deployed runtime:
+The live backend still relies on filesystem-backed durable state. These paths must remain writable in the deployed runtime:
 
-- `backend/cre-simulator/.demo-operator-state.json`
 - `backend/cre-simulator/.trigger-state.json`
-- `.sisyphus/evidence/demo-run`
+- `.sisyphus/evidence/live-verify`
+- `workflow/verify-poc/.verify-poc-idempotency-store.json`
 - `workflow/auto-reveal-relayer/.auto-reveal-cursor.json`
 
-If a worker or command quarantines a trigger or stage, inspect those files and the corresponding logs before clearing state manually.
+If a worker or adapter execution quarantines a trigger or stage, inspect those files and the corresponding logs before clearing state manually.

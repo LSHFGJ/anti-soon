@@ -1,4 +1,7 @@
+import { resolve } from "node:path"
+
 import { executeCreSimulatorCronTick } from "./service"
+import { resolveCreSimulatorRuntimeEnv } from "./runtime-env"
 
 const HELP_TEXT = [
 	"Usage: bun ./src/cron-worker.ts [options]",
@@ -80,10 +83,15 @@ export async function startCreSimulatorCronWorker(argv: string[] = process.argv.
 	if (!Number.isInteger(args.intervalMs) || args.intervalMs <= 0) {
 		throw new Error("--interval-ms must be a positive integer")
 	}
+	const repoRoot = resolve(import.meta.dir, "../../..")
+	const env = resolveCreSimulatorRuntimeEnv({
+		repoRoot,
+		env: process.env as Record<string, string | undefined>,
+	})
 	const runner = createCreSimulatorCronWorkerRunner(async () => {
 		await executeCreSimulatorCronTick(
 			{ ...(args.configPath ? { configPath: args.configPath } : {}) },
-			process.env as Record<string, string | undefined>,
+			env,
 		)
 	})
 	if (args.once) {

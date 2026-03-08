@@ -60,8 +60,8 @@ describe("cre-simulator trigger state store", () => {
 						schedulerCursorByName: {},
 						listenerCursorByName: {},
 						executionStateByKey: {
-							"cron:demo-run:1000": {
-								triggerName: "demo-run",
+							"cron:reveal-relay:1000": {
+								triggerName: "reveal-relay",
 								triggerType: "cron",
 								status: "processing",
 								updatedAtMs: 1000,
@@ -75,7 +75,7 @@ describe("cre-simulator trigger state store", () => {
 			)
 
 			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 2000)
-			const execution = store.executionStateByKey.get("cron:demo-run:1000")
+			const execution = store.executionStateByKey.get("cron:reveal-relay:1000")
 
 			expect(store.recoveredProcessingCount).toBe(1)
 			expect(store.quarantinedExecutionCount).toBe(1)

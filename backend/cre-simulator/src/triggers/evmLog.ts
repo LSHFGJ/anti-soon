@@ -1,8 +1,9 @@
 import { resolve } from "node:path"
 
-import type { EnvRecord } from "../operator/config"
-import { executeCreSimulatorCommand } from "../service"
-import type { CreSimulatorExecuteCommand } from "../types"
+import type { CreSimulatorAdapterResult } from "../adapter-types"
+import type { EnvRecord } from "../env"
+import { executeCreSimulatorAdapter, executeCreSimulatorStatus } from "../service"
+import type { CreSimulatorExecuteAdapter, CreSimulatorExecuteStatus } from "../types"
 import { loadCreSimulatorTriggerConfig } from "./config"
 import {
 	assertCreSimulatorTriggerStateStoreHealthy,
@@ -15,7 +16,8 @@ import {
 import type { CreSimulatorEvmLogEvent, CreSimulatorEvmLogTriggerConfig } from "./types"
 
 type DispatchEvmLogTriggerEventDeps = {
-	executeCommand?: CreSimulatorExecuteCommand
+	executeAdapter?: CreSimulatorExecuteAdapter
+	executeStatus?: CreSimulatorExecuteStatus
 	nowMs?: () => number
 }
 
@@ -55,9 +57,9 @@ export async function dispatchEvmLogTriggerEvent(
 ): Promise<{
 	triggerType: "evm-log"
 	triggerName: string
-	command: string
+	adapter: string
 	deduped: boolean
-	result?: Awaited<ReturnType<typeof dispatchCreSimulatorTrigger>>["result"]
+	result?: Awaited<ReturnType<typeof dispatchCreSimulatorTrigger>>["result"] | CreSimulatorAdapterResult
 }> {
 	const repoRoot = request.repoRoot ?? resolve(import.meta.dir, "../../../..")
 	const configPath = request.configPath
@@ -85,7 +87,7 @@ export async function dispatchEvmLogTriggerEvent(
 		return {
 			triggerType: "evm-log",
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 			deduped: true,
 		}
 	}
@@ -101,19 +103,23 @@ export async function dispatchEvmLogTriggerEvent(
 		return {
 			triggerType: "evm-log",
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 			deduped: claimDecision.reason === "already-completed",
 		}
 	}
 
-	const executeCommand = deps.executeCommand
+	const executeAdapter = deps.executeAdapter
+		?? ((adapterRequest) => executeCreSimulatorAdapter(adapterRequest, env))
+	const executeStatus = deps.executeStatus
+		?? ((statusRequest) => executeCreSimulatorStatus(statusRequest, env))
 	try {
-		const result = await (executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env)))({
-			command: trigger.command,
+		const result = await executeAdapter({
+			adapter: trigger.adapter,
+			...(trigger.adapterConfig ? { adapterConfig: trigger.adapterConfig } : {}),
 			repoRoot,
-			...(trigger.scenarioPath ? { scenarioPath: trigger.scenarioPath } : {}),
-			...(trigger.stateFilePath ? { stateFilePath: trigger.stateFilePath } : {}),
 			...(trigger.evidenceDir ? { evidenceDir: trigger.evidenceDir } : {}),
+			evmTxHash: request.event.txHash,
+			evmEventIndex: request.event.logIndex,
 		})
 		const freshStore = loadCreSimulatorTriggerStateStore(config.stateFilePath, binding, nowMs)
 		markCreSimulatorTriggerExecutionCompleted(freshStore, executionKey, nowMs)
@@ -129,7 +135,7 @@ export async function dispatchEvmLogTriggerEvent(
 		return {
 			triggerType: "evm-log",
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 			deduped: false,
 			result,
 		}

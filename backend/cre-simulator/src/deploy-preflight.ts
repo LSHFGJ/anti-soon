@@ -3,30 +3,19 @@ export type CreSimulatorDeployMode = "http" | "cron" | "evm-log"
 type EnvRecord = Record<string, string | undefined>
 
 const BASE_REQUIRED_ENV = [
-	"CRE_ETH_PRIVATE_KEY",
-	"DEMO_AUDITOR_ADDRESS",
-	"DEMO_AUDITOR_PRIVATE_KEY",
-	"DEMO_OPERATOR_ADDRESS",
-	"DEMO_OPERATOR_ADMIN_RPC_URL",
-	"DEMO_OPERATOR_PRIVATE_KEY",
-	"DEMO_OPERATOR_PUBLIC_RPC_URL",
-	"DEMO_PROJECT_OWNER_ADDRESS",
-	"DEMO_PROJECT_OWNER_PRIVATE_KEY",
-	"TENDERLY_API_KEY",
+	"CRE_SIM_PRIVATE_KEY",
+	"CRE_SIM_TENDERLY_API_KEY",
+	"CRE_SIM_SEPOLIA_RPC_URL",
+	"CRE_SIM_ADMIN_RPC_URL",
+	"CRE_SIM_BOUNTY_HUB_ADDRESS",
+	"CRE_SIM_OASIS_STORAGE_CONTRACT",
 ] as const
 
 const MODE_REQUIRED_ENV: Record<CreSimulatorDeployMode, readonly string[]> = {
 	http: [],
 	cron: [],
-	"evm-log": ["DEMO_OPERATOR_WS_RPC_URL"],
+	"evm-log": ["CRE_SIM_WS_RPC_URL"],
 }
-
-const OASIS_UPLOAD_ENV_ALTERNATIVES = [
-	"VITE_OASIS_STORAGE_CONTRACT",
-	"DEMO_OPERATOR_OASIS_UPLOAD_API_URL",
-	"VITE_OASIS_UPLOAD_API_URL",
-] as const
-
 function hasNonEmptyEnv(env: EnvRecord, key: string): boolean {
 	return (env[key]?.trim().length ?? 0) > 0
 }
@@ -44,20 +33,15 @@ export function getCreSimulatorModeRequiredEnv(
 export function validateCreSimulatorDeployEnv(
 	mode: CreSimulatorDeployMode,
 	env: EnvRecord,
+	repoRoot: string,
 ): {
 	ok: boolean
 	missing: string[]
 } {
-	const missing = getCreSimulatorModeRequiredEnv(mode).filter(
+	void repoRoot
+	const missing = [...BASE_REQUIRED_ENV, ...MODE_REQUIRED_ENV[mode]].filter(
 		(key) => !hasNonEmptyEnv(env, key),
 	)
-
-	const hasOasisUploadMode = OASIS_UPLOAD_ENV_ALTERNATIVES.some((key) =>
-		hasNonEmptyEnv(env, key),
-	)
-	if (!hasOasisUploadMode) {
-		missing.push("OASIS_UPLOAD_MODE")
-	}
 
 	return {
 		ok: missing.length === 0,

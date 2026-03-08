@@ -1,8 +1,37 @@
 import { resolve } from "node:path"
 
+import { resolveCreSimulatorRuntimeEnv } from "./runtime-env"
 import { loadCreSimulatorTriggerConfig } from "./triggers/config"
 import { dispatchEvmLogTriggerEvent } from "./triggers/evmLog"
 import type { CreSimulatorEvmLogEvent, CreSimulatorTriggerConfig } from "./triggers/types"
+
+function normalizeAddress(value: string, label: string): `0x${string}` {
+	if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
+		throw new Error(`${label} must be a valid EVM address`)
+	}
+	return value.toLowerCase() as `0x${string}`
+}
+
+function assertListenerMatchesConfiguredBountyHubAddress(args: {
+	listenerName: string
+	listenerAddress: `0x${string}`
+	env: Record<string, string | undefined>
+}): void {
+	const configuredAddress = args.env.CRE_SIM_BOUNTY_HUB_ADDRESS?.trim()
+	if (!configuredAddress) {
+		return
+	}
+
+	const normalizedConfiguredAddress = normalizeAddress(
+		configuredAddress,
+		"CRE_SIM_BOUNTY_HUB_ADDRESS",
+	)
+	if (normalizedConfiguredAddress !== args.listenerAddress.toLowerCase()) {
+		throw new Error(
+			`EVM-log trigger ${args.listenerName} contractAddress does not match CRE_SIM_BOUNTY_HUB_ADDRESS`,
+		)
+	}
+}
 
 const HELP_TEXT = [
 	"Usage: bun ./src/evm-log-worker.ts [options]",
@@ -164,7 +193,10 @@ export async function startCreSimulatorEvmLogWorker(
 	}
 	const repoRoot = resolve(import.meta.dir, "../../..")
 	const configPath = args.configPath ?? `${repoRoot}/backend/cre-simulator/triggers.json`
-	const env = deps.env ?? (process.env as Record<string, string | undefined>)
+	const env = resolveCreSimulatorRuntimeEnv({
+		repoRoot,
+		env: deps.env ?? (process.env as Record<string, string | undefined>),
+	})
 	const config = deps.loadConfig
 		? deps.loadConfig(configPath)
 		: loadCreSimulatorTriggerConfig(configPath, repoRoot)
@@ -175,6 +207,11 @@ export async function startCreSimulatorEvmLogWorker(
 	let stopped = false
 
 	for (const listener of listeners) {
+		assertListenerMatchesConfiguredBountyHubAddress({
+			listenerName: listener.triggerName,
+			listenerAddress: listener.contractAddress,
+			env,
+		})
 		const wsUrl = env[listener.wsRpcUrlEnvVar]
 		if (!wsUrl || wsUrl.trim().length === 0) {
 			throw new Error(`Missing required environment variable: ${listener.wsRpcUrlEnvVar}`)

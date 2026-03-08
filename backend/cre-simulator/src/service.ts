@@ -1,10 +1,15 @@
-import { join, resolve } from "node:path"
+import { resolve } from "node:path"
 
-import type { EnvRecord } from "./operator/config"
-import {
-	executeDemoOperatorService,
-	loadDemoOperatorServiceConfig,
-} from "./operator/service"
+import type {
+	CreSimulatorAdapterBinding,
+	CreSimulatorAdapterExecutor,
+	CreSimulatorAdapterKey,
+	CreSimulatorAdapterRequest,
+	CreSimulatorAdapterResult,
+} from "./adapter-types"
+import type { EnvRecord } from "./env"
+import { executeAutoRevealRelayerAdapter } from "./live-reveal"
+import { executeCreWorkflowSimulateAdapter } from "./live-verify"
 import { buildDefaultCreSimulatorTriggerConfigPath, loadCreSimulatorTriggerConfig } from "./triggers/config"
 import { runCronTriggerTick } from "./triggers/cron"
 import { dispatchCreSimulatorTrigger } from "./triggers/dispatch"
@@ -14,11 +19,10 @@ import {
 	loadCreSimulatorTriggerStateStore,
 } from "./triggers/stateStore"
 import type { CreSimulatorEvmLogEvent, CreSimulatorTriggerStatusPayload } from "./triggers/types"
-
 import type {
-	CreSimulatorCommandRequest,
-	CreSimulatorCommandResult,
 	CreSimulatorServiceDependencies,
+	CreSimulatorStatusRequest,
+	CreSimulatorStatusResult,
 	CreSimulatorTriggerResult,
 } from "./types"
 
@@ -41,49 +45,134 @@ function ensureRepoScopedPath(
 	throw new CreSimulatorRequestError(`${label} must stay within repoRoot`)
 }
 
-export function buildDefaultCreSimulatorScenarioPath(repoRoot: string): string {
-	return join(repoRoot, "backend/cre-simulator/default-scenario.json")
-}
-
 export { buildDefaultCreSimulatorTriggerConfigPath }
 
-export async function executeCreSimulatorCommand(
-	request: CreSimulatorCommandRequest,
+function assertNoDemoOverrides(request: {
+	scenarioPath?: string
+	stateFilePath?: string
+}): void {
+	if (request.scenarioPath) {
+		throw new CreSimulatorRequestError("scenarioPath is not supported in live-only mode")
+	}
+	if (request.stateFilePath) {
+		throw new CreSimulatorRequestError("stateFilePath is not supported in live-only mode")
+	}
+}
+
+function buildAdapterRegistry(
+	overrides: CreSimulatorServiceDependencies["adapterExecutors"] = {},
+): Record<CreSimulatorAdapterKey, CreSimulatorAdapterExecutor> {
+	return {
+		"auto-reveal-relayer": async ({ repoRoot, env, adapterConfig }) =>
+			await executeAutoRevealRelayerAdapter({
+				repoRoot,
+				env,
+				adapterConfig: adapterConfig as CreSimulatorAdapterBinding["adapterConfig"],
+			}),
+		"cre-workflow-simulate": async ({
+			repoRoot,
+			env,
+			adapterConfig,
+			evmTxHash,
+			evmEventIndex,
+			evidenceDir,
+		}) =>
+			await executeCreWorkflowSimulateAdapter({
+				repoRoot,
+				env,
+				adapterConfig: adapterConfig as NonNullable<CreSimulatorAdapterBinding["adapterConfig"]>,
+				evmTxHash,
+				evmEventIndex,
+				evidenceDir,
+			}),
+		...overrides,
+	}
+}
+
+function buildLiveStatus(args: {
+	repoRoot: string
+	configPath?: string
+}): {
+	mode: "live-only"
+	adapters: readonly ["auto-reveal-relayer", "cre-workflow-simulate"]
+	runtimeEnv: {
+		required: readonly [
+			"CRE_SIM_TENDERLY_API_KEY",
+			"CRE_SIM_PRIVATE_KEY",
+			"CRE_SIM_SEPOLIA_RPC_URL",
+			"CRE_SIM_ADMIN_RPC_URL",
+			"CRE_SIM_BOUNTY_HUB_ADDRESS",
+			"CRE_SIM_OASIS_STORAGE_CONTRACT",
+		]
+		evmLogRequired: readonly ["CRE_SIM_WS_RPC_URL"]
+	}
+	triggerConfigPath: string
+	triggerStateFilePath: string
+} {
+	const triggerConfigPath = args.configPath
+		? ensureRepoScopedPath(args.repoRoot, args.configPath, "configPath")
+		: buildDefaultCreSimulatorTriggerConfigPath(args.repoRoot)
+	const triggerConfig = loadCreSimulatorTriggerConfig(triggerConfigPath, args.repoRoot)
+	return {
+		mode: "live-only",
+		adapters: ["auto-reveal-relayer", "cre-workflow-simulate"],
+		runtimeEnv: {
+			required: [
+				"CRE_SIM_TENDERLY_API_KEY",
+				"CRE_SIM_PRIVATE_KEY",
+				"CRE_SIM_SEPOLIA_RPC_URL",
+				"CRE_SIM_ADMIN_RPC_URL",
+				"CRE_SIM_BOUNTY_HUB_ADDRESS",
+				"CRE_SIM_OASIS_STORAGE_CONTRACT",
+			],
+			evmLogRequired: ["CRE_SIM_WS_RPC_URL"],
+		},
+		triggerConfigPath: triggerConfig.configPath,
+		triggerStateFilePath: triggerConfig.stateFilePath,
+	}
+}
+
+export async function executeCreSimulatorStatus(
+	request: CreSimulatorStatusRequest,
+	env: EnvRecord,
+): Promise<CreSimulatorStatusResult> {
+	void env
+	const repoRoot = resolveRepoRoot(request.repoRoot)
+	assertNoDemoOverrides(request)
+	return {
+		command: "status",
+		result: buildLiveStatus({ repoRoot, configPath: request.configPath }),
+	}
+}
+
+export async function executeCreSimulatorAdapter(
+	request: CreSimulatorAdapterRequest,
 	env: EnvRecord,
 	deps: CreSimulatorServiceDependencies = {},
-): Promise<CreSimulatorCommandResult> {
+): Promise<CreSimulatorAdapterResult> {
 	const repoRoot = resolveRepoRoot(request.repoRoot)
-	const cwd = request.cwd
-		? ensureRepoScopedPath(repoRoot, request.cwd, "cwd")
-		: repoRoot
-	const scenarioPath = request.scenarioPath
-		? ensureRepoScopedPath(repoRoot, request.scenarioPath, "scenarioPath")
-		: buildDefaultCreSimulatorScenarioPath(repoRoot)
-	const stateFilePath = request.stateFilePath
-		? ensureRepoScopedPath(repoRoot, request.stateFilePath, "stateFilePath")
-		: undefined
-	const evidenceDir = request.evidenceDir
-		? ensureRepoScopedPath(repoRoot, request.evidenceDir, "evidenceDir")
-		: undefined
-	const demoRequest = {
-		command: request.command,
-		scenario: scenarioPath,
-		...(stateFilePath ? { stateFile: stateFilePath } : {}),
-		...(evidenceDir ? { evidenceDir } : {}),
+	assertNoDemoOverrides(request)
+	const executeAdapter = deps.executeAdapter
+	if (executeAdapter) {
+		return await executeAdapter(request)
 	}
-
-	const result = deps.executeDemoOperator
-		? await deps.executeDemoOperator({ request: demoRequest, env, cwd })
-		: await executeDemoOperatorService({
-			config: loadDemoOperatorServiceConfig(demoRequest, env, cwd),
-			env,
-			deps: deps.demoOperatorDeps,
-		})
-
+	const registry = buildAdapterRegistry(deps.adapterExecutors)
+	const executor = registry[request.adapter]
+	if (!executor) {
+		throw new CreSimulatorRequestError(
+			`Unsupported live-only adapter: ${String(request.adapter)}`,
+		)
+	}
 	return {
-		command: request.command,
-		scenarioPath,
-		result,
+		adapter: request.adapter,
+		result: await executor({
+			repoRoot,
+			env,
+			adapterConfig: request.adapterConfig,
+			evidenceDir: request.evidenceDir,
+			evmTxHash: request.evmTxHash,
+			evmEventIndex: request.evmEventIndex,
+		}),
 	}
 }
 
@@ -93,15 +182,21 @@ export async function executeCreSimulatorTrigger(
 		repoRoot?: string
 		configPath?: string
 		cwd?: string
-		scenarioPath?: string
-		stateFilePath?: string
 		evidenceDir?: string
+		evmTxHash?: `0x${string}`
+		evmEventIndex?: number
+		adapterConfig?: CreSimulatorAdapterRequest["adapterConfig"]
 	},
 	env: EnvRecord,
 	deps: CreSimulatorServiceDependencies & { nowMs?: () => number } = {},
 ): Promise<CreSimulatorTriggerResult> {
 	return await dispatchCreSimulatorTrigger(request, env, {
-		executeCommand: deps.executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env, deps)),
+		executeAdapter:
+			deps.executeAdapter ??
+			((adapterRequest) => executeCreSimulatorAdapter(adapterRequest, env, deps)),
+		executeStatus:
+			deps.executeStatus ??
+			((statusRequest) => executeCreSimulatorStatus(statusRequest, env)),
 		nowMs: deps.nowMs,
 	})
 }
@@ -136,11 +231,11 @@ export async function getCreSimulatorTriggerStatus(
 		quarantinedExecutionCount: store.quarantinedExecutionCount,
 		httpTriggers: config.httpTriggers.map((trigger) => ({
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 		})),
 		cronTriggers: config.cronTriggers.map((trigger) => ({
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 			intervalMs: trigger.intervalMs,
 			...(store.schedulerCursorByName.get(trigger.triggerName)
 				? { lastRunAtMs: store.schedulerCursorByName.get(trigger.triggerName)?.lastRunAtMs }
@@ -148,7 +243,7 @@ export async function getCreSimulatorTriggerStatus(
 		})),
 		evmLogTriggers: config.evmLogTriggers.map((trigger) => ({
 			triggerName: trigger.triggerName,
-			command: trigger.command,
+			adapter: trigger.adapter,
 			contractAddress: trigger.contractAddress,
 			topic0: trigger.topic0,
 			...(store.listenerCursorByName.get(trigger.triggerName)?.lastSeenBlockNumber !== undefined
@@ -171,7 +266,12 @@ export async function executeCreSimulatorCronTick(
 	deps: CreSimulatorServiceDependencies & { nowMs?: () => number } = {},
 ) {
 	return await runCronTriggerTick(request, env, {
-		executeCommand: deps.executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env, deps)),
+		executeAdapter:
+			deps.executeAdapter ??
+			((adapterRequest) => executeCreSimulatorAdapter(adapterRequest, env, deps)),
+		executeStatus:
+			deps.executeStatus ??
+			((statusRequest) => executeCreSimulatorStatus(statusRequest, env)),
 		nowMs: deps.nowMs,
 	})
 }
@@ -187,7 +287,12 @@ export async function executeCreSimulatorEvmLogTrigger(
 	deps: CreSimulatorServiceDependencies & { nowMs?: () => number } = {},
 ) {
 	return await dispatchEvmLogTriggerEvent(request, env, {
-		executeCommand: deps.executeCommand ?? ((commandRequest) => executeCreSimulatorCommand(commandRequest, env, deps)),
+		executeAdapter:
+			deps.executeAdapter ??
+			((adapterRequest) => executeCreSimulatorAdapter(adapterRequest, env, deps)),
+		executeStatus:
+			deps.executeStatus ??
+			((statusRequest) => executeCreSimulatorStatus(statusRequest, env)),
 		nowMs: deps.nowMs,
 	})
 }

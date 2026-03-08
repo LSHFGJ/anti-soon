@@ -31,7 +31,7 @@ describe("cre-simulator cron triggers", () => {
 						schemaVersion: CONFIG_SCHEMA_VERSION,
 						stateFilePath: ".trigger-state.json",
 						httpTriggers: {},
-						cronTriggers: { "minute-run": { intervalMs: 1000, command: "run" } },
+						cronTriggers: { "reveal-relay": { intervalMs: 1000, adapter: "auto-reveal-relayer" } },
 						evmLogTriggers: {},
 					},
 					null,
@@ -44,13 +44,12 @@ describe("cre-simulator cron triggers", () => {
 				{ repoRoot: tempDir, configPath },
 				{},
 				{
-					nowMs: () => 1000,
-					executeCommand: async () => ({
-						command: "run",
-						scenarioPath: join(tempDir, "scenario.json"),
-						result: { command: "run" },
-					}),
-				},
+									nowMs: () => 1000,
+										executeAdapter: async () => ({
+										adapter: "auto-reveal-relayer",
+										result: { adapter: "auto-reveal-relayer" },
+									}),
+								},
 			)
 
 			expect(first.executed).toHaveLength(1)
@@ -68,7 +67,7 @@ describe("cre-simulator cron triggers", () => {
 			)
 
 			expect(second.executed).toHaveLength(0)
-			expect(second.skipped).toEqual(["minute-run"])
+			expect(second.skipped).toEqual(["reveal-relay"])
 		})
 	})
 
@@ -82,7 +81,7 @@ describe("cre-simulator cron triggers", () => {
 						schemaVersion: CONFIG_SCHEMA_VERSION,
 						stateFilePath: ".trigger-state.json",
 						httpTriggers: {},
-						cronTriggers: { "minute-run": { intervalMs: 1000, command: "run" } },
+						cronTriggers: { "reveal-relay": { intervalMs: 1000, adapter: "auto-reveal-relayer" } },
 						evmLogTriggers: {},
 					},
 					null,
@@ -96,11 +95,11 @@ describe("cre-simulator cron triggers", () => {
 				stateFilePath: join(tempDir, ".trigger-state.json"),
 			}
 			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 1000)
-			claimCreSimulatorTriggerExecution(store, "cron:minute-run:1000", {
-				triggerName: "minute-run",
+			claimCreSimulatorTriggerExecution(store, "cron:reveal-relay:1000", {
+				triggerName: "reveal-relay",
 				triggerType: "cron",
 			}, 1000)
-			markCreSimulatorTriggerExecutionQuarantined(store, "cron:minute-run:1000", "boom", 1001)
+			markCreSimulatorTriggerExecutionQuarantined(store, "cron:reveal-relay:1000", "boom", 1001)
 
 			await expect(
 				runCronTriggerTick(
@@ -108,7 +107,7 @@ describe("cre-simulator cron triggers", () => {
 					{},
 					{
 						nowMs: () => 5000,
-						executeCommand: async () => {
+						executeAdapter: async () => {
 							throw new Error("should not dispatch while unhealthy")
 						},
 					},
@@ -129,7 +128,7 @@ describe("cre-simulator cron triggers", () => {
 					schemaVersion: CONFIG_SCHEMA_VERSION,
 					stateFilePath: "backend/cre-simulator/.cron-default-state.test.json",
 					httpTriggers: {},
-					cronTriggers: { "demo-run": { intervalMs: 1000, command: "run" } },
+					cronTriggers: { "reveal-relay": { intervalMs: 1000, adapter: "auto-reveal-relayer" } },
 					evmLogTriggers: {},
 				},
 				null,
@@ -143,16 +142,15 @@ describe("cre-simulator cron triggers", () => {
 				{ configPath: "backend/cre-simulator/.cron-default-config.test.json" },
 				{},
 				{
-					nowMs: () => 60_000,
-					executeCommand: async (request) => ({
-						command: request.command,
-						scenarioPath: "/repo/backend/cre-simulator/default-scenario.json",
-						result: { command: request.command },
-					}),
-				},
-			)
+						nowMs: () => 60_000,
+						executeAdapter: async (request) => ({
+							adapter: request.adapter,
+							result: { adapter: request.adapter },
+						}),
+					},
+				)
 
-			expect(result.executed).toEqual([{ triggerName: "demo-run", command: "run" }])
+			expect(result.executed).toEqual([{ triggerName: "reveal-relay", adapter: "auto-reveal-relayer" }])
 		} finally {
 			rmSync(configPath, { force: true })
 			rmSync(

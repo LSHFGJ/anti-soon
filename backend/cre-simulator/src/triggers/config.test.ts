@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import {
 	buildDefaultCreSimulatorTriggerConfigPath,
@@ -35,15 +35,30 @@ describe("cre-simulator trigger config", () => {
 						schemaVersion: TRIGGER_CONFIG_SCHEMA_VERSION,
 						stateFilePath: "backend/cre-simulator/.trigger-state.json",
 						httpTriggers: {
-							"manual-run": { command: "run" },
+							"manual-reveal": { adapter: "auto-reveal-relayer" },
+							"manual-verify": {
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+							},
 						},
 						cronTriggers: {
-							"minute-run": { intervalMs: 60000, command: "run" },
+							"reveal-relay": { intervalMs: 60000, adapter: "auto-reveal-relayer" },
 						},
 						evmLogTriggers: {
 							"poc-revealed": {
-								command: "verify",
-								wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
 								contractAddress: "0x1111111111111111111111111111111111111111",
 								topic0:
 									"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -59,19 +74,23 @@ describe("cre-simulator trigger config", () => {
 			const config = loadCreSimulatorTriggerConfig(configPath, tempDir)
 
 			expect(config.httpTriggers[0]).toMatchObject({
-				triggerName: "manual-run",
-				command: "run",
+				triggerName: "manual-reveal",
+				adapter: "auto-reveal-relayer",
+			})
+			expect(config.httpTriggers[1]).toMatchObject({
+				triggerName: "manual-verify",
+				adapter: "cre-workflow-simulate",
 			})
 			expect(config.cronTriggers[0]).toMatchObject({
-				triggerName: "minute-run",
+				triggerName: "reveal-relay",
 				intervalMs: 60000,
-				command: "run",
+				adapter: "auto-reveal-relayer",
 			})
-			expect(config.evmLogTriggers[0]).toMatchObject({
-				triggerName: "poc-revealed",
-				command: "verify",
-				wsRpcUrlEnvVar: "DEMO_OPERATOR_WS_RPC_URL",
-			})
+				expect(config.evmLogTriggers[0]).toMatchObject({
+					triggerName: "poc-revealed",
+					adapter: "cre-workflow-simulate",
+					wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+				})
 		})
 	})
 
@@ -85,7 +104,7 @@ describe("cre-simulator trigger config", () => {
 						schemaVersion: TRIGGER_CONFIG_SCHEMA_VERSION,
 						stateFilePath: "../outside.json",
 						httpTriggers: {
-							invalid: { command: "run" },
+							invalid: { adapter: "not-real" },
 						},
 						cronTriggers: {},
 						evmLogTriggers: {},

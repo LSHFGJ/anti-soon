@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { basename, join, relative, resolve } from "node:path"
 
-import type { EnvRecord } from "./config"
+import type { EnvRecord } from "../env"
 
 function getTenderlyApiKey(env: EnvRecord): string | null {
 	const value = env.TENDERLY_API_KEY?.trim()
