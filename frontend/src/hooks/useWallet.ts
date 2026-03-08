@@ -49,14 +49,18 @@ type WalletConnectorLike = {
 	getProvider: () => Promise<unknown>;
 };
 
-function getConnectorRdns(connector: Pick<WalletConnectorLike, "rdns">): string[] {
+function getConnectorRdns(
+	connector: Pick<WalletConnectorLike, "rdns">,
+): string[] {
 	if (!connector.rdns) return [];
 	return typeof connector.rdns === "string"
 		? [connector.rdns]
 		: Array.from(connector.rdns);
 }
 
-function isMetaMaskProvider(provider: unknown): provider is { isMetaMask: boolean } {
+function isMetaMaskProvider(
+	provider: unknown,
+): provider is { isMetaMask: boolean } {
 	return (
 		typeof provider === "object" &&
 		provider !== null &&
@@ -86,7 +90,12 @@ async function findAvailableMetaMaskConnector<T extends WalletConnectorLike>(
 		isMetaMaskConnector(connector),
 	);
 	if (explicitMetaMaskConnector) {
-		return explicitMetaMaskConnector;
+		const provider = await explicitMetaMaskConnector
+			.getProvider()
+			.catch(() => undefined);
+		if (provider) {
+			return explicitMetaMaskConnector;
+		}
 	}
 
 	let injectedMetaMaskConnector: T | null = null;
@@ -203,7 +212,8 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 
 		try {
 			setIsConnecting(true);
-			const metaMaskConnector = await findAvailableMetaMaskConnector(connectors);
+			const metaMaskConnector =
+				await findAvailableMetaMaskConnector(connectors);
 			if (metaMaskConnector) {
 				await connectAsync({ connector: metaMaskConnector });
 				return;

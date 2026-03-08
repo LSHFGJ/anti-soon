@@ -255,7 +255,7 @@ describe("useWallet auto-switch behavior", () => {
 		expect(open).not.toHaveBeenCalled();
 	});
 
-	it("connects to MetaMask directly when explicit connector identity exists before provider resolution", async () => {
+	it("falls back to the AppKit modal when explicit MetaMask identity exists but no provider is injected", async () => {
 		metaMaskGetProvider.mockResolvedValue(undefined);
 		mockUseConnect.mockReturnValue({
 			connectAsync,
@@ -270,8 +270,8 @@ describe("useWallet auto-switch behavior", () => {
 			await result.current.connect();
 		});
 
-		expect(connectAsync).toHaveBeenCalledWith({ connector: metaMaskConnector });
-		expect(open).not.toHaveBeenCalled();
+		expect(connectAsync).not.toHaveBeenCalled();
+		expect(open).toHaveBeenCalledTimes(1);
 	});
 
 	it("falls back to the AppKit modal when no explicit MetaMask connector is available", async () => {
