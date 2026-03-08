@@ -321,6 +321,152 @@ describe('SubmissionDetail lifecycle action alignment', () => {
     })
   })
 
+  it('ignores action-triggered refresh responses after route changes', async () => {
+    const submissionOneRefreshDeferred = deferred<ReturnType<typeof makeSubmissionTuple>>()
+    const submissionTwoDeferred = deferred<ReturnType<typeof makeSubmissionTuple>>()
+    const refreshStarted = deferred<void>()
+    let submissionOneReadCount = 0
+
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+
+    mockReadContract.mockImplementation(({ functionName, args }: { functionName?: string, args?: [bigint] }) => {
+      if (functionName === 'submissions') {
+        if (args?.[0] === 1n) {
+          submissionOneReadCount += 1
+          if (submissionOneReadCount === 1) {
+            return Promise.resolve(makeSubmissionTuple({ projectId: 1n, status: 2, challenged: false, disputeDeadline: NOW_SECONDS + 600n }))
+          }
+
+          refreshStarted.resolve(undefined)
+          return submissionOneRefreshDeferred.promise
+        }
+
+        if (args?.[0] === 2n) {
+          return submissionTwoDeferred.promise
+        }
+      }
+
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve(null)
+      if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', ''])
+      if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n])
+      return Promise.resolve(null)
+    })
+
+    mockReadProjectById.mockImplementation((projectId: bigint) => Promise.resolve(createMockProject({ id: projectId, owner: OWNER })))
+
+    const user = userEvent.setup()
+    renderRoutableSubmissionDetail('/submission/1')
+
+    const challengeButton = await screen.findByRole('button', { name: '[ CHALLENGE RESULT ]' })
+    await user.click(challengeButton)
+
+    await refreshStarted.promise
+    await user.click(screen.getByRole('link', { name: 'Go to submission 2' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Loading submission data/i)).toBeVisible()
+    })
+
+    submissionOneRefreshDeferred.resolve(makeSubmissionTuple({ projectId: 1n, status: 2, challenged: false, disputeDeadline: NOW_SECONDS + 600n }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('#1')).toBeNull()
+    })
+
+    submissionTwoDeferred.resolve(makeSubmissionTuple({ projectId: 2n, status: 2, challenged: false, disputeDeadline: NOW_SECONDS + 600n }))
+
+    await waitFor(() => {
+      expect(screen.getByText('#2')).toBeVisible()
+      expect(screen.queryByText('#1')).toBeNull()
+    })
+  })
+
+  it('ignores late metadata and artifact merges after route changes', async () => {
+    const lifecycleOneDeferred = deferred<readonly [number, bigint, bigint, number, number, `0x${string}`, `0x${string}`] | null>()
+    const juryOneDeferred = deferred<readonly [boolean, string, string] | null>()
+    const groupingOneDeferred = deferred<readonly [boolean, string, string, bigint, bigint] | null>()
+    const projectOneDeferred = deferred<ReturnType<typeof createMockProject>>()
+    const commitOneDeferred = deferred<`0x${string}` | undefined>()
+    const sapphireOneDeferred = deferred<`0x${string}` | undefined>()
+
+    mockUseWallet.mockReturnValue({
+      address: NON_OWNER,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+
+    mockReadContract.mockImplementation(({ functionName, args }: { functionName?: string, args?: [bigint] }) => {
+      if (functionName === 'submissions') {
+        if (args?.[0] === 1n) return Promise.resolve(makeSubmissionTuple({ projectId: 1n }))
+        if (args?.[0] === 2n) return Promise.resolve(makeSubmissionTuple({ projectId: 2n }))
+      }
+
+      if (functionName === 'getSubmissionLifecycle') {
+        if (args?.[0] === 1n) return lifecycleOneDeferred.promise
+        return Promise.resolve(null)
+      }
+
+      if (functionName === 'getSubmissionJuryMetadata') {
+        if (args?.[0] === 1n) return juryOneDeferred.promise
+        return Promise.resolve([false, '', ''])
+      }
+
+      if (functionName === 'getSubmissionGroupingMetadata') {
+        if (args?.[0] === 1n) return groupingOneDeferred.promise
+        return Promise.resolve([false, '', '', 0n, 0n])
+      }
+
+      return Promise.resolve(null)
+    })
+
+    mockReadProjectById.mockImplementation((projectId: bigint) => {
+      if (projectId === 1n) return projectOneDeferred.promise
+      return Promise.resolve(createMockProject({ id: 2n, owner: OWNER }))
+    })
+    mockReadSubmissionCommitTxHash.mockImplementation((submissionId: bigint) => {
+      if (submissionId === 1n) return commitOneDeferred.promise
+      return Promise.resolve(undefined)
+    })
+    mockResolveSapphireTxHash.mockImplementation(({ cipherURI }: { cipherURI: string }) => {
+      if (cipherURI === 'oasis://mock/cipher') return sapphireOneDeferred.promise
+      return Promise.resolve(undefined)
+    })
+
+    const user = userEvent.setup()
+    renderRoutableSubmissionDetail('/submission/1')
+
+    await waitFor(() => {
+      expect(screen.getByText('#1')).toBeVisible()
+    })
+
+    await user.click(screen.getByRole('link', { name: 'Go to submission 2' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('#2')).toBeVisible()
+      expect(screen.queryByText('#1')).toBeNull()
+    })
+
+    lifecycleOneDeferred.resolve([6, NOW_SECONDS + 1000n, NOW_SECONDS + 2000n, 2, 0, '0x0000000000000000000000000000000000000000000000000000000000000000', '0x0000000000000000000000000000000000000000000000000000000000000000'])
+    juryOneDeferred.resolve([true, 'review', 'needs escalation'])
+    groupingOneDeferred.resolve([true, 'cohort-a', 'group-1', 1n, 3n])
+    projectOneDeferred.resolve(createMockProject({ id: 1n, owner: OWNER }))
+    commitOneDeferred.resolve('0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc')
+    sapphireOneDeferred.resolve('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+
+    await waitFor(() => {
+      expect(screen.getByText('#2')).toBeVisible()
+      expect(screen.queryByText('LIFECYCLE_METADATA')).toBeNull()
+      expect(screen.queryByText('GROUPING_METADATA')).toBeNull()
+      expect(screen.queryByText('JURY_OUTPUT')).toBeNull()
+      expect(screen.queryByText('SEPOLIA_COMMIT_TX')).toBeNull()
+      expect(screen.queryByText('SAPPHIRE_TX')).toBeNull()
+    })
+  })
+
   it('shows both Sapphire and Sepolia transaction hashes from chain-derived artifacts', async () => {
     mockUseWallet.mockReturnValue({
       address: AUDITOR,
@@ -347,6 +493,89 @@ describe('SubmissionDetail lifecycle action alignment', () => {
       'href',
       expect.stringContaining('explorer.oasis.io/testnet/sapphire/tx/0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'),
     )
+  })
+
+  it('renders core submission details before auxiliary artifact lookups resolve', async () => {
+    const projectDeferred = deferred<ReturnType<typeof createMockProject>>()
+    const commitTxDeferred = deferred<`0x${string}` | undefined>()
+    const sapphireTxDeferred = deferred<`0x${string}` | undefined>()
+
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple());
+      if (functionName === 'getSubmissionLifecycle') return Promise.resolve(null);
+      if (functionName === 'getSubmissionJuryMetadata') return Promise.resolve([false, '', '']);
+      if (functionName === 'getSubmissionGroupingMetadata') return Promise.resolve([false, '', '', 0n, 0n]);
+      return Promise.resolve(null);
+    })
+    mockReadProjectById.mockReturnValue(projectDeferred.promise)
+    mockReadSubmissionCommitTxHash.mockReturnValue(commitTxDeferred.promise)
+    mockResolveSapphireTxHash.mockReturnValue(sapphireTxDeferred.promise)
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText(/SUBMISSION_#1/i)).toBeVisible()
+      expect(screen.getByText(/0x1111111111111111111111111111111111111111/)).toBeVisible()
+    })
+
+    expect(screen.queryByText('SEPOLIA_COMMIT_TX')).toBeNull()
+    expect(screen.queryByText('SAPPHIRE_TX')).toBeNull()
+
+    projectDeferred.resolve(createMockProject({ id: 1n, owner: OWNER }))
+    commitTxDeferred.resolve('0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc')
+    sapphireTxDeferred.resolve('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+
+    await waitFor(() => {
+      expect(screen.getByText('SEPOLIA_COMMIT_TX')).toBeVisible()
+      expect(screen.getByText('SAPPHIRE_TX')).toBeVisible()
+    })
+  })
+
+  it('renders core submission details before lifecycle metadata lookups resolve', async () => {
+    const lifecycleDeferred = deferred<readonly [number, bigint, bigint, number, number, `0x${string}`, `0x${string}`] | null>()
+    const juryDeferred = deferred<readonly [boolean, string, string] | null>()
+    const groupingDeferred = deferred<readonly [boolean, string, string, bigint, bigint] | null>()
+
+    mockUseWallet.mockReturnValue({
+      address: AUDITOR,
+      walletClient: { writeContract: mockWriteContract },
+      isConnected: true,
+    })
+    mockReadContract.mockImplementation((config) => {
+      const functionName = config.functionName;
+      if (functionName === 'submissions') return Promise.resolve(makeSubmissionTuple());
+      if (functionName === 'getSubmissionLifecycle') return lifecycleDeferred.promise;
+      if (functionName === 'getSubmissionJuryMetadata') return juryDeferred.promise;
+      if (functionName === 'getSubmissionGroupingMetadata') return groupingDeferred.promise;
+      return Promise.resolve(null);
+    })
+
+    renderSubmissionDetail()
+
+    await waitFor(() => {
+      expect(screen.getByText(/SUBMISSION_#1/i)).toBeVisible()
+      expect(screen.getByText(/0x1111111111111111111111111111111111111111/)).toBeVisible()
+    })
+
+    expect(screen.queryByText('LIFECYCLE_METADATA')).toBeNull()
+    expect(screen.queryByText('GROUPING_METADATA')).toBeNull()
+    expect(screen.queryByText('JURY_OUTPUT')).toBeNull()
+
+    lifecycleDeferred.resolve([6, NOW_SECONDS + 1000n, NOW_SECONDS + 2000n, 2, 0, '0x0000000000000000000000000000000000000000000000000000000000000000', '0x0000000000000000000000000000000000000000000000000000000000000000'])
+    juryDeferred.resolve([true, 'review', 'needs escalation'])
+    groupingDeferred.resolve([true, 'cohort-a', 'group-1', 1n, 3n])
+
+    await waitFor(() => {
+      expect(screen.getByText('LIFECYCLE_METADATA')).toBeVisible()
+      expect(screen.getByText('GROUPING_METADATA')).toBeVisible()
+      expect(screen.getByText('JURY_OUTPUT')).toBeVisible()
+    })
   })
 
   it('passes the active wallet provider into Sapphire preview reads', async () => {

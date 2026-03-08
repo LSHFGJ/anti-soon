@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { formatEther } from 'viem'
+import { Link, useParams } from 'react-router-dom'
+import { type Address, formatEther } from 'viem'
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from '../config'
 import { readProjectById } from '../lib/projectReads'
 import { readContractWithRpcFallback } from '../lib/publicClient'
@@ -18,6 +18,48 @@ import { Button } from '@/components/ui/button'
 import { explorerAddressUrl, explorerTxUrl } from '@/lib/explorerLinks'
 import type { Project, ExtendedSubmission } from '../types'
 import { VERDICT_SOURCE_LABELS, FINAL_VALIDITY_LABELS, STATUS_LABELS } from '../types'
+
+type SubmissionTuple = readonly [
+  auditor: Address,
+  projectId: bigint,
+  commitHash: `0x${string}`,
+  cipherURI: string,
+  salt: `0x${string}`,
+  commitTimestamp: bigint,
+  revealTimestamp: bigint,
+  status: number,
+  drainAmountWei: bigint,
+  severity: number,
+  payoutAmount: bigint,
+  disputeDeadline: bigint,
+  challenged: boolean,
+  challenger: Address,
+  challengeBond: bigint,
+]
+
+type SubmissionLifecycleTuple = readonly [
+  status: number,
+  juryDeadline: bigint,
+  adjudicationDeadline: bigint,
+  verdictSource: number,
+  finalValidity: number,
+  juryLedgerDigest: `0x${string}`,
+  ownerTestimonyDigest: `0x${string}`,
+]
+
+type SubmissionJuryTuple = readonly [
+  exists: boolean,
+  action: string,
+  rationale: string,
+]
+
+type SubmissionGroupingTuple = readonly [
+  exists: boolean,
+  cohort: string,
+  groupId: string,
+  groupRank: bigint,
+  groupSize: bigint,
+]
 
 
 const SUBMISSION_STATUS_VERIFIED = 2
@@ -38,34 +80,23 @@ export function SubmissionDetail() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const requestIdRef = useRef(0)
+  const activeSubmissionIdRef = useRef<bigint | null>(null)
+
+  const isCurrentRequest = useCallback((submissionId: bigint, requestId?: number) => {
+    if (requestId !== undefined) {
+      return requestIdRef.current === requestId
+    }
+
+    return activeSubmissionIdRef.current === submissionId
+  }, [])
 
   const refreshSubmissionData = useCallback(async (submissionId: bigint, requestId?: number) => {
-    const [subData, lifecycleData, juryData, groupingData] = await Promise.all([
-      readContractWithRpcFallback({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'submissions',
-        args: [submissionId]
-      }) as Promise<any>,
-      readContractWithRpcFallback({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'getSubmissionLifecycle',
-        args: [submissionId]
-      }).catch(() => null) as Promise<any>,
-      readContractWithRpcFallback({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'getSubmissionJuryMetadata',
-        args: [submissionId]
-      }).catch(() => null) as Promise<any>,
-      readContractWithRpcFallback({
-        address: BOUNTY_HUB_ADDRESS,
-        abi: BOUNTY_HUB_V2_ABI,
-        functionName: 'getSubmissionGroupingMetadata',
-        args: [submissionId]
-      }).catch(() => null) as Promise<any>
-    ]);
+    const subData = await readContractWithRpcFallback({
+      address: BOUNTY_HUB_ADDRESS,
+      abi: BOUNTY_HUB_V2_ABI,
+      functionName: 'submissions',
+      args: [submissionId]
+    }) as SubmissionTuple
 
     const fetchedSubmission: ExtendedSubmission = {
       id: submissionId,
@@ -84,24 +115,63 @@ export function SubmissionDetail() {
       challenged: subData[12],
       challenger: subData[13],
       challengeBond: subData[14],
-      lifecycle: lifecycleData ? {
-        status: lifecycleData[0],
-        juryDeadline: lifecycleData[1],
-        adjudicationDeadline: lifecycleData[2],
-        verdictSource: lifecycleData[3],
-        finalValidity: lifecycleData[4],
-        juryLedgerDigest: lifecycleData[5],
-        ownerTestimonyDigest: lifecycleData[6]
-      } : undefined,
-      jury: juryData && juryData[0] ? { action: juryData[1], rationale: juryData[2] } : undefined,
-      grouping: groupingData && groupingData[0] ? { cohort: groupingData[1], groupId: groupingData[2], groupRank: Number(groupingData[3]), groupSize: Number(groupingData[4]) } : undefined
     }
 
-    if (requestId !== undefined && requestIdRef.current !== requestId) {
+    if (!isCurrentRequest(submissionId, requestId)) {
       return
     }
 
-    const [fetchedProject, commitTxHash, sapphireTxHash] = await Promise.all([
+    setSubmission(fetchedSubmission)
+
+    const metadataPromise = Promise.all([
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionLifecycle',
+        args: [submissionId]
+      }).catch(() => null) as Promise<SubmissionLifecycleTuple | null>,
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionJuryMetadata',
+        args: [submissionId]
+      }).catch(() => null) as Promise<SubmissionJuryTuple | null>,
+      readContractWithRpcFallback({
+        address: BOUNTY_HUB_ADDRESS,
+        abi: BOUNTY_HUB_V2_ABI,
+        functionName: 'getSubmissionGroupingMetadata',
+        args: [submissionId]
+      }).catch(() => null) as Promise<SubmissionGroupingTuple | null>
+    ])
+
+    void metadataPromise.then(([lifecycleData, juryData, groupingData]) => {
+      if (!isCurrentRequest(submissionId, requestId)) {
+        return
+      }
+
+      setSubmission((currentSubmission) => {
+        if (!currentSubmission || currentSubmission.id !== submissionId) {
+          return currentSubmission
+        }
+
+        return {
+          ...currentSubmission,
+          lifecycle: lifecycleData ? {
+            status: lifecycleData[0],
+            juryDeadline: lifecycleData[1],
+            adjudicationDeadline: lifecycleData[2],
+            verdictSource: lifecycleData[3],
+            finalValidity: lifecycleData[4],
+            juryLedgerDigest: lifecycleData[5],
+            ownerTestimonyDigest: lifecycleData[6]
+          } : undefined,
+          jury: juryData?.[0] ? { action: juryData[1], rationale: juryData[2] } : undefined,
+          grouping: groupingData?.[0] ? { cohort: groupingData[1], groupId: groupingData[2], groupRank: Number(groupingData[3]), groupSize: Number(groupingData[4]) } : undefined,
+        }
+      })
+    })
+
+    const artifactPromise = Promise.all([
       readProjectById(fetchedSubmission.projectId).catch((err) => {
         console.warn('Failed to fetch project:', err)
         return null
@@ -119,17 +189,25 @@ export function SubmissionDetail() {
       }),
     ])
 
-    if (requestId !== undefined && requestIdRef.current !== requestId) {
-      return
-    }
+    void artifactPromise.then(([fetchedProject, commitTxHash, sapphireTxHash]) => {
+      if (!isCurrentRequest(submissionId, requestId)) {
+        return
+      }
 
-    setSubmission({
-      ...fetchedSubmission,
-      commitTxHash,
-      oasisTxHash: sapphireTxHash,
+      setSubmission((currentSubmission) => {
+        if (!currentSubmission || currentSubmission.id !== submissionId) {
+          return currentSubmission
+        }
+
+        return {
+          ...currentSubmission,
+          commitTxHash,
+          oasisTxHash: sapphireTxHash,
+        }
+      })
+      setProject(fetchedProject)
     })
-    setProject(fetchedProject)
-  }, [])
+  }, [isCurrentRequest])
 
   const handlePreviewPoC = useCallback(async () => {
     if (!submission) return
@@ -158,6 +236,7 @@ export function SubmissionDetail() {
     const fetchData = async () => {
       const submissionId = BigInt(id)
       const requestId = ++requestIdRef.current
+      activeSubmissionIdRef.current = submissionId
 
       try {
         setIsLoading(true)
@@ -217,7 +296,9 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-      await refreshSubmissionData(submission.id)
+      const requestId = ++requestIdRef.current
+      activeSubmissionIdRef.current = submission.id
+      await refreshSubmissionData(submission.id, requestId)
     } catch (err) {
       console.error('Challenge failed:', err)
       setError('Failed to submit challenge')
@@ -242,7 +323,9 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-      await refreshSubmissionData(submission.id)
+      const requestId = ++requestIdRef.current
+      activeSubmissionIdRef.current = submission.id
+      await refreshSubmissionData(submission.id, requestId)
     } catch (err) {
       console.error('Resolve failed:', err)
       setError('Failed to resolve dispute')
@@ -267,7 +350,9 @@ export function SubmissionDetail() {
       })
 
       await publicClient.waitForTransactionReceipt({ hash })
-      await refreshSubmissionData(submission.id)
+      const requestId = ++requestIdRef.current
+      activeSubmissionIdRef.current = submission.id
+      await refreshSubmissionData(submission.id, requestId)
     } catch (err) {
       console.error('Finalize failed:', err)
       setError('Failed to finalize submission')
