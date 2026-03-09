@@ -165,6 +165,56 @@ describe("usePoCSubmission lifecycle", () => {
 		});
 	});
 
+	it("fails with a switch-network message when the wallet is connected on the wrong chain", async () => {
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn(),
+				signTypedData: vi.fn(),
+			},
+			publicClient: undefined,
+			isConnected: true,
+			isWrongNetwork: true,
+		});
+
+		const { result } = renderHook(() => usePoCSubmission(1n));
+
+		await act(async () => {
+			await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toBe(
+			"Wrong network. Switch to Sepolia and retry submission.",
+		);
+		expect(mockUploadEncryptedPoC).not.toHaveBeenCalled();
+	});
+
+	it("fails with a retry message while wallet clients are still initializing on Sepolia", async () => {
+		mockUseWallet.mockReturnValue({
+			address: MOCK_AUDITOR_ADDRESS,
+			walletClient: {
+				writeContract: vi.fn(),
+				signTypedData: vi.fn(),
+			},
+			publicClient: undefined,
+			isConnected: true,
+			isWrongNetwork: false,
+		});
+
+		const { result } = renderHook(() => usePoCSubmission(1n));
+
+		await act(async () => {
+			await result.current.submitPoC(1n, '{"poc":"json"}');
+		});
+
+		expect(result.current.state.phase).toBe("failed");
+		expect(result.current.state.error).toBe(
+			"Wallet connection is still initializing. Wait a moment and retry submission.",
+		);
+		expect(mockUploadEncryptedPoC).not.toHaveBeenCalled();
+	});
+
 	it("blocks submission when Sapphire readback validation fails", async () => {
 		const simulateContract = vi.fn();
 

@@ -55,7 +55,7 @@ type IndexedSubmissionTuple = readonly [
 
 export const usePoCSubmission = (projectId?: bigint | null) => {
 	const [state, setState] = useState<SubmissionState>({ phase: "idle" });
-	const { address, walletClient, publicClient, isConnected } = useWallet({
+	const { address, walletClient, publicClient, isConnected, isWrongNetwork } = useWallet({
 		autoSwitchToSepolia: false,
 	});
 
@@ -116,13 +116,25 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 		): Promise<SubmitPoCResult | undefined> => {
 			const walletAddress = await resolveWalletAddress();
 
-			if (!isConnected || !walletClient || !publicClient || !walletAddress) {
+			if (!isConnected || !walletClient || !walletAddress) {
 				setFailed(
 					"Wallet not connected. Connect your wallet and retry submission.",
 				);
 				return undefined;
 			}
 
+			if (isWrongNetwork) {
+				setFailed("Wrong network. Switch to Sepolia and retry submission.");
+				return undefined;
+			}
+
+			if (!publicClient) {
+				setFailed(
+					"Wallet connection is still initializing. Wait a moment and retry submission.",
+				);
+				return undefined;
+			}
+			
 			let pendingCommitHash: `0x${string}` | undefined;
 			let pendingCipherURI: string | undefined;
 			let pendingOasisTxHash: `0x${string}` | undefined;
@@ -387,7 +399,14 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 				return undefined;
 			}
 		},
-		[isConnected, walletClient, publicClient, resolveWalletAddress, setFailed],
+		[
+			isConnected,
+			isWrongNetwork,
+			walletClient,
+			publicClient,
+			resolveWalletAddress,
+			setFailed,
+		],
 	);
 
 	const reset = useCallback(() => {
