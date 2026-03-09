@@ -1,13 +1,16 @@
 import { describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
+import { loadCreSimulatorTriggerConfig } from "./config"
 import { runCronTriggerTick } from "./cron"
 import {
 	claimCreSimulatorTriggerExecution,
 	loadCreSimulatorTriggerStateStore,
 	markCreSimulatorTriggerExecutionQuarantined,
+	recordProjectDeadlineSchedule,
+	scheduleSubmissionRevealDeadlineJob,
 } from "./stateStore"
 
 function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<void> {
@@ -158,5 +161,97 @@ describe("cre-simulator cron triggers", () => {
 				{ force: true },
 			)
 		}
+	})
+
+	it("dispatches due project commit and submission reveal deadline jobs", async () => {
+		await withTempDir(async (tempDir) => {
+			const configPath = join(tempDir, "triggers.json")
+			writeFileSync(
+				configPath,
+				`${JSON.stringify(
+					{
+						schemaVersion: CONFIG_SCHEMA_VERSION,
+						stateFilePath: ".trigger-state.json",
+						httpTriggers: {
+							"manual-reveal-deadline": {
+								adapter: "demo-adjudication-orchestrator",
+								adapterConfig: {
+									configPath: "workflow/jury-orchestrator/run-once.example.json",
+								},
+							},
+						},
+						cronTriggers: {
+							"reveal-relay": {
+								intervalMs: 60_000,
+								adapter: "auto-reveal-relayer",
+							},
+						},
+						evmLogTriggers: {},
+					},
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			)
+
+			const loadedConfig = loadCreSimulatorTriggerConfig(configPath, tempDir)
+			const binding = {
+				configPath: loadedConfig.configPath,
+				stateFilePath: loadedConfig.stateFilePath,
+			}
+			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 1_000)
+			recordProjectDeadlineSchedule(store, {
+				projectId: 9n,
+				commitDeadlineMs: 1_000,
+				revealDeadlineMs: 2_000,
+			})
+			scheduleSubmissionRevealDeadlineJob(store, {
+				projectId: 9n,
+				submissionId: 77n,
+				juryRoundId: 5n,
+				dueAtMs: 2_000,
+			})
+
+			const requests: Array<Record<string, unknown>> = []
+			const result = await runCronTriggerTick(
+				{ repoRoot: tempDir, configPath },
+				{},
+				{
+					nowMs: () => 2_000,
+					executeAdapter: async (request) => {
+						requests.push(request as unknown as Record<string, unknown>)
+						return {
+							adapter: request.adapter,
+							result: { adapter: request.adapter },
+						}
+					},
+				},
+			)
+
+			expect(result.executed).toEqual(
+				expect.arrayContaining([
+					{ triggerName: "reveal-relay", adapter: "auto-reveal-relayer" },
+					{
+						triggerName: "submission-reveal-deadline:77:5",
+						adapter: "demo-adjudication-orchestrator",
+					},
+				]),
+			)
+			expect(requests).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						adapter: "auto-reveal-relayer",
+					}),
+					expect.objectContaining({
+						adapter: "demo-adjudication-orchestrator",
+						inputPayload: {
+							phase: "reveal-deadline",
+							submissionId: "77",
+							juryRoundId: "5",
+						},
+					}),
+				]),
+			)
+		})
 	})
 })
