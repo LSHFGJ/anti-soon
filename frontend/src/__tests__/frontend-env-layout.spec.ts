@@ -20,6 +20,7 @@ describe("frontend env layout", () => {
 		expect(frontendEnvExample).toContain("VITE_REOWN_PROJECT_ID=");
 		expect(frontendEnvExample).toContain("VITE_PUBLIC_APP_URL=");
 		expect(frontendEnvExample).toContain("VITE_OASIS_STORAGE_CONTRACT=");
+		expect(frontendEnvExample).toContain("VITE_CRE_SIM_API_URL=");
 		expect(frontendEnvExample).not.toContain(
 			"VITE_CRE_SIM_OASIS_STORAGE_CONTRACT=",
 		);

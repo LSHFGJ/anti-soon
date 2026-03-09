@@ -54,6 +54,24 @@ export interface WorkflowOwnerAdjudicationDraft {
 	blockers: string[];
 }
 
+export interface WorkflowManualJuryDemoDraft {
+	isVisible: boolean;
+	helper: string;
+	canSubmit: boolean;
+	viewerNote?: string;
+	defaultJuryRoundId: string;
+	verifiedReportSeed: Record<string, unknown>;
+	humanOpinionsSeed: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowAutoRevealDemoDraft {
+	isVisible: boolean;
+	helper: string;
+	canTrigger: boolean;
+	viewerNote?: string;
+	blockers: string[];
+}
+
 export type WorkflowSummaryVariant = "info" | "success" | "warning" | "error";
 
 export interface VerificationWorkflowViewModel {
@@ -63,6 +81,8 @@ export interface VerificationWorkflowViewModel {
 	stages: WorkflowStage[];
 	nodeStatuses: WorkflowNodeStatus[];
 	juryAggregate?: WorkflowJuryAggregate;
+	autoRevealDemo?: WorkflowAutoRevealDemoDraft;
+	manualJuryDemo?: WorkflowManualJuryDemoDraft;
 	ownerAdjudication: WorkflowOwnerAdjudicationDraft;
 	cards: WorkflowCard[];
 }
@@ -71,8 +91,20 @@ interface BuildVerificationWorkflowViewModelArgs {
 	submissionId: bigint;
 	projectId: bigint;
 	actualStatus: number;
+	drainAmountWei: bigint;
+	severity: number;
+	commitTimestamp: bigint;
+	revealTimestamp: bigint;
 	hasActiveDispute: boolean;
 	canPrepareOwnerAdjudication: boolean;
+	canRunManualAutoReveal: boolean;
+	canRunManualJury: boolean;
+	bountyHubAddress: `0x${string}`;
+	projectCommitDeadline?: bigint;
+	projectRevealDeadline?: bigint;
+	projectJuryWindow?: bigint;
+	projectAdjudicationWindow?: bigint;
+	oasisTxHash?: `0x${string}`;
 	lifecycle?: SubmissionLifecycle;
 	jury?: SubmissionJury;
 	grouping?: SubmissionGrouping;
@@ -107,6 +139,164 @@ function isReadableDigest(value: string | undefined): boolean {
 	}
 
 	return /^0x[0-9a-fA-F]{64}$/.test(value) && !/^0x0{64}$/i.test(value);
+}
+
+function makeBytes32Hex(seed: string): `0x${string}` {
+	const normalized =
+		Array.from(seed)
+			.map((character) => character.charCodeAt(0).toString(16).padStart(2, "0"))
+			.join("") || "ab";
+	return `0x${normalized.repeat(Math.ceil(64 / normalized.length)).slice(0, 64)}` as `0x${string}`;
+}
+
+function resolveBytes32OrFallback(
+	value: string | undefined,
+	fallbackSeed: string,
+): `0x${string}` {
+	return isReadableDigest(value)
+		? (value as `0x${string}`)
+		: makeBytes32Hex(fallbackSeed);
+}
+
+function buildManualJuryHumanOpinionSeeds(
+	submissionId: bigint,
+): Array<Record<string, unknown>> {
+	return [
+		"human:alice",
+		"human:bob",
+		"human:carol",
+		"human:dora",
+		"human:erin",
+	].map((jurorId, index) => ({
+		jurorId,
+		finalValidity: "HIGH",
+		rationale: `Manual review slot ${index + 1} confirms exploitable behavior for submission ${submissionId.toString()}.`,
+		testimony: `Human juror ${jurorId} reviewed the reproduced exploit context and agrees this case should continue through the jury path.`,
+	}));
+}
+
+function buildManualJuryDemoDraft(args: {
+	submissionId: bigint;
+	projectId: bigint;
+	actualStatus: number;
+	drainAmountWei: bigint;
+	severity: number;
+	commitTimestamp: bigint;
+	revealTimestamp: bigint;
+	canRunManualJury: boolean;
+	bountyHubAddress: `0x${string}`;
+	projectJuryWindow?: bigint;
+	projectAdjudicationWindow?: bigint;
+	oasisTxHash?: `0x${string}`;
+	lifecycle?: SubmissionLifecycle;
+}): WorkflowManualJuryDemoDraft | undefined {
+	if (args.actualStatus !== 6 && args.actualStatus !== 7) {
+		return undefined;
+	}
+
+	const fallbackSlotId = `slot-${args.submissionId.toString()}`;
+	const verifiedReportSeed: Record<string, unknown> = {
+		magic: "ASRP",
+		reportType: "verified-report/v3",
+		payload: {
+			submissionId: args.submissionId.toString(),
+			projectId: args.projectId.toString(),
+			isValid: false,
+			drainAmountWei: args.drainAmountWei.toString(),
+			observedCalldata: [],
+		},
+		juryCommitment: {
+			commitmentVersion: "anti-soon.verify-poc.jury-commitment.v1",
+			juryLedgerDigest: resolveBytes32OrFallback(
+				args.lifecycle?.juryLedgerDigest,
+				`jury-ledger-${args.submissionId.toString()}`,
+			),
+			sourceEventKey: makeBytes32Hex(
+				`source-event-${args.submissionId.toString()}`,
+			),
+			mappingFingerprint: makeBytes32Hex(
+				`mapping-fingerprint-${args.projectId.toString()}`,
+			),
+		},
+		adjudication: {
+			adjudicationVersion: "anti-soon.verify-poc.adjudication.v1",
+			syncId: makeBytes32Hex(`sync-${args.submissionId.toString()}`),
+			idempotencyKey: makeBytes32Hex(
+				`idempotency-${args.submissionId.toString()}`,
+			),
+			cipherURI: `oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/${fallbackSlotId}#${args.oasisTxHash ?? makeBytes32Hex(`cipher-${args.submissionId.toString()}`)}`,
+			severity: args.severity,
+			juryWindow: (args.projectJuryWindow ?? 3600n).toString(),
+			adjudicationWindow: (args.projectAdjudicationWindow ?? 7200n).toString(),
+			commitTimestampSec: args.commitTimestamp.toString(),
+			revealTimestampSec: args.revealTimestamp.toString(),
+			chainSelectorName: "ethereum-testnet-sepolia",
+			bountyHubAddress: args.bountyHubAddress,
+			oasis: {
+				chain: "oasis-sapphire-testnet",
+				contract: "0x1111111111111111111111111111111111111111",
+				slotId: fallbackSlotId,
+				envelopeHash:
+					args.oasisTxHash ??
+					makeBytes32Hex(`envelope-${args.submissionId.toString()}`),
+			},
+		},
+	};
+
+	return {
+		isVisible: true,
+		canSubmit: args.canRunManualJury,
+		viewerNote: args.canRunManualJury
+			? undefined
+			: "Only the project owner connected to this page can submit the manual jury demo payload from the frontend.",
+		helper:
+			args.actualStatus === 6
+				? "Assemble the editable verified report and five human opinions, then submit them to the backend manual-jury trigger so the mixed LLM + human demo path can run from this page."
+				: "Owner adjudication is open, but you can still rerun the manual-jury demo path here with an editable verified report and human-opinion payload.",
+		defaultJuryRoundId: "1",
+		verifiedReportSeed,
+	humanOpinionsSeed: buildManualJuryHumanOpinionSeeds(args.submissionId),
+	};
+}
+
+function buildAutoRevealDemoDraft(args: {
+	actualStatus: number;
+	revealTimestamp: bigint;
+	canRunManualAutoReveal: boolean;
+	projectCommitDeadline?: bigint;
+	projectRevealDeadline?: bigint;
+}): WorkflowAutoRevealDemoDraft | undefined {
+	if (args.actualStatus !== 0 || args.revealTimestamp > 0n) {
+		return undefined;
+	}
+
+	const deadlineNotes: string[] = [];
+	if (args.projectCommitDeadline && args.projectCommitDeadline > 0n) {
+		deadlineNotes.push(
+			`commit deadline ${new Date(Number(args.projectCommitDeadline) * 1000).toLocaleString()}`,
+		);
+	}
+	if (args.projectRevealDeadline && args.projectRevealDeadline > 0n) {
+		deadlineNotes.push(
+			`reveal deadline ${new Date(Number(args.projectRevealDeadline) * 1000).toLocaleString()}`,
+		);
+	}
+
+	return {
+		isVisible: true,
+		canTrigger: args.canRunManualAutoReveal,
+		viewerNote: args.canRunManualAutoReveal
+			? undefined
+			: "Only the project owner connected to this page can dispatch the backend auto-reveal demo trigger from the frontend.",
+		helper:
+			deadlineNotes.length > 0
+				? `Dispatch the backend auto-reveal relayer cycle for this committed submission. This demo path only succeeds if a queued reveal already exists on-chain and the relayer can execute it during ${deadlineNotes.join(" / ")}.`
+				: "Dispatch the backend auto-reveal relayer cycle for this committed submission. This demo path only succeeds if a queued reveal already exists on-chain and the relayer can execute it.",
+		blockers: [
+			"This frontend action does not create queueRevealBySig authorization; it only triggers the backend relayer cycle.",
+			"The backend must have DEMO_OPERATOR RPC/key env configured and a writable auto-reveal cursor file.",
+		],
+	};
 }
 
 function resolveStageState(
@@ -339,7 +529,6 @@ function buildOwnerAdjudicationDraft(
 		blockers: [
 			"Final adjudication submission is still blocked because the frontend cannot read the required jury recommendation envelope.",
 			"The checked-in frontend surface does not expose the adjudication case or owner handoff package required for final verdict packaging.",
-			"The checked-in backend simulator does not forward arbitrary HTTP trigger payloads into jury-orchestrator.",
 		],
 	};
 }
@@ -348,8 +537,20 @@ export function buildVerificationWorkflowViewModel({
 	submissionId,
 	projectId,
 	actualStatus,
+	drainAmountWei,
+	severity,
+	commitTimestamp,
+	revealTimestamp,
 	hasActiveDispute,
 	canPrepareOwnerAdjudication,
+	canRunManualAutoReveal,
+	canRunManualJury,
+	bountyHubAddress,
+	projectCommitDeadline,
+	projectRevealDeadline,
+	projectJuryWindow,
+	projectAdjudicationWindow,
+	oasisTxHash,
 	lifecycle,
 	jury,
 	grouping,
@@ -379,6 +580,28 @@ export function buildVerificationWorkflowViewModel({
 		jury,
 		grouping,
 	);
+	const autoRevealDemo = buildAutoRevealDemoDraft({
+		actualStatus,
+		revealTimestamp,
+		canRunManualAutoReveal,
+		projectCommitDeadline,
+		projectRevealDeadline,
+	});
+	const manualJuryDemo = buildManualJuryDemoDraft({
+		submissionId,
+		projectId,
+		actualStatus,
+		drainAmountWei,
+		severity,
+		commitTimestamp,
+		revealTimestamp,
+		canRunManualJury,
+		bountyHubAddress,
+		projectJuryWindow,
+		projectAdjudicationWindow,
+		oasisTxHash,
+		lifecycle,
+	});
 	const ownerAdjudication = buildOwnerAdjudicationDraft(
 		submissionId,
 		projectId,
@@ -473,6 +696,8 @@ export function buildVerificationWorkflowViewModel({
 		stages,
 		nodeStatuses,
 		juryAggregate,
+		autoRevealDemo,
+		manualJuryDemo,
 		ownerAdjudication,
 		cards,
 	};

@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+	resolveManualJuryTriggerUrl,
+	submitManualJuryTrigger,
+} from "@/lib/manualJuryClient";
+import {
+	resolveManualRevealTriggerUrl,
+	submitManualRevealTrigger,
+} from "@/lib/manualRevealClient";
 import { cn } from "@/lib/utils";
 import { NeonPanel, StatusBanner } from "./ui-primitives";
 import type {
@@ -27,6 +36,8 @@ const stageStateClasses: Record<WorkflowStageState, string> = {
 export function VerificationWorkflowPanel({
 	workflow,
 }: VerificationWorkflowPanelProps) {
+	const autoRevealDemo = workflow.autoRevealDemo;
+	const manualJuryDemo = workflow.manualJuryDemo;
 	const [ownerTestimony, setOwnerTestimony] = useState("");
 	const [validationErrors, setValidationErrors] = useState<{
 		testimony?: string;
@@ -37,6 +48,31 @@ export function VerificationWorkflowPanel({
 		recommendationReportType: "jury-recommendation/v1";
 		testimony: string;
 	} | null>(null);
+	const [manualJuryRoundId, setManualJuryRoundId] = useState(
+		manualJuryDemo?.defaultJuryRoundId ?? "1",
+	);
+	const [manualJuryVerifiedReport, setManualJuryVerifiedReport] = useState(
+		manualJuryDemo
+			? JSON.stringify(manualJuryDemo.verifiedReportSeed, null, 2)
+			: "",
+	);
+	const [manualJuryHumanOpinions, setManualJuryHumanOpinions] = useState(
+		manualJuryDemo
+			? JSON.stringify(manualJuryDemo.humanOpinionsSeed, null, 2)
+			: "",
+	);
+	const [manualJuryError, setManualJuryError] = useState<string | null>(null);
+	const [manualJuryResult, setManualJuryResult] = useState<{
+		executionKey?: string;
+		finalReportType?: string;
+	} | null>(null);
+	const [manualJurySubmitting, setManualJurySubmitting] = useState(false);
+	const [manualRevealError, setManualRevealError] = useState<string | null>(null);
+	const [manualRevealResult, setManualRevealResult] = useState<{
+		executionKey?: string;
+		executedCount?: number;
+	} | null>(null);
+	const [manualRevealSubmitting, setManualRevealSubmitting] = useState(false);
 
 	function handlePrepareTestimonyPayload() {
 		const nextErrors: { testimony?: string } = {};
@@ -61,6 +97,100 @@ export function VerificationWorkflowPanel({
 			...workflow.ownerAdjudication.testimonyPayloadSeed,
 			testimony: ownerTestimony.trim(),
 		});
+	}
+
+	async function handleSubmitManualJuryDemo() {
+		if (!manualJuryDemo) {
+			return;
+		}
+
+		setManualJuryError(null);
+		setManualJuryResult(null);
+
+		let verifiedReport: unknown;
+		let humanOpinions: unknown;
+		let juryRoundId = 1;
+
+		try {
+			verifiedReport = JSON.parse(manualJuryVerifiedReport);
+		} catch {
+			setManualJuryError(
+				"Verified report JSON must parse before the manual jury demo can be submitted.",
+			);
+			return;
+		}
+
+		try {
+			humanOpinions = JSON.parse(manualJuryHumanOpinions);
+		} catch {
+			setManualJuryError(
+				"Human opinions JSON must parse before the manual jury demo can be submitted.",
+			);
+			return;
+		}
+
+		if (!Array.isArray(humanOpinions)) {
+			setManualJuryError(
+				"Human opinions JSON must be an array for the manual jury demo trigger.",
+			);
+			return;
+		}
+
+		if (manualJuryRoundId.trim().length > 0) {
+			juryRoundId = Number.parseInt(manualJuryRoundId.trim(), 10);
+			if (!Number.isFinite(juryRoundId) || juryRoundId <= 0) {
+				setManualJuryError(
+					"Jury round id must be a positive integer before submitting the manual jury demo.",
+				);
+				return;
+			}
+		}
+
+		setManualJurySubmitting(true);
+		try {
+			const response = await submitManualJuryTrigger({
+				verifiedReport,
+				humanOpinions,
+				juryRoundId,
+			});
+			setManualJuryResult({
+				executionKey: response.executionKey,
+				finalReportType: response.result?.result?.finalReportType,
+			});
+		} catch (error) {
+			setManualJuryError(
+				error instanceof Error
+					? error.message
+					: "Manual jury demo submission failed.",
+			);
+		} finally {
+			setManualJurySubmitting(false);
+		}
+	}
+
+	async function handleTriggerManualAutoReveal() {
+		if (!autoRevealDemo) {
+			return;
+		}
+
+		setManualRevealError(null);
+		setManualRevealResult(null);
+		setManualRevealSubmitting(true);
+		try {
+			const response = await submitManualRevealTrigger();
+			setManualRevealResult({
+				executionKey: response.executionKey,
+				executedCount: response.result?.result?.executedCount,
+			});
+		} catch (error) {
+			setManualRevealError(
+				error instanceof Error
+					? error.message
+					: "Manual auto-reveal trigger failed.",
+			);
+		} finally {
+			setManualRevealSubmitting(false);
+		}
 	}
 
 	return (
@@ -184,6 +314,242 @@ export function VerificationWorkflowPanel({
 							</NeonPanel>
 						))}
 					</div>
+				</div>
+			)}
+
+			{autoRevealDemo?.isVisible && (
+				<div className="mt-4 space-y-3">
+					<h4 className="text-[0.7rem] font-mono tracking-wider text-[var(--color-secondary)] uppercase">
+						MANUAL_AUTO_REVEAL
+					</h4>
+					<NeonPanel
+						tone="warning"
+						className="shadow-none"
+						contentClassName="space-y-4 p-4"
+					>
+						<div className="space-y-2">
+							<p className="text-xs font-mono leading-relaxed text-[var(--color-text-dim)]">
+								{autoRevealDemo.helper}
+							</p>
+							<p className="text-[0.7rem] font-mono uppercase tracking-wider text-[var(--color-warning)]">
+								Trigger endpoint: {resolveManualRevealTriggerUrl()}
+							</p>
+						</div>
+
+						<StatusBanner
+							variant="warning"
+							message={
+								<div className="space-y-1">
+									<p className="font-bold tracking-wider">
+										AUTO_REVEAL_PRECONDITIONS
+									</p>
+									{autoRevealDemo.blockers.map((blocker) => (
+										<p key={blocker} className="text-xs leading-relaxed">
+											{blocker}
+										</p>
+									))}
+								</div>
+							}
+						/>
+
+						{autoRevealDemo.viewerNote && (
+							<StatusBanner
+								variant="info"
+								message={
+									<p className="text-xs leading-relaxed">
+										{autoRevealDemo.viewerNote}
+									</p>
+								}
+							/>
+						)}
+
+						{manualRevealError && (
+							<StatusBanner
+								variant="error"
+								message={
+									<div className="space-y-1">
+										<p className="font-bold tracking-wider">
+											MANUAL_AUTO_REVEAL_ERROR
+										</p>
+										<p className="text-xs leading-relaxed">{manualRevealError}</p>
+									</div>
+								}
+							/>
+						)}
+
+						<Button
+							onClick={handleTriggerManualAutoReveal}
+							disabled={!autoRevealDemo.canTrigger || manualRevealSubmitting}
+							className="w-full bg-transparent border border-[var(--color-warning)] text-[var(--color-warning)] hover:bg-[var(--color-warning)] hover:text-[var(--color-bg)] font-mono"
+						>
+							{manualRevealSubmitting
+								? "[ TRIGGERING AUTO-REVEAL... ]"
+								: "[ TRIGGER AUTO-REVEAL ]"}
+						</Button>
+
+						{manualRevealResult && (
+							<StatusBanner
+								variant="warning"
+								message={
+									<div className="space-y-3">
+										<p className="font-bold tracking-wider">
+											MANUAL_AUTO_REVEAL_SUBMITTED
+										</p>
+										<p className="text-xs leading-relaxed">
+											Execution key: {manualRevealResult.executionKey ?? "pending"}
+										</p>
+										{typeof manualRevealResult.executedCount === "number" && (
+											<p className="text-xs leading-relaxed">
+												Executed queued reveals: {manualRevealResult.executedCount}
+											</p>
+										)}
+									</div>
+								}
+							/>
+						)}
+					</NeonPanel>
+				</div>
+			)}
+
+			{manualJuryDemo?.isVisible && (
+				<div className="mt-4 space-y-3">
+					<h4 className="text-[0.7rem] font-mono tracking-wider text-[var(--color-secondary)] uppercase">
+						MANUAL_JURY_DEMO
+					</h4>
+					<NeonPanel
+						tone="warning"
+						className="shadow-none"
+						contentClassName="space-y-4 p-4"
+					>
+						<div className="space-y-2">
+							<p className="text-xs font-mono leading-relaxed text-[var(--color-text-dim)]">
+								{manualJuryDemo.helper}
+							</p>
+							<p className="text-[0.7rem] font-mono uppercase tracking-wider text-[var(--color-warning)]">
+								Trigger endpoint: {resolveManualJuryTriggerUrl()}
+							</p>
+						</div>
+
+						<div className="space-y-2">
+							<label
+								htmlFor="manual-jury-round-id"
+								className="block text-[0.72rem] font-mono uppercase tracking-wider text-[var(--color-text)]"
+							>
+								Jury Round Id
+							</label>
+							<Input
+								id="manual-jury-round-id"
+								type="number"
+								min={1}
+								value={manualJuryRoundId}
+								onChange={(event) => {
+									setManualJuryRoundId(event.target.value);
+									setManualJuryError(null);
+									setManualJuryResult(null);
+								}}
+								disabled={!manualJuryDemo.canSubmit || manualJurySubmitting}
+							/>
+						</div>
+
+						<div className="space-y-2">
+							<label
+								htmlFor="manual-jury-verified-report"
+								className="block text-[0.72rem] font-mono uppercase tracking-wider text-[var(--color-text)]"
+							>
+								Verified Report JSON
+							</label>
+							<Textarea
+								id="manual-jury-verified-report"
+								rows={12}
+								value={manualJuryVerifiedReport}
+								onChange={(event) => {
+									setManualJuryVerifiedReport(event.target.value);
+									setManualJuryError(null);
+									setManualJuryResult(null);
+								}}
+								disabled={!manualJuryDemo.canSubmit || manualJurySubmitting}
+								className="min-h-[220px] resize-y bg-background/50 font-mono text-[0.72rem]"
+							/>
+						</div>
+
+						<div className="space-y-2">
+							<label
+								htmlFor="manual-jury-human-opinions"
+								className="block text-[0.72rem] font-mono uppercase tracking-wider text-[var(--color-text)]"
+							>
+								Human Opinions JSON
+							</label>
+							<Textarea
+								id="manual-jury-human-opinions"
+								rows={12}
+								value={manualJuryHumanOpinions}
+								onChange={(event) => {
+									setManualJuryHumanOpinions(event.target.value);
+									setManualJuryError(null);
+									setManualJuryResult(null);
+								}}
+								disabled={!manualJuryDemo.canSubmit || manualJurySubmitting}
+								className="min-h-[220px] resize-y bg-background/50 font-mono text-[0.72rem]"
+							/>
+						</div>
+
+						{manualJuryDemo.viewerNote && (
+							<StatusBanner
+								variant="info"
+								message={
+									<p className="text-xs leading-relaxed">
+										{manualJuryDemo.viewerNote}
+									</p>
+								}
+							/>
+						)}
+
+						{manualJuryError && (
+							<StatusBanner
+								variant="error"
+								message={
+									<div className="space-y-1">
+										<p className="font-bold tracking-wider">
+											MANUAL_JURY_ERROR
+										</p>
+										<p className="text-xs leading-relaxed">{manualJuryError}</p>
+									</div>
+								}
+							/>
+						)}
+
+						<Button
+							onClick={handleSubmitManualJuryDemo}
+							disabled={!manualJuryDemo.canSubmit || manualJurySubmitting}
+							className="w-full bg-transparent border border-[var(--color-warning)] text-[var(--color-warning)] hover:bg-[var(--color-warning)] hover:text-[var(--color-bg)] font-mono"
+						>
+							{manualJurySubmitting
+								? "[ SUBMITTING MANUAL JURY DEMO... ]"
+								: "[ SUBMIT MANUAL JURY DEMO ]"}
+						</Button>
+
+						{manualJuryResult && (
+							<StatusBanner
+								variant="warning"
+								message={
+									<div className="space-y-3">
+										<p className="font-bold tracking-wider">
+											MANUAL_JURY_SUBMITTED
+										</p>
+										<p className="text-xs leading-relaxed">
+											Execution key:{" "}
+											{manualJuryResult.executionKey ?? "pending"}
+										</p>
+										{manualJuryResult.finalReportType && (
+											<p className="text-xs leading-relaxed">
+												Final report type: {manualJuryResult.finalReportType}
+											</p>
+										)}
+									</div>
+								}
+							/>
+						)}
+					</NeonPanel>
 				</div>
 			)}
 
