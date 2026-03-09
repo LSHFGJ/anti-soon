@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { buildVerifyPocStrictFailEvidenceEnvelope, encodeVerifyPocTypedReportEnvelope } from "../../../../workflow/verify-poc/main"
 import { dispatchEvmLogTriggerEvent } from "./evmLog"
 import {
 	claimCreSimulatorTriggerExecution,
+	getProjectDeadlineSchedule,
 	loadCreSimulatorTriggerStateStore,
 	markCreSimulatorTriggerExecutionQuarantined,
 } from "./stateStore"
@@ -65,6 +67,10 @@ describe("cre-simulator EVM-log triggers", () => {
 					triggerName: "project-registered",
 					event: {
 						address: BOUNTY_HUB_ADDRESS,
+						topics: [
+							PROJECT_REGISTERED_TOPIC0,
+							"0x0000000000000000000000000000000000000000000000000000000000000009",
+						],
 						topic0: PROJECT_REGISTERED_TOPIC0,
 						txHash:
 							"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -75,6 +81,10 @@ describe("cre-simulator EVM-log triggers", () => {
 				{},
 				{
 					nowMs: () => 1000,
+					readProject: async () => ({
+						commitDeadline: 10n,
+						revealDeadline: 20n,
+					}),
 					executeAdapter: async (request) => {
 						adapterRequest = request as unknown as Record<string, unknown>
 						return {
@@ -97,6 +107,214 @@ describe("cre-simulator EVM-log triggers", () => {
 				evmTxHash:
 					"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 				evmEventIndex: 0,
+			})
+		})
+	})
+
+	it("bootstraps project deadline schedule from project registration logs", async () => {
+		await withTempDir(async (tempDir) => {
+			const configPath = join(tempDir, "triggers.json")
+			writeFileSync(
+				configPath,
+				`${JSON.stringify(
+					{
+						schemaVersion: CONFIG_SCHEMA_VERSION,
+						stateFilePath: ".trigger-state.json",
+						httpTriggers: {},
+						cronTriggers: {},
+						evmLogTriggers: {
+							"project-registered": {
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/vnet-init",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
+								topic0: PROJECT_REGISTERED_TOPIC0,
+							},
+						},
+					},
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			)
+
+			await dispatchEvmLogTriggerEvent(
+				{
+					repoRoot: tempDir,
+					configPath,
+					triggerName: "project-registered",
+					event: {
+						address: BOUNTY_HUB_ADDRESS,
+						topics: [
+							PROJECT_REGISTERED_TOPIC0,
+							"0x0000000000000000000000000000000000000000000000000000000000000009",
+						],
+						topic0: PROJECT_REGISTERED_TOPIC0,
+						txHash:
+							"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+						logIndex: 0,
+						blockNumber: 101n,
+					},
+				},
+				{},
+				{
+					nowMs: () => 1000,
+					readProject: async (projectId) => {
+						expect(projectId).toBe(9n)
+						return {
+							commitDeadline: 10n,
+							revealDeadline: 20n,
+						}
+					},
+					executeAdapter: async (request) => ({
+						adapter: request.adapter,
+						result: { adapter: request.adapter },
+					}),
+				},
+			)
+
+			const binding = {
+				configPath,
+				stateFilePath: join(tempDir, ".trigger-state.json"),
+			}
+			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 2000)
+			expect(getProjectDeadlineSchedule(store, 9n)).toEqual({
+				projectId: "9",
+				commitDeadlineMs: 10_000,
+				revealDeadlineMs: 20_000,
+			})
+		})
+	})
+
+	it("auto-dispatches commit deadline when verify-poc emits strict-fail evidence", async () => {
+		await withTempDir(async (tempDir) => {
+			const configPath = join(tempDir, "triggers.json")
+			writeFileSync(
+				configPath,
+				`${JSON.stringify(
+					{
+						schemaVersion: CONFIG_SCHEMA_VERSION,
+						stateFilePath: ".trigger-state.json",
+						httpTriggers: {
+							"manual-commit-deadline": {
+								adapter: "demo-adjudication-orchestrator",
+								adapterConfig: {
+									configPath: "workflow/jury-orchestrator/run-once.example.json",
+								},
+							},
+						},
+						cronTriggers: {},
+						evmLogTriggers: {
+							"poc-revealed": {
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/verify-poc",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
+								topic0: TOPIC0,
+							},
+						},
+					},
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			)
+
+			const verifyPocReport = encodeVerifyPocTypedReportEnvelope(
+				buildVerifyPocStrictFailEvidenceEnvelope({
+					submissionId: 9n,
+					projectId: 3n,
+					cipherURI:
+						"oasis://oasis-sapphire-testnet/0x1111111111111111111111111111111111111111/slot-42#0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+					severity: 2,
+					juryWindow: 3600n,
+					adjudicationWindow: 7200n,
+					commitTimestampSec: 1700000000n,
+					revealTimestampSec: 1700000060n,
+					syncId:
+						"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+					oasisReference: {
+						pointer: {
+							chain: "oasis-sapphire-testnet",
+							contract: "0x1111111111111111111111111111111111111111",
+							slotId: "slot-42",
+						},
+						envelopeHash:
+							"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+					},
+					sourceEventKey:
+						"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					idempotencyKey:
+						"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+					mappingFingerprint:
+						"0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+					verifyResult: {
+						isValid: false,
+						drainAmountWei: 0n,
+						reasonCode: "BINDING_MISMATCH",
+						sapphireWriteTimestampSec: 1700000005n,
+					},
+					chainSelectorName: "ethereum-testnet-sepolia",
+					bountyHubAddress: BOUNTY_HUB_ADDRESS,
+				}),
+			)
+
+			const requests: Array<Record<string, unknown>> = []
+			await dispatchEvmLogTriggerEvent(
+				{
+					repoRoot: tempDir,
+					configPath,
+					triggerName: "poc-revealed",
+					event: {
+						address: BOUNTY_HUB_ADDRESS,
+						topic0: TOPIC0,
+						txHash:
+							"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+						logIndex: 4,
+						blockNumber: 88n,
+					},
+				},
+				{},
+				{
+					nowMs: () => 1_000,
+					executeAdapter: async (request) => {
+						requests.push(request as unknown as Record<string, unknown>)
+						if (request.adapter === "cre-workflow-simulate") {
+							return {
+								adapter: request.adapter,
+								result: {
+									mode: "cre-workflow-simulate",
+									workflowPath: "workflow/verify-poc",
+									workflowResult: verifyPocReport,
+								},
+							}
+						}
+
+						return {
+							adapter: request.adapter,
+							result: { phase: "commit-deadline", juryTriggered: true },
+						}
+					},
+				},
+			)
+
+			expect(requests).toHaveLength(2)
+			expect(requests[1]).toMatchObject({
+				adapter: "demo-adjudication-orchestrator",
+				inputPayload: {
+					phase: "commit-deadline",
+					verifyPocReport,
+				},
 			})
 		})
 	})

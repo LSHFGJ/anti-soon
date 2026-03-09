@@ -32,6 +32,20 @@ export type CreWorkflowSimulateResult = {
 	outputPath: string
 	resultPath: string
 	simulateCommand: string[]
+	workflowResult?: unknown
+}
+
+function parseWorkflowResult(stdout: string): unknown {
+	const trimmed = stdout.trim()
+	if (!trimmed) {
+		return undefined
+	}
+
+	try {
+		return JSON.parse(trimmed) as unknown
+	} catch {
+		return trimmed
+	}
 }
 
 type ExecuteCreWorkflowSimulateArgs = {
@@ -204,6 +218,9 @@ export async function executeCreWorkflowSimulateAdapter(
 			outputPath,
 			resultPath,
 			simulateCommand: [commandSpec.command, ...commandSpec.args],
+			...(commandResult.stdout.trim().length > 0
+				? { workflowResult: parseWorkflowResult(commandResult.stdout) }
+				: {}),
 		}
 
 		ensureParentDirectory(outputPath)
