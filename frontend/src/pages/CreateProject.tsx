@@ -1277,6 +1277,7 @@ export function CreateProject() {
 
 							{activeStep < STEPS.length - 1 ? (
 								<Button
+									key="wizard-next"
 									type="button"
 									onClick={handleNext}
 									className="btn-cyber"
@@ -1285,6 +1286,7 @@ export function CreateProject() {
 								</Button>
 							) : (
 							<Button
+								key="wizard-review-action"
 								type={reviewActionType}
 								onClick={reviewActionType === "button" ? handleReviewAction : undefined}
 								disabled={isSubmitting || !!txHash}

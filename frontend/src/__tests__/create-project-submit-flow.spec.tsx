@@ -107,6 +107,7 @@ describe('CreateProject submit flow', () => {
 
     await screen.findByText('// STEP_07: REVIEW & SUBMIT')
     expect(screen.getByText(selectedScopeAddress)).toBeInTheDocument()
+    expect(mockWriteContract).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: /submit project/i }))
 
