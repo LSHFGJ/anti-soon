@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { isAddress, parseEther } from "viem";
@@ -32,6 +32,7 @@ import type { ContractScope, DeployScript } from "@/types";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
 import { useWallet } from "../hooks/useWallet";
 import { buildCreateProjectThresholdPayload } from "../lib/createProjectThresholds";
+import { clearPublicClientReadCache } from "../lib/publicClient";
 import { createReactHookFormZodResolver } from "../lib/reactHookFormZodResolver";
 
 const isValidAddress = (val: string): boolean => isAddress(val);
@@ -166,7 +167,7 @@ const STEPS = [
 const stepFields: Record<number, (keyof FormData)[]> = {
 	0: [],
 	1: [],
-	2: [],
+	2: ["targetContract"],
 	3: [
 		"bountyPool",
 		"maxPayout",
@@ -208,6 +209,25 @@ export function CreateProject() {
 		resolver: createReactHookFormZodResolver(createProjectSchema),
 		defaultValues,
 		mode: "onChange",
+		shouldUnregister: false,
+	});
+	const primaryScopeAddress = scopes[0]?.address ?? null;
+
+	useEffect(() => {
+		form.register("targetContract");
+	}, [form]);
+
+	const bindTextInput = (field: {
+		name: keyof FormData;
+		value: string | undefined;
+		onBlur: () => void;
+		onChange: (value: string) => void;
+	}) => ({
+		name: field.name,
+		value: field.value ?? "",
+		onBlur: field.onBlur,
+		onChange: (event: ChangeEvent<HTMLInputElement>) =>
+			field.onChange(event.target.value),
 	});
 
 	const parseRepoUrl = (
@@ -243,12 +263,14 @@ export function CreateProject() {
 			setScripts([]);
 			setSelectedScript(null);
 			setScopes([]);
+			form.setValue("targetContract", defaultValues.targetContract);
 			return;
 		}
 
 		setIsScanning(true);
 		setSelectedScript(null);
 		setScopes([]);
+		form.setValue("targetContract", defaultValues.targetContract);
 
 		try {
 			const scriptDirResponse = await fetch(
@@ -344,6 +366,58 @@ export function CreateProject() {
 		setActiveStep((prev) => prev - 1);
 	};
 
+	const getSubmissionSnapshot = (): FormData => {
+		const values = form.getValues();
+		const definedValues = Object.fromEntries(
+			Object.entries(values).filter(([, value]) => value !== undefined),
+		) as Partial<FormData>;
+
+		return {
+			...defaultValues,
+			...definedValues,
+			targetContract:
+				primaryScopeAddress ?? definedValues.targetContract ?? defaultValues.targetContract,
+		};
+	};
+
+	const handleValidatedSubmit = async () => {
+		form.clearErrors();
+		setTxError(null);
+
+		const snapshot = getSubmissionSnapshot();
+		const result = await createProjectSchema.safeParseAsync(snapshot);
+
+		if (!result.success) {
+			for (const issue of result.error.issues) {
+				const fieldName = issue.path[0];
+				if (typeof fieldName === "string") {
+					form.setError(fieldName as keyof FormData, {
+						type: "manual",
+						message: issue.message,
+					});
+				}
+			}
+
+			const firstFieldIssue = result.error.issues.find(
+				(issue) => typeof issue.path[0] === "string",
+			);
+			if (firstFieldIssue) {
+				const fieldName = firstFieldIssue.path[0] as keyof FormData;
+				const issueStep = Object.entries(stepFields).find(([, fields]) =>
+					fields.includes(fieldName),
+				);
+				if (issueStep) {
+					setActiveStep(Number(issueStep[0]));
+				}
+			}
+
+			setTxError("Review the highlighted fields before submitting");
+			return;
+		}
+
+		await handleSubmit(result.data);
+	};
+
 	const handleSubmit = async (data: FormData) => {
 		if (!isConnected || !walletClient) {
 			setTxError("Wallet not connected");
@@ -352,6 +426,13 @@ export function CreateProject() {
 
 		const scopeStepValid = await validateStep(2);
 		if (!scopeStepValid) {
+			setActiveStep(2);
+			return;
+		}
+
+		const targetContract = primaryScopeAddress ?? data.targetContract;
+		if (!targetContract || !isValidAddress(targetContract)) {
+			setTxError("Select at least one contract in scope before submitting");
 			setActiveStep(2);
 			return;
 		}
@@ -382,7 +463,7 @@ export function CreateProject() {
 				account: address,
 				value: parseEther(data.bountyPool),
 				args: [
-					data.targetContract as `0x${string}`,
+					targetContract as `0x${string}`,
 					parseEther(data.maxPayout),
 					BigInt(data.forkBlock || 0),
 					data.mode === "0" ? 0 : 1,
@@ -397,6 +478,7 @@ export function CreateProject() {
 					},
 				],
 			});
+			clearPublicClientReadCache();
 
 			setTxHash(hash);
 
@@ -520,6 +602,11 @@ export function CreateProject() {
 					initialScopes={scopes}
 					onScopeChange={(newScopes) => {
 						setScopes(newScopes);
+						form.setValue(
+							"targetContract",
+							newScopes[0]?.address ?? defaultValues.targetContract,
+							{ shouldDirty: true, shouldValidate: true },
+						);
 						setTxError(null);
 					}}
 				/>
@@ -548,7 +635,8 @@ export function CreateProject() {
 									step="0.001"
 									placeholder="1.0"
 									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
+									ref={field.ref}
+									{...bindTextInput(field)}
 								/>
 							</FormControl>
 							<FormMessage className="text-[var(--color-error)]" />
@@ -570,7 +658,8 @@ export function CreateProject() {
 									step="0.001"
 									placeholder="0.5"
 									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
+									ref={field.ref}
+									{...bindTextInput(field)}
 								/>
 							</FormControl>
 							<FormMessage className="text-[var(--color-error)]" />
@@ -587,7 +676,7 @@ export function CreateProject() {
 						<FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
 							COMPETITION MODE *
 						</FormLabel>
-						<Select onValueChange={field.onChange} defaultValue={field.value}>
+			<Select onValueChange={field.onChange} value={field.value}>
 							<FormControl>
 								<SelectTrigger className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]">
 									<SelectValue placeholder="Select mode" />
@@ -636,7 +725,8 @@ export function CreateProject() {
 									placeholder="168"
 									min="1"
 									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
+									ref={field.ref}
+									{...bindTextInput(field)}
 								/>
 							</FormControl>
 							<FormMessage className="text-[var(--color-error)]" />
@@ -658,7 +748,8 @@ export function CreateProject() {
 									placeholder="336"
 									min="1"
 									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
+									ref={field.ref}
+									{...bindTextInput(field)}
 								/>
 							</FormControl>
 							<FormMessage className="text-[var(--color-error)]" />
@@ -675,92 +766,7 @@ export function CreateProject() {
 				{"// STEP_05: VERIFICATION RULES"}
 			</h3>
 
-			<div className="grid grid-cols-2 gap-6">
-				<FormField
-					control={form.control}
-					name="maxAttackerSeed"
-					render={({ field }) => (
-						<FormItem>
-							<FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
-								MAX ATTACKER SEED (ETH) *
-							</FormLabel>
-							<FormControl>
-								<Input
-									type="number"
-									step="0.1"
-									placeholder="10"
-									min="0"
-									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
-								/>
-							</FormControl>
-							<FormDescription className="text-xs text-[var(--color-text-dim)]">
-								Maximum ETH attacker can give themselves in setup
-							</FormDescription>
-							<FormMessage className="text-[var(--color-error)]" />
-						</FormItem>
-					)}
-				/>
-
-				<FormField
-					control={form.control}
-					name="maxWarpSeconds"
-					render={({ field }) => (
-						<FormItem>
-							<FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
-								MAX WARP SECONDS *
-							</FormLabel>
-							<FormControl>
-								<Input
-									type="number"
-									placeholder="86400"
-									min="0"
-									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
-								/>
-							</FormControl>
-							<FormDescription className="text-xs text-[var(--color-text-dim)]">
-								Maximum time the PoC can warp forward (0 = unlimited)
-							</FormDescription>
-							<FormMessage className="text-[var(--color-error)]" />
-						</FormItem>
-					)}
-				/>
-			</div>
-
-			<FormField
-				control={form.control}
-				name="allowImpersonation"
-				render={({ field }) => (
-					<FormItem className="mt-6">
-						<label
-							className={`flex items-center gap-3 cursor-pointer p-4 border rounded-md transition-colors ${field.value ? "border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)]" : "border-[var(--color-text-dim)] bg-transparent"}`}
-						>
-							<FormControl>
-								<input
-									type="checkbox"
-									checked={field.value}
-									onChange={(e) => field.onChange(e.target.checked)}
-									className="w-4 h-4 accent-[var(--color-primary)]"
-								/>
-							</FormControl>
-							<div>
-								<span
-									className={`cursor-pointer ${field.value ? "font-bold" : ""}`}
-								>
-									ALLOW IMPERSONATION
-								</span>
-								<p className="text-xs mt-1 text-[var(--color-text-dim)]">
-									Allow PoC to impersonate arbitrary addresses (e.g., for
-									governance attacks)
-								</p>
-							</div>
-						</label>
-					</FormItem>
-				)}
-			/>
-
-			<div className="mt-6 max-w-[300px]">
+			<div className="max-w-[300px]">
 				<FormField
 					control={form.control}
 					name="disputeWindowHours"
@@ -775,7 +781,8 @@ export function CreateProject() {
 									placeholder="48"
 									min="1"
 									className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-									{...field}
+									ref={field.ref}
+									{...bindTextInput(field)}
 								/>
 							</FormControl>
 							<FormDescription className="text-xs text-[var(--color-text-dim)]">
@@ -786,6 +793,96 @@ export function CreateProject() {
 					)}
 				/>
 			</div>
+
+			<details className="mt-6 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)] p-4">
+				<summary className="cursor-pointer list-none text-xs font-mono uppercase tracking-wider text-[var(--color-text-dim)]">
+					[ ADVANCED SANDBOX RULES ]
+				</summary>
+
+				<div className="mt-4 grid grid-cols-2 gap-6">
+					<FormField
+						control={form.control}
+						name="maxAttackerSeed"
+						render={({ field }) => (
+							<FormItem>
+								<FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
+									MAX ATTACKER SEED (ETH) *
+								</FormLabel>
+								<FormControl>
+									<Input
+										type="number"
+										step="0.1"
+										placeholder="10"
+										min="0"
+										className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+										ref={field.ref}
+										{...bindTextInput(field)}
+									/>
+								</FormControl>
+								<FormDescription className="text-xs text-[var(--color-text-dim)]">
+									Maximum ETH attacker can give themselves in setup
+								</FormDescription>
+								<FormMessage className="text-[var(--color-error)]" />
+							</FormItem>
+						)}
+					/>
+
+					<FormField
+						control={form.control}
+						name="maxWarpSeconds"
+						render={({ field }) => (
+							<FormItem>
+								<FormLabel className="text-xs uppercase tracking-wider text-[var(--color-text-dim)]">
+									MAX WARP SECONDS *
+								</FormLabel>
+								<FormControl>
+									<Input
+										type="number"
+										placeholder="86400"
+										min="0"
+										className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
+										ref={field.ref}
+										{...bindTextInput(field)}
+									/>
+								</FormControl>
+								<FormDescription className="text-xs text-[var(--color-text-dim)]">
+									Maximum time the PoC can warp forward (0 = unlimited)
+								</FormDescription>
+								<FormMessage className="text-[var(--color-error)]" />
+							</FormItem>
+						)}
+					/>
+				</div>
+
+				<FormField
+					control={form.control}
+					name="allowImpersonation"
+					render={({ field }) => (
+						<FormItem className="mt-6">
+							<label
+								className={`flex items-center gap-3 cursor-pointer p-4 border rounded-md transition-colors ${field.value ? "border-[var(--color-primary)] bg-[rgba(124,58,237,0.1)]" : "border-[var(--color-text-dim)] bg-transparent"}`}
+							>
+								<FormControl>
+									<input
+										type="checkbox"
+										checked={field.value}
+										onChange={(e) => field.onChange(e.target.checked)}
+										className="w-4 h-4 accent-[var(--color-primary)]"
+									/>
+								</FormControl>
+								<div>
+									<span className={`cursor-pointer ${field.value ? "font-bold" : ""}`}>
+										ALLOW IMPERSONATION
+									</span>
+									<p className="text-xs mt-1 text-[var(--color-text-dim)]">
+										Allow PoC to impersonate arbitrary addresses (e.g., for governance attacks)
+									</p>
+								</div>
+							</label>
+						</FormItem>
+					)}
+				/>
+			</details>
 		</div>
 	);
 
@@ -815,7 +912,8 @@ export function CreateProject() {
 										placeholder="5"
 										min="0"
 										className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-										{...field}
+										ref={field.ref}
+										{...bindTextInput(field)}
 									/>
 								</FormControl>
 								<FormMessage className="text-[var(--color-error)] text-xs" />
@@ -839,7 +937,8 @@ export function CreateProject() {
 										placeholder="2"
 										min="0"
 										className="bg-transparent border-[var(--color-bg-light)] focus:border-[var(--color-primary)]"
-										{...field}
+										ref={field.ref}
+										{...bindTextInput(field)}
 									/>
 								</FormControl>
 								<FormMessage className="text-[var(--color-error)] text-xs" />
@@ -853,7 +952,8 @@ export function CreateProject() {
 	);
 
 	const renderReviewStep = () => {
-		const formData = form.getValues();
+		const formData = getSubmissionSnapshot();
+		const reviewTargetContract = primaryScopeAddress ?? formData.targetContract;
 
 		return (
 			<div className="animate-[fadeIn_0.3s_linear]">
@@ -870,7 +970,19 @@ export function CreateProject() {
 							<div className="mb-2">
 								<span className="text-[var(--color-text-dim)]">TARGET: </span>
 								<span className="text-[var(--color-text)]">
-									{formData.targetContract || "—"}
+									{reviewTargetContract || "—"}
+								</span>
+							</div>
+							<div className="mb-2">
+								<span className="text-[var(--color-text-dim)]">SCRIPT: </span>
+								<span className="text-[var(--color-text)]">
+									{selectedScript?.name || "—"}
+								</span>
+							</div>
+							<div className="mt-2">
+								<span className="text-[var(--color-text-dim)]">IN_SCOPE: </span>
+								<span className="text-[var(--color-text)]">
+									{scopes.length > 0 ? `${scopes.length} contract${scopes.length === 1 ? "" : "s"}` : "—"}
 								</span>
 							</div>
 							<div className="mt-2">
@@ -910,11 +1022,11 @@ export function CreateProject() {
 						</div>
 					</div>
 
-					<div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
-						<h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
-							[RULES]
-						</h4>
-						<div className="text-sm font-mono">
+					<details className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
+						<summary className="cursor-pointer list-none text-xs font-mono text-[var(--color-secondary)]">
+							[ ADVANCED RULES ]
+						</summary>
+						<div className="mt-4 text-sm font-mono">
 							<div className="mb-2">
 								<span className="text-[var(--color-text-dim)]">MAX_SEED: </span>
 								<span>{formData.maxAttackerSeed} ETH</span>
@@ -924,21 +1036,13 @@ export function CreateProject() {
 								<span>{formData.maxWarpSeconds}s</span>
 							</div>
 							<div>
-								<span className="text-[var(--color-text-dim)]">
-									IMPERSONATE:{" "}
-								</span>
-								<span
-									className={
-										formData.allowImpersonation
-											? "text-[var(--color-primary)]"
-											: "text-[var(--color-error)]"
-									}
-								>
+								<span className="text-[var(--color-text-dim)]">IMPERSONATE: </span>
+								<span className={formData.allowImpersonation ? "text-[var(--color-primary)]" : "text-[var(--color-error)]"}>
 									{formData.allowImpersonation ? "YES" : "NO"}
 								</span>
 							</div>
 						</div>
-					</div>
+					</details>
 
 					<div className="p-4 border rounded-md border-[var(--color-bg-light)] bg-[rgba(255,255,255,0.02)]">
 						<h4 className="mb-4 text-xs font-mono text-[var(--color-secondary)]">
@@ -1057,8 +1161,8 @@ export function CreateProject() {
 		);
 	};
 
-	const renderCurrentStep = () => {
-		switch (activeStep) {
+	const renderStepContent = (stepIndex: number) => {
+		switch (stepIndex) {
 			case 0:
 				return renderRepositoryStep();
 			case 1:
@@ -1078,6 +1182,18 @@ export function CreateProject() {
 		}
 	};
 
+	const renderCurrentStep = () =>
+		STEPS.map((step, index) => (
+			<div
+				key={step}
+				hidden={activeStep !== index}
+				aria-hidden={activeStep !== index}
+				className={activeStep === index ? "h-full" : "hidden"}
+			>
+				{renderStepContent(index)}
+			</div>
+		));
+
 	return (
 		<div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
 			<div className="container flex-1 flex flex-col min-h-0">
@@ -1091,7 +1207,10 @@ export function CreateProject() {
 
 				<Form {...form}>
 					<form
-						onSubmit={form.handleSubmit(handleSubmit)}
+						onSubmit={(event) => {
+							event.preventDefault();
+							void handleValidatedSubmit();
+						}}
 						className="flex flex-col flex-1 min-h-0"
 					>
 						<NeonPanel className="flex-1 overflow-auto" contentClassName="p-4">
