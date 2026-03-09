@@ -148,10 +148,14 @@ async function defaultCreateSubscription(args: CreateSubscriptionArgs): Promise<
 				&& typeof parsed.params === "object"
 				&& (parsed.params as Record<string, unknown>).subscription === subscriptionId
 			) {
-				const result = ((parsed.params as Record<string, unknown>).result ?? {}) as Record<string, string>
+				const result = ((parsed.params as Record<string, unknown>).result ?? {}) as Record<string, unknown>
+				const topics = Array.isArray(result.topics)
+					? result.topics.map((topic) => String(topic).toLowerCase() as `0x${string}`)
+					: [String(result.topic0 ?? "").toLowerCase() as `0x${string}`]
 				void args.onEvent({
 					address: String(result.address).toLowerCase() as `0x${string}`,
-					topic0: String(result.topics?.[0] ?? result.topic0).toLowerCase() as `0x${string}`,
+					topics,
+					topic0: topics[0],
 					txHash: String(result.transactionHash).toLowerCase() as `0x${string}`,
 					logIndex: Number(normalizeHexNumber(result.logIndex)),
 					blockNumber: normalizeHexNumber(result.blockNumber),

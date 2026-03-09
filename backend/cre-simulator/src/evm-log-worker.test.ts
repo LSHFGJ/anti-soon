@@ -7,6 +7,7 @@ describe("cre-simulator EVM-log worker", () => {
 	it("subscribes configured listeners and dispatches incoming log notifications", async () => {
 		const messages: string[] = []
 		let dispatched = 0
+		let observedTopics: readonly `0x${string}`[] | undefined
 		const worker = await startCreSimulatorEvmLogWorker(
 			["--config", "/repo/backend/cre-simulator/triggers.json", "--listener", "poc-revealed"],
 			{
@@ -37,6 +38,10 @@ describe("cre-simulator EVM-log worker", () => {
 					messages.push("connected")
 					await onEvent({
 						address: "0x1111111111111111111111111111111111111111",
+						topics: [
+							"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+							"0x0000000000000000000000000000000000000000000000000000000000000009",
+						],
 						topic0:
 							"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 						txHash:
@@ -46,7 +51,8 @@ describe("cre-simulator EVM-log worker", () => {
 					})
 					return { close: () => messages.push("closed") }
 				},
-				dispatchEvent: async () => {
+				dispatchEvent: async ({ event }) => {
+					observedTopics = event.topics
 					dispatched += 1
 				},
 			},
@@ -54,6 +60,10 @@ describe("cre-simulator EVM-log worker", () => {
 
 		expect(messages).toContain("connected")
 		expect(dispatched).toBe(1)
+		expect(observedTopics).toEqual([
+			"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"0x0000000000000000000000000000000000000000000000000000000000000009",
+		])
 		worker?.stop()
 		expect(messages).toContain("closed")
 	})
