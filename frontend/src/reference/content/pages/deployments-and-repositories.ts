@@ -21,7 +21,12 @@ export const deploymentsAndRepositoriesDocsPage = {
 						[
 							"BountyHub",
 							"Sepolia",
-							"0x17797b473864806072186f6997801D4473AAF6e8",
+							"0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf",
+						],
+						[
+							"OasisPoCStore",
+							"Oasis Sapphire Testnet",
+							"0x2907471cDD606Fe12C7a2F1bd456a39d1100872c",
 						],
 						[
 							"CRE Forwarder",

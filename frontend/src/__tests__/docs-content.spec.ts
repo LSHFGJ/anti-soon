@@ -282,7 +282,8 @@ describe("docs content schema", () => {
 		);
 
 		const addressesText = JSON.stringify(addressesPage);
-		expect(addressesText).toContain("0x17797b473864806072186f6997801D4473AAF6e8");
+		expect(addressesText).toContain("0x3fBd5ab0F3FD234A40923ae7986f45acB9d4A3cf");
+		expect(addressesText).toContain("0x2907471cDD606Fe12C7a2F1bd456a39d1100872c");
 		expect(addressesText).toContain("0x15fC6ae953E024d975e77382eEeC56A9101f9F88");
 		expect(addressesText).toContain("https://github.com/LSHFGJ/anti-soon");
 		expect(addressesText).not.toContain("Evidence");
