@@ -187,7 +187,14 @@ const stepFields: Record<number, (keyof FormData)[]> = {
 
 export function CreateProject() {
 	const navigate = useNavigate();
-	const { isConnected, address, connect, walletClient } = useWallet({
+	const {
+		isConnected,
+		address,
+		connect,
+		walletClient,
+		isWrongNetwork = false,
+		switchToCorrectNetwork = async () => {},
+	} = useWallet({
 		autoSwitchToSepolia: false,
 	});
 
@@ -1104,6 +1111,23 @@ export function CreateProject() {
 					/>
 				)}
 
+				{isConnected && isWrongNetwork && (
+					<StatusBanner
+						variant="warning"
+						className="mb-6 text-center"
+						message={
+							<>
+								<p className="mb-4">
+									Switch to Sepolia before submitting this project.
+								</p>
+								<Button onClick={() => void switchToCorrectNetwork()} className="btn-cyber">
+									SWITCH NETWORK
+								</Button>
+							</>
+						}
+					/>
+				)}
+
 				{txHash && (
 					<StatusBanner
 						variant="success"
@@ -1194,6 +1218,29 @@ export function CreateProject() {
 			</div>
 		));
 
+	const reviewActionLabel = !isConnected
+		? "[ CONNECT WALLET TO SUBMIT ]"
+		: isWrongNetwork
+			? "[ SWITCH TO SEPOLIA ]"
+			: "[ SUBMIT PROJECT ]";
+
+	const reviewActionType = isConnected && !isWrongNetwork ? "submit" : "button";
+
+	const handleReviewAction = () => {
+		if (isSubmitting || txHash) {
+			return;
+		}
+
+		if (!isConnected) {
+			void connect();
+			return;
+		}
+
+		if (isWrongNetwork) {
+			void switchToCorrectNetwork();
+		}
+	};
+
 	return (
 		<div className="min-h-[calc(100vh-142px)] flex flex-col py-6">
 			<div className="container flex-1 flex flex-col min-h-0">
@@ -1237,22 +1284,23 @@ export function CreateProject() {
 									[ NEXT ]
 								</Button>
 							) : (
-								<Button
-									type="submit"
-									disabled={!isConnected || isSubmitting || !!txHash}
-									className={`btn-cyber min-w-[180px] ${!isConnected || isSubmitting || txHash ? "opacity-50" : ""}`}
-								>
-									{isSubmitting ? (
+							<Button
+								type={reviewActionType}
+								onClick={reviewActionType === "button" ? handleReviewAction : undefined}
+								disabled={isSubmitting || !!txHash}
+								className={`btn-cyber min-w-[180px] ${isSubmitting || txHash ? "opacity-50" : ""}`}
+							>
+								{isSubmitting ? (
 										<>
 											<span className="spinner mr-2" />
 											SUBMITTING...
 										</>
-									) : txHash ? (
-										"✓ SUBMITTED"
-									) : (
-										"[ SUBMIT PROJECT ]"
-									)}
-								</Button>
+								) : txHash ? (
+									"✓ SUBMITTED"
+								) : (
+									reviewActionLabel
+								)}
+							</Button>
 							)}
 						</div>
 					</form>
