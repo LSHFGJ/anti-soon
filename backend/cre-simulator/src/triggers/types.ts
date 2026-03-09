@@ -42,6 +42,25 @@ export type CreSimulatorListenerCursor = {
 	lastEventKey?: string;
 };
 
+export type CreSimulatorProjectDeadlineSchedule = {
+	projectId: string;
+	commitDeadlineMs: number;
+	revealDeadlineMs: number;
+};
+
+export type CreSimulatorDeadlineJobType =
+	| "project-commit-deadline"
+	| "submission-reveal-deadline";
+
+export type CreSimulatorDeadlineJob = {
+	jobKey: string;
+	jobType: CreSimulatorDeadlineJobType;
+	projectId: string;
+	dueAtMs: number;
+	submissionId?: string;
+	juryRoundId?: string;
+};
+
 export type CreSimulatorTriggerAdapterBinding = CreSimulatorAdapterBinding;
 
 export type CreSimulatorHttpTriggerConfig =
@@ -123,6 +142,7 @@ export type CreSimulatorTriggerStatusPayload = {
 
 export type CreSimulatorEvmLogEvent = {
 	address: `0x${string}`;
+	topics?: readonly `0x${string}`[];
 	topic0: `0x${string}`;
 	txHash: `0x${string}`;
 	logIndex: number;

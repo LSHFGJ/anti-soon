@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path"
 
 import type {
+	CreSimulatorDeadlineJob,
+	CreSimulatorDeadlineJobType,
 	CreSimulatorListenerCursor,
+	CreSimulatorProjectDeadlineSchedule,
 	CreSimulatorSchedulerCursor,
 	CreSimulatorTriggerBinding,
 	CreSimulatorTriggerExecutionIdentity,
@@ -28,12 +31,18 @@ type PersistedExecutionState = CreSimulatorTriggerExecutionIdentity & {
 	lastError?: string
 }
 
+type PersistedProjectDeadlineSchedule = CreSimulatorProjectDeadlineSchedule
+
+type PersistedDeadlineJob = CreSimulatorDeadlineJob
+
 type CreSimulatorTriggerStateStoreFile = {
 	schemaVersion: typeof TRIGGER_STATE_STORE_SCHEMA_VERSION
 	binding: CreSimulatorTriggerBinding
 	schedulerCursorByName: Record<string, PersistedSchedulerCursor>
 	listenerCursorByName: Record<string, PersistedListenerCursor>
 	executionStateByKey: Record<string, PersistedExecutionState>
+	projectDeadlineScheduleByProjectId?: Record<string, PersistedProjectDeadlineSchedule>
+	deadlineJobsByKey?: Record<string, PersistedDeadlineJob>
 }
 
 export type CreSimulatorTriggerStateStore = {
@@ -42,6 +51,8 @@ export type CreSimulatorTriggerStateStore = {
 	schedulerCursorByName: Map<string, CreSimulatorSchedulerCursor>
 	listenerCursorByName: Map<string, CreSimulatorListenerCursor>
 	executionStateByKey: Map<string, CreSimulatorTriggerExecutionState>
+	projectDeadlineScheduleByProjectId: Map<string, CreSimulatorProjectDeadlineSchedule>
+	deadlineJobsByKey: Map<string, CreSimulatorDeadlineJob>
 	recoveredProcessingCount: number
 	quarantinedExecutionCount: number
 }
@@ -73,6 +84,14 @@ function normalizeExecutionStatus(value: unknown): CreSimulatorTriggerExecutionS
 	}
 
 	throw new Error(`Invalid cre-simulator trigger execution status: ${String(value)}`)
+}
+
+function normalizeDeadlineJobType(value: unknown): CreSimulatorDeadlineJobType {
+	if (value === "project-commit-deadline" || value === "submission-reveal-deadline") {
+		return value
+	}
+
+	throw new Error(`Invalid cre-simulator deadline job type: ${String(value)}`)
 }
 
 function parseBinding(value: unknown): CreSimulatorTriggerBinding {
@@ -110,6 +129,8 @@ function persistCreSimulatorTriggerStateStore(store: CreSimulatorTriggerStateSto
 		]),
 	)
 	const executionStateByKey = Object.fromEntries(store.executionStateByKey)
+	const projectDeadlineScheduleByProjectId = Object.fromEntries(store.projectDeadlineScheduleByProjectId)
+	const deadlineJobsByKey = Object.fromEntries(store.deadlineJobsByKey)
 
 	const payload: CreSimulatorTriggerStateStoreFile = {
 		schemaVersion: TRIGGER_STATE_STORE_SCHEMA_VERSION,
@@ -117,6 +138,8 @@ function persistCreSimulatorTriggerStateStore(store: CreSimulatorTriggerStateSto
 		schedulerCursorByName,
 		listenerCursorByName,
 		executionStateByKey,
+		projectDeadlineScheduleByProjectId,
+		deadlineJobsByKey,
 	}
 
 	ensureParentDirectory(store.filePath)
@@ -135,6 +158,8 @@ function buildEmptyStore(
 		schedulerCursorByName: new Map(),
 		listenerCursorByName: new Map(),
 		executionStateByKey: new Map(),
+		projectDeadlineScheduleByProjectId: new Map(),
+		deadlineJobsByKey: new Map(),
 		recoveredProcessingCount: 0,
 		quarantinedExecutionCount: 0,
 	}
@@ -165,7 +190,14 @@ export function loadCreSimulatorTriggerStateStore(
 	store.binding = parseBinding(parsed.binding)
 	assertCreSimulatorTriggerStateBindingStable(store, binding)
 
-	if (!isObject(parsed.schedulerCursorByName) || !isObject(parsed.listenerCursorByName) || !isObject(parsed.executionStateByKey)) {
+	if (
+		!isObject(parsed.schedulerCursorByName)
+		|| !isObject(parsed.listenerCursorByName)
+		|| !isObject(parsed.executionStateByKey)
+		|| (parsed.projectDeadlineScheduleByProjectId !== undefined
+			&& !isObject(parsed.projectDeadlineScheduleByProjectId))
+		|| (parsed.deadlineJobsByKey !== undefined && !isObject(parsed.deadlineJobsByKey))
+	) {
 		throw new Error("Invalid cre-simulator trigger state store structure")
 	}
 
@@ -185,6 +217,41 @@ export function loadCreSimulatorTriggerStateStore(
 				? { lastSeenBlockNumber: BigInt(cursor.lastSeenBlockNumber) }
 				: {}),
 			...(typeof cursor.lastEventKey === "string" ? { lastEventKey: cursor.lastEventKey } : {}),
+		})
+	}
+
+	for (const [projectId, schedule] of Object.entries(parsed.projectDeadlineScheduleByProjectId ?? {})) {
+		if (
+			!isObject(schedule)
+			|| typeof schedule.projectId !== "string"
+			|| typeof schedule.commitDeadlineMs !== "number"
+			|| typeof schedule.revealDeadlineMs !== "number"
+		) {
+			throw new Error(`Invalid cre-simulator project deadline schedule for projectId=${projectId}`)
+		}
+		store.projectDeadlineScheduleByProjectId.set(projectId, {
+			projectId: schedule.projectId,
+			commitDeadlineMs: schedule.commitDeadlineMs,
+			revealDeadlineMs: schedule.revealDeadlineMs,
+		})
+	}
+
+	for (const [jobKey, job] of Object.entries(parsed.deadlineJobsByKey ?? {})) {
+		if (
+			!isObject(job)
+			|| typeof job.jobKey !== "string"
+			|| typeof job.projectId !== "string"
+			|| typeof job.dueAtMs !== "number"
+		) {
+			throw new Error(`Invalid cre-simulator deadline job for key=${jobKey}`)
+		}
+		store.deadlineJobsByKey.set(jobKey, {
+			jobKey: job.jobKey,
+			jobType: normalizeDeadlineJobType(job.jobType),
+			projectId: job.projectId,
+			dueAtMs: job.dueAtMs,
+			...(typeof job.submissionId === "string" ? { submissionId: job.submissionId } : {}),
+			...(typeof job.juryRoundId === "string" ? { juryRoundId: job.juryRoundId } : {}),
 		})
 	}
 
@@ -317,4 +384,85 @@ export function recordEvmLogTriggerCursor(
 	store.listenerCursorByName.set(triggerName, cursor)
 	persistCreSimulatorTriggerStateStore(store)
 	void nowMs
+}
+
+function toProjectIdKey(projectId: bigint): string {
+	return projectId.toString()
+}
+
+function toSubmissionRevealDeadlineJobKey(submissionId: bigint, juryRoundId: bigint): string {
+	return `submission-reveal-deadline:${submissionId.toString()}:${juryRoundId.toString()}`
+}
+
+function toProjectCommitDeadlineJobKey(projectId: bigint): string {
+	return `project-commit-deadline:${projectId.toString()}`
+}
+
+export function recordProjectDeadlineSchedule(
+	store: CreSimulatorTriggerStateStore,
+	args: {
+		projectId: bigint
+		commitDeadlineMs: number
+		revealDeadlineMs: number
+	},
+): void {
+	const projectId = toProjectIdKey(args.projectId)
+	store.projectDeadlineScheduleByProjectId.set(projectId, {
+		projectId,
+		commitDeadlineMs: args.commitDeadlineMs,
+		revealDeadlineMs: args.revealDeadlineMs,
+	})
+	store.deadlineJobsByKey.set(toProjectCommitDeadlineJobKey(args.projectId), {
+		jobKey: toProjectCommitDeadlineJobKey(args.projectId),
+		jobType: "project-commit-deadline",
+		projectId,
+		dueAtMs: args.commitDeadlineMs,
+	})
+	persistCreSimulatorTriggerStateStore(store)
+}
+
+export function getProjectDeadlineSchedule(
+	store: CreSimulatorTriggerStateStore,
+	projectId: bigint,
+): CreSimulatorProjectDeadlineSchedule | undefined {
+	return store.projectDeadlineScheduleByProjectId.get(toProjectIdKey(projectId))
+}
+
+export function scheduleSubmissionRevealDeadlineJob(
+	store: CreSimulatorTriggerStateStore,
+	args: {
+		projectId: bigint
+		submissionId: bigint
+		juryRoundId: bigint
+		dueAtMs: number
+	},
+): void {
+	const jobKey = toSubmissionRevealDeadlineJobKey(args.submissionId, args.juryRoundId)
+	store.deadlineJobsByKey.set(jobKey, {
+		jobKey,
+		jobType: "submission-reveal-deadline",
+		projectId: toProjectIdKey(args.projectId),
+		dueAtMs: args.dueAtMs,
+		submissionId: args.submissionId.toString(),
+		juryRoundId: args.juryRoundId.toString(),
+	})
+	persistCreSimulatorTriggerStateStore(store)
+}
+
+export function listDueCreSimulatorDeadlineJobs(
+	store: CreSimulatorTriggerStateStore,
+	nowMs: number,
+): CreSimulatorDeadlineJob[] {
+	return Array.from(store.deadlineJobsByKey.values())
+		.filter((job) => job.dueAtMs <= nowMs)
+		.sort((left, right) => left.dueAtMs - right.dueAtMs || left.jobKey.localeCompare(right.jobKey))
+}
+
+export function deleteCreSimulatorDeadlineJob(
+	store: CreSimulatorTriggerStateStore,
+	jobKey: string,
+): void {
+	if (store.deadlineJobsByKey.delete(jobKey)) {
+		persistCreSimulatorTriggerStateStore(store)
+	}
 }

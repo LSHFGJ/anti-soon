@@ -1,15 +1,20 @@
 import { describe, expect, it } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
 
+import type { CreSimulatorTriggerStateBinding } from "./stateStore"
 import {
+	TRIGGER_STATE_STORE_SCHEMA_VERSION,
 	assertCreSimulatorTriggerStateStoreHealthy,
+	deleteCreSimulatorDeadlineJob,
+	getProjectDeadlineSchedule,
+	listDueCreSimulatorDeadlineJobs,
 	loadCreSimulatorTriggerStateStore,
 	recordCronTriggerRun,
 	recordEvmLogTriggerCursor,
-	TRIGGER_STATE_STORE_SCHEMA_VERSION,
-	type CreSimulatorTriggerStateBinding,
+	recordProjectDeadlineSchedule,
+	scheduleSubmissionRevealDeadlineJob,
 } from "./stateStore"
 
 function withTempDir(run: (tempDir: string) => void): void {
@@ -107,6 +112,61 @@ describe("cre-simulator trigger state store", () => {
 				lastSeenBlockNumber: 77n,
 				lastEventKey: "0xabc:1",
 			})
+		})
+	})
+
+	it("persists project deadline schedules and due reveal jobs", () => {
+		withTempDir((tempDir) => {
+			const binding = buildBinding(tempDir)
+			const store = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 123)
+
+			recordProjectDeadlineSchedule(store, {
+				projectId: 9n,
+				commitDeadlineMs: 10_000,
+				revealDeadlineMs: 20_000,
+			})
+			scheduleSubmissionRevealDeadlineJob(store, {
+				projectId: 9n,
+				submissionId: 77n,
+				juryRoundId: 3n,
+				dueAtMs: 20_000,
+			})
+
+			const reloaded = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 30_000)
+			expect(getProjectDeadlineSchedule(reloaded, 9n)).toEqual({
+				projectId: "9",
+				commitDeadlineMs: 10_000,
+				revealDeadlineMs: 20_000,
+			})
+			expect(listDueCreSimulatorDeadlineJobs(reloaded, 19_999)).toEqual([
+				expect.objectContaining({
+					jobKey: "project-commit-deadline:9",
+					jobType: "project-commit-deadline",
+					projectId: "9",
+					dueAtMs: 10_000,
+				}),
+			])
+			expect(listDueCreSimulatorDeadlineJobs(reloaded, 20_000)).toEqual([
+				expect.objectContaining({
+					jobKey: "project-commit-deadline:9",
+					jobType: "project-commit-deadline",
+					projectId: "9",
+					dueAtMs: 10_000,
+				}),
+				expect.objectContaining({
+					jobKey: "submission-reveal-deadline:77:3",
+					jobType: "submission-reveal-deadline",
+					projectId: "9",
+					submissionId: "77",
+					juryRoundId: "3",
+					dueAtMs: 20_000,
+				}),
+			])
+			deleteCreSimulatorDeadlineJob(reloaded, "project-commit-deadline:9")
+
+			deleteCreSimulatorDeadlineJob(reloaded, "submission-reveal-deadline:77:3")
+			const finalStore = loadCreSimulatorTriggerStateStore(binding.stateFilePath, binding, 30_001)
+			expect(listDueCreSimulatorDeadlineJobs(finalStore, 30_001)).toEqual([])
 		})
 	})
 
