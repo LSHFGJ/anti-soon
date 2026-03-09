@@ -4,10 +4,23 @@ import path from "node:path";
 
 const frontendDir = path.resolve(import.meta.dirname, "..");
 const repoRoot = path.resolve(frontendDir, "..");
+const tsBuildInfoPaths = [
+	path.join(frontendDir, "node_modules/.tmp/tsconfig.app.tsbuildinfo"),
+	path.join(frontendDir, "node_modules/.tmp/tsconfig.node.tsbuildinfo"),
+];
 const canonicalConfigPath = path.join(
 	repoRoot,
 	"workflow/verify-poc/config.staging.json",
 );
+
+for (const tsBuildInfoPath of tsBuildInfoPaths) {
+	if (fs.existsSync(tsBuildInfoPath)) {
+		fs.rmSync(tsBuildInfoPath, { force: true });
+		console.log(
+			`Cleared TypeScript incremental cache: ${path.relative(frontendDir, tsBuildInfoPath)}`,
+		);
+	}
+}
 
 if (!fs.existsSync(canonicalConfigPath)) {
 	console.log(
