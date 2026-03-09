@@ -1,39 +1,43 @@
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import {
+	aggregateCollectedJuryOpinions,
+	collectHumanJurorOpinionRecords,
+	collectLlmJurorOpinionRecords,
+	defaultInvokeLlmJuror,
+	type ExecuteJuryRoundArgs,
+	type HumanOpinionInput,
+	type JuryRoundContext,
+	type JuryRoundDeps,
+	type PersistedJurorOpinionRecord,
+	prepareJuryRoundContext,
+} from "../../../workflow/jury-orchestrator/run-once";
+import {
+	decideVerifyPocStrictGate,
+	decodeVerifyPocReportEnvelope,
+} from "../../../workflow/verify-poc/main";
 import {
 	createOasisClient,
 	type OasisReadRequest,
 	type OasisResult,
 	type OasisWriteRequest,
 } from "../../../workflow/verify-poc/src/oasisClient";
-import {
-	decideVerifyPocStrictGate,
-	decodeVerifyPocReportEnvelope,
-} from "../../../workflow/verify-poc/main";
-import {
-	aggregateCollectedJuryOpinions,
-	collectHumanJurorOpinionRecords,
-	collectLlmJurorOpinionRecords,
-	defaultInvokeLlmJuror,
-	prepareJuryRoundContext,
-	type ExecuteJuryRoundArgs,
-	type HumanOpinionInput,
-	type JuryRoundDeps,
-	type JuryRoundContext,
-	type PersistedJurorOpinionRecord,
-} from "../../../workflow/jury-orchestrator/run-once";
 import type {
 	DemoAdjudicationOrchestratorAdapterConfig,
 	DemoAdjudicationOrchestratorInputPayload,
 	DemoPocstoreOpinionRecordInput,
 } from "./adapter-types";
 import type { EnvRecord } from "./env";
+import {
+	buildDefaultCreSimulatorTriggerConfigPath,
+	loadCreSimulatorTriggerConfig,
+} from "./triggers/config";
+import {
+	getProjectDeadlineSchedule,
+	loadCreSimulatorTriggerStateStore,
+	scheduleSubmissionRevealDeadlineJob,
+} from "./triggers/stateStore";
 
 const DEFAULT_DEMO_POCSTORE_PATH =
 	"backend/cre-simulator/.demo-adjudication-pocstore.json";
@@ -82,11 +86,11 @@ type DemoAdjudicationDeps = {
 		context: JuryRoundContext,
 		sealedOpinions: PersistedJurorOpinionRecord[],
 	) => Promise<{
-			finalReportType: string;
-			encodedContractReport?: `0x${string}`;
-			submissionTxHash?: `0x${string}`;
-			totalSealedOpinions?: number;
-		}>;
+		finalReportType: string;
+		encodedContractReport?: `0x${string}`;
+		submissionTxHash?: `0x${string}`;
+		totalSealedOpinions?: number;
+	}>;
 	invokeLlmJuror?: JuryRoundDeps["invokeLlmJuror"];
 	oasisWrite?: (payload: OasisWriteRequest) => Promise<
 		OasisResult<{
@@ -110,10 +114,7 @@ function normalizeRelativePath(value: string, label: string): string {
 	return value;
 }
 
-function normalizePositiveBigIntLike(
-	value: unknown,
-	label: string,
-): bigint {
+function normalizePositiveBigIntLike(value: unknown, label: string): bigint {
 	const normalized = BigInt(value as bigint | number | string);
 	if (normalized <= 0n) {
 		throw new Error(`${label} must be positive`);
@@ -139,7 +140,9 @@ function loadRuntimeConfig(
 		repoRoot,
 		normalizeRelativePath(configPath, "configPath"),
 	);
-	return JSON.parse(readFileSync(resolvedConfigPath, "utf8")) as DemoRuntimeConfig;
+	return JSON.parse(
+		readFileSync(resolvedConfigPath, "utf8"),
+	) as DemoRuntimeConfig;
 }
 
 function resolvePocstorePath(
@@ -160,12 +163,16 @@ function loadPocstoreState(filePath: string): DemoPocstoreState {
 		return { humanOpinions: [], pendingRounds: [] };
 	}
 
-	const parsed = JSON.parse(readFileSync(filePath, "utf8")) as DemoPocstoreState;
+	const parsed = JSON.parse(
+		readFileSync(filePath, "utf8"),
+	) as DemoPocstoreState;
 	return {
 		humanOpinions: Array.isArray(parsed.humanOpinions)
 			? parsed.humanOpinions
 			: [],
-		pendingRounds: Array.isArray(parsed.pendingRounds) ? parsed.pendingRounds : [],
+		pendingRounds: Array.isArray(parsed.pendingRounds)
+			? parsed.pendingRounds
+			: [],
 	};
 }
 
@@ -184,11 +191,17 @@ function parseInputPayload(
 	value: unknown,
 ): DemoAdjudicationOrchestratorInputPayload {
 	if (typeof value !== "object" || value === null) {
-		throw new Error("demo-adjudication-orchestrator requires inputPayload object");
+		throw new Error(
+			"demo-adjudication-orchestrator requires inputPayload object",
+		);
 	}
 
 	const payload = value as Record<string, unknown>;
-	if (payload.phase !== "store-human-opinion" && payload.phase !== "commit-deadline" && payload.phase !== "reveal-deadline") {
+	if (
+		payload.phase !== "store-human-opinion" &&
+		payload.phase !== "commit-deadline" &&
+		payload.phase !== "reveal-deadline"
+	) {
 		throw new Error(
 			"demo-adjudication-orchestrator inputPayload.phase must be store-human-opinion, commit-deadline, or reveal-deadline",
 		);
@@ -210,9 +223,9 @@ function parseStoredPersistedOpinionRecord(
 				: value.finalValidity === "INVALID"
 					? "INVALID"
 					: "HIGH",
-			rationaleDigest: String(value.rationaleDigest) as `0x${string}`,
-			testimonyDigest: String(value.testimonyDigest) as `0x${string}`,
-			ingestTimestampSec: BigInt(value.ingestTimestampSec as string | number),
+		rationaleDigest: String(value.rationaleDigest) as `0x${string}`,
+		testimonyDigest: String(value.testimonyDigest) as `0x${string}`,
+		ingestTimestampSec: BigInt(value.ingestTimestampSec as string | number),
 	};
 }
 
@@ -241,7 +254,9 @@ function buildRuntimePhaseDeps(
 	deps: DemoAdjudicationDeps,
 ): {
 	collectLlmOpinions: NonNullable<DemoAdjudicationDeps["collectLlmOpinions"]>;
-	collectHumanOpinions: NonNullable<DemoAdjudicationDeps["collectHumanOpinions"]>;
+	collectHumanOpinions: NonNullable<
+		DemoAdjudicationDeps["collectHumanOpinions"]
+	>;
 	aggregateOpinions: NonNullable<DemoAdjudicationDeps["aggregateOpinions"]>;
 } {
 	let oasisClient: ReturnType<typeof createOasisClient> | undefined;
@@ -268,58 +283,61 @@ function buildRuntimePhaseDeps(
 	const llmApiUrl =
 		runtimeConfig.llm?.apiUrl ??
 		"https://openrouter.ai/api/v1/chat/completions";
-	const llmApiKeyEnvVar = runtimeConfig.llm?.apiKeyEnvVar ?? "CRE_SIM_LLM_API_KEY";
+	const llmApiKeyEnvVar =
+		runtimeConfig.llm?.apiKeyEnvVar ?? "CRE_SIM_LLM_API_KEY";
 	const llmApiKey = resolveRuntimeEnvVar(env, llmApiKeyEnvVar);
 
 	const collectLlmOpinions = deps.collectLlmOpinions
 		? deps.collectLlmOpinions
 		: async (roundArgs, context) => {
-			if (!llmApiKey && !deps.invokeLlmJuror) {
-				throw new Error(`Missing required environment variable: ${llmApiKeyEnvVar}`);
-			}
+				if (!llmApiKey && !deps.invokeLlmJuror) {
+					throw new Error(
+						`Missing required environment variable: ${llmApiKeyEnvVar}`,
+					);
+				}
 
-			return await collectLlmJurorOpinionRecords(roundArgs, context, {
-				invokeLlmJuror:
-					deps.invokeLlmJuror ??
-					((input) =>
-						defaultInvokeLlmJuror({
-							...input,
-							apiUrl: llmApiUrl,
-							apiKey: llmApiKey ?? "",
-						})),
-				oasisWrite: requireOasisWrite(),
-				oasisRead: requireOasisRead(),
-			});
-		};
+				return await collectLlmJurorOpinionRecords(roundArgs, context, {
+					invokeLlmJuror:
+						deps.invokeLlmJuror ??
+						((input) =>
+							defaultInvokeLlmJuror({
+								...input,
+								apiUrl: llmApiUrl,
+								apiKey: llmApiKey ?? "",
+							})),
+					oasisWrite: requireOasisWrite(),
+					oasisRead: requireOasisRead(),
+				});
+			};
 
 	const collectHumanOpinions = deps.collectHumanOpinions
 		? deps.collectHumanOpinions
 		: async (roundArgs, context, humanOpinions) =>
-			await collectHumanJurorOpinionRecords(
-				roundArgs,
-				context,
-				humanOpinions,
-				{
-					oasisWrite: requireOasisWrite(),
-					oasisRead: requireOasisRead(),
-				},
-			);
+				await collectHumanJurorOpinionRecords(
+					roundArgs,
+					context,
+					humanOpinions,
+					{
+						oasisWrite: requireOasisWrite(),
+						oasisRead: requireOasisRead(),
+					},
+				);
 
 	const aggregateOpinions = deps.aggregateOpinions
 		? deps.aggregateOpinions
 		: async (roundArgs, context, sealedOpinions) => {
-			const result = await aggregateCollectedJuryOpinions(
-				roundArgs,
-				context,
-				sealedOpinions,
-			);
-			return {
-				finalReportType: result.finalResult.reportType,
-				encodedContractReport: result.encodedContractReport,
-				submissionTxHash: result.reportSubmission?.txHash,
-				totalSealedOpinions: sealedOpinions.length,
+				const result = await aggregateCollectedJuryOpinions(
+					roundArgs,
+					context,
+					sealedOpinions,
+				);
+				return {
+					finalReportType: result.finalResult.reportType,
+					encodedContractReport: result.encodedContractReport,
+					submissionTxHash: result.reportSubmission?.txHash,
+					totalSealedOpinions: sealedOpinions.length,
+				};
 			};
-		};
 
 	return {
 		collectLlmOpinions,
@@ -349,18 +367,55 @@ function replacePendingRound(
 	return {
 		...state,
 		pendingRounds: [
-			...state.pendingRounds.filter((entry) => entry.roundKey !== record.roundKey),
+			...state.pendingRounds.filter(
+				(entry) => entry.roundKey !== record.roundKey,
+			),
 			record,
 		],
 	};
 }
 
-export async function executeDemoAdjudicationAdapter(args: {
+function scheduleRevealDeadlineJobForPendingRound(args: {
 	repoRoot: string;
-	env: EnvRecord;
-	adapterConfig: DemoAdjudicationOrchestratorAdapterConfig;
-	inputPayload?: unknown;
-}, deps: DemoAdjudicationDeps = {}) {
+	projectId: bigint;
+	submissionId: bigint;
+	juryRoundId: bigint;
+	nowMs: number;
+}): number | undefined {
+	const configPath = buildDefaultCreSimulatorTriggerConfigPath(args.repoRoot);
+	const config = loadCreSimulatorTriggerConfig(configPath, args.repoRoot);
+	const binding = {
+		configPath: config.configPath,
+		stateFilePath: config.stateFilePath,
+	};
+	const store = loadCreSimulatorTriggerStateStore(
+		config.stateFilePath,
+		binding,
+		args.nowMs,
+	);
+	const schedule = getProjectDeadlineSchedule(store, args.projectId);
+	if (!schedule) {
+		return undefined;
+	}
+
+	scheduleSubmissionRevealDeadlineJob(store, {
+		projectId: args.projectId,
+		submissionId: args.submissionId,
+		juryRoundId: args.juryRoundId,
+		dueAtMs: schedule.revealDeadlineMs,
+	});
+	return schedule.revealDeadlineMs;
+}
+
+export async function executeDemoAdjudicationAdapter(
+	args: {
+		repoRoot: string;
+		env: EnvRecord;
+		adapterConfig: DemoAdjudicationOrchestratorAdapterConfig;
+		inputPayload?: unknown;
+	},
+	deps: DemoAdjudicationDeps = {},
+) {
 	const payload = parseInputPayload(args.inputPayload);
 	const pocstorePath = resolvePocstorePath(args.repoRoot, args.adapterConfig);
 	const nowMs = deps.nowMs?.() ?? Date.now();
@@ -382,7 +437,9 @@ export async function executeDemoAdjudicationAdapter(args: {
 	}
 
 	if (payload.phase === "commit-deadline") {
-		const verifyPocReport = decodeVerifyPocReportEnvelope(payload.verifyPocReport);
+		const verifyPocReport = decodeVerifyPocReportEnvelope(
+			payload.verifyPocReport,
+		);
 		const strictGate = decideVerifyPocStrictGate({
 			isValid: verifyPocReport.payload.isValid,
 			reasonCode:
@@ -435,6 +492,14 @@ export async function executeDemoAdjudicationAdapter(args: {
 			llmSealedOpinions,
 		});
 		savePocstoreState(pocstorePath, nextState);
+		const scheduledRevealDeadlineAtMs =
+			scheduleRevealDeadlineJobForPendingRound({
+				repoRoot: args.repoRoot,
+				projectId: verifyPocReport.payload.projectId,
+				submissionId: verifyPocReport.payload.submissionId,
+				juryRoundId,
+				nowMs,
+			});
 		return {
 			mode: "demo-adjudication-orchestrator" as const,
 			phase: payload.phase,
@@ -442,6 +507,9 @@ export async function executeDemoAdjudicationAdapter(args: {
 			juryTriggered: true,
 			storedLlmOpinionCount: llmSealedOpinions.length,
 			roundKey,
+			...(scheduledRevealDeadlineAtMs !== undefined
+				? { scheduledRevealDeadlineAtMs }
+				: {}),
 		};
 	}
 
@@ -453,7 +521,9 @@ export async function executeDemoAdjudicationAdapter(args: {
 		? normalizePositiveBigIntLike(payload.juryRoundId, "juryRoundId")
 		: 1n;
 	const roundKey = buildRoundKey(submissionId, juryRoundId);
-	const round = state.pendingRounds.find((entry) => entry.roundKey === roundKey);
+	const round = state.pendingRounds.find(
+		(entry) => entry.roundKey === roundKey,
+	);
 	if (!round) {
 		throw new Error(`No pending LLM jury round stored for ${roundKey}`);
 	}
@@ -481,7 +551,9 @@ export async function executeDemoAdjudicationAdapter(args: {
 		.sort((left, right) => left.createdAtMs - right.createdAtMs)
 		.slice(0, context.humanSlots.length);
 	if (matchingHumanOpinions.length < context.humanSlots.length) {
-		throw new Error("reveal-deadline demo requires at least 5 stored human opinions");
+		throw new Error(
+			"reveal-deadline demo requires at least 5 stored human opinions",
+		);
 	}
 
 	const selectedHumanOpinionAuthors = matchingHumanOpinions.map((entry) =>
@@ -504,11 +576,10 @@ export async function executeDemoAdjudicationAdapter(args: {
 	const llmSealedOpinions = round.llmSealedOpinions.map((entry) =>
 		parseStoredPersistedOpinionRecord(entry),
 	);
-	const aggregation = await runtimeDeps.aggregateOpinions(
-		roundArgs,
-		context,
-		[...llmSealedOpinions, ...persistedHumanOpinions],
-	);
+	const aggregation = await runtimeDeps.aggregateOpinions(roundArgs, context, [
+		...llmSealedOpinions,
+		...persistedHumanOpinions,
+	]);
 	return {
 		mode: "demo-adjudication-orchestrator" as const,
 		phase: payload.phase,
