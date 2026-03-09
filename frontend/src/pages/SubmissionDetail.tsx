@@ -22,7 +22,11 @@ import {
 	resolveSapphireTxHash,
 } from "../lib/oasisUpload";
 import { readProjectById } from "../lib/projectReads";
-import { publicClient, readContractWithRpcFallback } from "../lib/publicClient";
+import {
+	clearPublicClientReadCache,
+	publicClient,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
 import { getActualStatus } from "../lib/status";
 import { readSubmissionCommitTxHash } from "../lib/submissionArtifacts";
 import type { ExtendedSubmission, Project } from "../types";
@@ -332,6 +336,7 @@ export function SubmissionDetail() {
 			});
 
 			await publicClient.waitForTransactionReceipt({ hash });
+			clearPublicClientReadCache();
 			const requestId = ++requestIdRef.current;
 			activeSubmissionIdRef.current = submission.id;
 			await refreshSubmissionData(submission.id, requestId);
@@ -359,6 +364,7 @@ export function SubmissionDetail() {
 			});
 
 			await publicClient.waitForTransactionReceipt({ hash });
+			clearPublicClientReadCache();
 			const requestId = ++requestIdRef.current;
 			activeSubmissionIdRef.current = submission.id;
 			await refreshSubmissionData(submission.id, requestId);
@@ -386,6 +392,7 @@ export function SubmissionDetail() {
 			});
 
 			await publicClient.waitForTransactionReceipt({ hash });
+			clearPublicClientReadCache();
 			const requestId = ++requestIdRef.current;
 			activeSubmissionIdRef.current = submission.id;
 			await refreshSubmissionData(submission.id, requestId);
@@ -501,8 +508,20 @@ export function SubmissionDetail() {
 		submissionId: submission.id,
 		projectId: submission.projectId,
 		actualStatus,
+		drainAmountWei: submission.drainAmountWei,
+		severity: submission.severity,
+		commitTimestamp: submission.commitTimestamp,
+		revealTimestamp: submission.revealTimestamp,
 		hasActiveDispute,
 		canPrepareOwnerAdjudication: isProjectOwner,
+		canRunManualAutoReveal: isProjectOwner,
+		canRunManualJury: isProjectOwner,
+		bountyHubAddress: BOUNTY_HUB_ADDRESS,
+		projectCommitDeadline: project?.commitDeadline,
+		projectRevealDeadline: project?.revealDeadline,
+		projectJuryWindow: project?.juryWindow,
+		projectAdjudicationWindow: project?.adjudicationWindow,
+		oasisTxHash: submission.oasisTxHash,
 		lifecycle: submission.lifecycle,
 		jury: submission.jury,
 		grouping: submission.grouping,
@@ -758,8 +777,6 @@ export function SubmissionDetail() {
 										}
 									/>
 
-									<VerificationWorkflowPanel workflow={workflow} />
-
 									{submission.lifecycle && (
 										<div className="pt-4 border-t border-[var(--color-bg-light)]">
 											<h3 className="text-xs font-mono text-[var(--color-secondary)] mb-3 tracking-wider">
@@ -861,6 +878,7 @@ export function SubmissionDetail() {
 									)}
 								</div>
 							)}
+							<VerificationWorkflowPanel workflow={workflow} />
 						</NeonPanel>
 
 						<NeonPanel

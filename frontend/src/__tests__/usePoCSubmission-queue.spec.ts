@@ -7,6 +7,7 @@ const mockGenerateRandomSalt = vi.fn();
 const mockComputeCommitHash = vi.fn();
 const mockUploadEncryptedPoC = vi.fn();
 const mockReadContractWithRpcFallback = vi.fn();
+const mockClearPublicClientReadCache = vi.fn();
 
 vi.mock("../hooks/useWallet", () => ({
 	useWallet: () => mockUseWallet(),
@@ -22,6 +23,7 @@ vi.mock("../lib/oasisUpload", () => ({
 }));
 
 vi.mock("../lib/publicClient", () => ({
+	clearPublicClientReadCache: () => mockClearPublicClientReadCache(),
 	readContractWithRpcFallback: (...args: unknown[]) =>
 		mockReadContractWithRpcFallback(...args),
 }));
@@ -117,6 +119,7 @@ function buildQueuedRevealTuple(options?: {
 describe("usePoCSubmission lifecycle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockClearPublicClientReadCache.mockReset();
 		window.localStorage.clear();
 
 		mockUseWallet.mockReturnValue({

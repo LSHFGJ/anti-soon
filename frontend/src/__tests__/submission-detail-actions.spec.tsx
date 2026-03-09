@@ -14,6 +14,7 @@ const {
 	mockReadStoredPoCPreview,
 	mockReadSubmissionCommitTxHash,
 	mockResolveSapphireTxHash,
+	mockClearPublicClientReadCache,
 } = vi.hoisted(() => ({
 	mockUseWallet: vi.fn(),
 	mockReadContract: vi.fn(),
@@ -23,6 +24,7 @@ const {
 	mockReadStoredPoCPreview: vi.fn(),
 	mockReadSubmissionCommitTxHash: vi.fn(),
 	mockResolveSapphireTxHash: vi.fn(),
+	mockClearPublicClientReadCache: vi.fn(),
 }));
 
 vi.mock("../hooks/useWallet", () => ({
@@ -30,6 +32,8 @@ vi.mock("../hooks/useWallet", () => ({
 }));
 
 vi.mock("../lib/publicClient", () => ({
+	clearPublicClientReadCache: (...args: unknown[]) =>
+		mockClearPublicClientReadCache(...args),
 	publicClient: {
 		readContract: (...args: unknown[]) => mockReadContract(...args),
 		waitForTransactionReceipt: (...args: unknown[]) =>
@@ -72,11 +76,13 @@ const OWNER = "0x2222222222222222222222222222222222222222" as Address;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
 const MOCK_TX_HASH =
 	"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as `0x${string}`;
+const originalFetch = globalThis.fetch;
 let dateNowSpy: ReturnType<typeof vi.spyOn>;
 
 function makeSubmissionTuple(
 	overrides: {
 		status?: number;
+		revealTimestamp?: bigint;
 		disputeDeadline?: bigint;
 		challenged?: boolean;
 		challengeBond?: bigint;
@@ -91,7 +97,7 @@ function makeSubmissionTuple(
 		"oasis://mock/cipher",
 		"0x0000000000000000000000000000000000000000000000000000000000000001" as `0x${string}`,
 		NOW_SECONDS - 300n,
-		NOW_SECONDS - 200n,
+		overrides.revealTimestamp ?? NOW_SECONDS - 200n,
 		overrides.status ?? 2,
 		1_000_000_000_000_000n,
 		3,
@@ -155,6 +161,7 @@ function renderRoutableSubmissionDetail(path = "/submission/1") {
 describe("SubmissionDetail lifecycle action alignment", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockClearPublicClientReadCache.mockReset();
 		dateNowSpy = vi
 			.spyOn(Date, "now")
 			.mockReturnValue(Number(NOW_SECONDS) * 1000);
@@ -183,6 +190,8 @@ describe("SubmissionDetail lifecycle action alignment", () => {
 
 	afterEach(() => {
 		dateNowSpy.mockRestore();
+		globalThis.fetch = originalFetch;
+		vi.unstubAllEnvs();
 	});
 
 	it("disables automatic sepolia switching in submission detail wallet hook", async () => {
@@ -1027,6 +1036,197 @@ describe("SubmissionDetail lifecycle action alignment", () => {
 			).length,
 		).toBeGreaterThan(0);
 		expect(screen.queryByLabelText("Final Judgment")).toBeNull();
+	});
+
+	it("submits a manual-jury trigger payload from the workflow panel", async () => {
+		const user = userEvent.setup();
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						triggerName: "manual-jury",
+						executionKey: "http:manual-jury:1",
+						result: {
+							result: {
+								finalReportType: "adjudication-final/v1",
+							},
+						},
+					}),
+					{
+						status: 200,
+						headers: { "content-type": "application/json" },
+					},
+				),
+		);
+		vi.stubEnv("VITE_CRE_SIM_API_URL", "https://cre.example");
+		vi.stubGlobal("fetch", fetchMock);
+
+		mockUseWallet.mockReturnValue({
+			address: OWNER,
+			walletClient: { writeContract: mockWriteContract },
+			isConnected: true,
+		});
+
+		mockReadContract.mockImplementation((config) => {
+			const functionName = config.functionName;
+
+			if (functionName === "submissions") {
+				return Promise.resolve(
+					makeSubmissionTuple({
+						status: 2,
+						disputeDeadline: NOW_SECONDS - 100n,
+					}),
+				);
+			}
+			if (functionName === "getSubmissionLifecycle") {
+				return Promise.resolve([
+					7,
+					NOW_SECONDS - 1000n,
+					NOW_SECONDS + 2000n,
+					0,
+					0,
+					"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"0x0",
+				]);
+			}
+			if (functionName === "getSubmissionJuryMetadata")
+				return Promise.resolve([false, "", ""]);
+			if (functionName === "getSubmissionGroupingMetadata")
+				return Promise.resolve([false, "", "", 0n, 0n]);
+			return Promise.resolve(null);
+		});
+
+		renderSubmissionDetail();
+
+		await screen.findByText("MANUAL_JURY_DEMO");
+		await user.click(
+			screen.getByRole("button", { name: "[ SUBMIT MANUAL JURY DEMO ]" }),
+		);
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		});
+
+		const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [
+			string,
+			RequestInit,
+		];
+		expect(requestUrl).toBe(
+			"https://cre.example/api/cre-simulator/triggers/manual-jury",
+		);
+		expect(requestInit.method).toBe("POST");
+		expect(requestInit.headers).toEqual({ "Content-Type": "application/json" });
+
+		const parsedBody = JSON.parse(String(requestInit.body)) as {
+			inputPayload: {
+				verifiedReport: {
+					reportType: string;
+					payload: {
+						submissionId: string;
+						projectId: string;
+					};
+				};
+				humanOpinions: Array<{ jurorId: string }>;
+				juryRoundId: number;
+			};
+		};
+		expect(parsedBody.inputPayload.verifiedReport.reportType).toBe(
+			"verified-report/v3",
+		);
+		expect(parsedBody.inputPayload.verifiedReport.payload).toMatchObject({
+			submissionId: "1",
+			projectId: "1",
+		});
+		expect(
+			parsedBody.inputPayload.humanOpinions.map((opinion) => opinion.jurorId),
+		).toEqual([
+			"human:alice",
+			"human:bob",
+			"human:carol",
+			"human:dora",
+			"human:erin",
+		]);
+		expect(parsedBody.inputPayload.juryRoundId).toBe(1);
+
+		expect(screen.getByText("MANUAL_JURY_SUBMITTED")).toBeVisible();
+		expect(screen.getByText(/http:manual-jury:1/i)).toBeVisible();
+	});
+
+	it("submits a manual-reveal trigger from the workflow panel for committed submissions", async () => {
+		const user = userEvent.setup();
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						triggerName: "manual-reveal",
+						executionKey: "http:manual-reveal:1",
+						adapter: "auto-reveal-relayer",
+						result: {
+							adapter: "auto-reveal-relayer",
+							result: { executedCount: 1 },
+						},
+					}),
+					{
+						status: 200,
+						headers: { "content-type": "application/json" },
+					},
+				),
+		);
+		vi.stubEnv("VITE_CRE_SIM_API_URL", "https://cre.example");
+		vi.stubGlobal("fetch", fetchMock);
+
+		mockUseWallet.mockReturnValue({
+			address: OWNER,
+			walletClient: { writeContract: mockWriteContract },
+			isConnected: true,
+		});
+
+		mockReadContract.mockImplementation((config) => {
+			const functionName = config.functionName;
+
+			if (functionName === "submissions") {
+				return Promise.resolve(
+					makeSubmissionTuple({
+						status: 0,
+						revealTimestamp: 0n,
+						projectId: 1n,
+					}),
+				);
+			}
+			if (functionName === "getSubmissionLifecycle") return Promise.resolve(null);
+			if (functionName === "getSubmissionJuryMetadata")
+				return Promise.resolve([false, "", ""]);
+			if (functionName === "getSubmissionGroupingMetadata")
+				return Promise.resolve([false, "", "", 0n, 0n]);
+			return Promise.resolve(null);
+		});
+
+		renderSubmissionDetail();
+
+		await screen.findByText("MANUAL_AUTO_REVEAL");
+		await user.click(
+			screen.getByRole("button", { name: "[ TRIGGER AUTO-REVEAL ]" }),
+		);
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		});
+
+		const [requestUrl, requestInit] = fetchMock.mock.calls[0] as [
+			string,
+			RequestInit,
+		];
+		expect(requestUrl).toBe(
+			"https://cre.example/api/cre-simulator/triggers/manual-reveal",
+		);
+		expect(requestInit.method).toBe("POST");
+		expect(requestInit.headers).toEqual({ "Content-Type": "application/json" });
+		expect(requestInit.body).toBe("{}");
+
+		expect(screen.getByText("MANUAL_AUTO_REVEAL_SUBMITTED")).toBeVisible();
+		expect(screen.getByText(/http:manual-reveal:1/i)).toBeVisible();
 	});
 
 	it("clears a prepared testimony payload when the testimony changes", async () => {

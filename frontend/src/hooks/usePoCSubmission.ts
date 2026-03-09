@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Address } from "viem";
 import { decodeEventLog, keccak256, toBytes } from "viem";
 import { BOUNTY_HUB_ADDRESS, BOUNTY_HUB_V2_ABI, CHAIN } from "../config";
@@ -10,6 +10,10 @@ import {
 } from "../lib/commitRevealRecovery";
 import { extractErrorMessage } from "../lib/errorMessage";
 import { uploadEncryptedPoC } from "../lib/oasisUpload";
+import {
+	clearPublicClientReadCache,
+	readContractWithRpcFallback,
+} from "../lib/publicClient";
 import { computeCommitHash, generateRandomSalt } from "../utils/encryption";
 import { useWallet } from "./useWallet";
 
@@ -134,7 +138,7 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 					const normalizedCommitHash = recoveryCommitHash.toLowerCase();
 
 					while (true) {
-						const result = await publicClient.readContract({
+						const result = await readContractWithRpcFallback({
 							address: BOUNTY_HUB_ADDRESS,
 							abi: BOUNTY_HUB_V2_ABI,
 							functionName: "getAuditorSubmissionIds",
@@ -150,10 +154,13 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 							return undefined;
 						}
 
-						const [submissionIds, nextCursor] = result as readonly [readonly bigint[], bigint];
+						const [submissionIds, nextCursor] = result as unknown as readonly [
+							readonly bigint[],
+							bigint,
+						];
 
 						for (const submissionId of submissionIds) {
-							const submission = (await publicClient.readContract({
+							const submission = (await readContractWithRpcFallback({
 								address: BOUNTY_HUB_ADDRESS,
 								abi: BOUNTY_HUB_V2_ABI,
 								functionName: "submissions",
@@ -272,6 +279,7 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 					const receipt = await publicClient.waitForTransactionReceipt({
 						hash: commitTxHash,
 					});
+					clearPublicClientReadCache();
 
 					for (const log of receipt.logs) {
 						try {
@@ -300,11 +308,11 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 						if (recoveredSubmissionId) {
 							submissionId = recoveredSubmissionId;
 						} else {
-						clearCommitRevealRecoveryContext();
-						setFailed(
-							`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
-						);
-						return undefined;
+							clearCommitRevealRecoveryContext();
+							setFailed(
+								`Submission failed: commit confirmed but PoCCommitted event was missing in tx logs (${commitTxHash}).`,
+							);
+							return undefined;
 						}
 					}
 
@@ -330,8 +338,8 @@ export const usePoCSubmission = (projectId?: bigint | null) => {
 				if (!commitTxHash) {
 					setFailed(
 						"Submission failed: Sepolia commit transaction hash was missing after wallet submission.",
-					)
-					return undefined
+					);
+					return undefined;
 				}
 				clearCommitRevealRecoveryContext();
 
