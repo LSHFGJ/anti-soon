@@ -113,7 +113,7 @@ function resolveChainIndicator(chainId: number | null, chainName: string | null)
 }
 
 export function Navbar() {
-  const { isConnected, address, chainId, chainName, connect, disconnect } = useWallet({ autoSwitchToSepolia: false })
+  const { isConnected, isConnecting, address, chainId, chainName, connect, disconnect } = useWallet({ autoSwitchToSepolia: false })
   const location = useLocation()
   const navRef = useRef<HTMLElement | null>(null)
   const gasBalanceFetchedAtRef = useRef<number>(0)
@@ -296,6 +296,7 @@ export function Navbar() {
         <div className="relative group">
           <Button
             onClick={isConnected ? disconnect : connect}
+            disabled={!isConnected && isConnecting}
             onMouseEnter={() => {
               if (!isConnected) return
               void loadGasBalances()
@@ -332,7 +333,7 @@ export function Navbar() {
               : (
                 <>
                   <span className="sm:hidden">[CONN]</span>
-                  <span className="hidden sm:inline">[ CONNECT ]</span>
+                  <span className="hidden sm:inline">{isConnecting ? '[ CONNECTING... ]' : '[ CONNECT ]'}</span>
                 </>
               )}
           </Button>

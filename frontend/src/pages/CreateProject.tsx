@@ -189,6 +189,7 @@ export function CreateProject() {
 	const navigate = useNavigate();
 	const {
 		isConnected,
+		isConnecting,
 		address,
 		connect,
 		walletClient,
@@ -1103,9 +1104,7 @@ export function CreateProject() {
 								<p className="mb-4">
 									Wallet not connected. Connect your wallet to submit.
 								</p>
-								<Button onClick={connect} className="btn-cyber">
-									CONNECT WALLET
-								</Button>
+								<Button onClick={connect} disabled={isConnecting} className="btn-cyber">{isConnecting ? "CONNECTING..." : "CONNECT WALLET"}</Button>
 							</>
 						}
 					/>
@@ -1227,7 +1226,7 @@ export function CreateProject() {
 	const reviewActionType = isConnected && !isWrongNetwork ? "submit" : "button";
 
 	const handleReviewAction = () => {
-		if (isSubmitting || txHash) {
+		if (isSubmitting || txHash || isConnecting) {
 			return;
 		}
 
