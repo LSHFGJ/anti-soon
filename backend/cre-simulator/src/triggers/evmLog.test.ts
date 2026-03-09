@@ -18,11 +18,89 @@ function withTempDir(run: (tempDir: string) => Promise<void> | void): Promise<vo
 }
 
 const CONFIG_SCHEMA_VERSION = "anti-soon.cre-simulator.trigger-config.v1"
+const PROJECT_REGISTERED_TOPIC0 =
+	"0x13bbb3164af432cb24bde885d40a3049f565bcfb8f24033d57c7953fbbf33606"
 const TOPIC0 = "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
 const BOUNTY_HUB_ADDRESS = "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf"
 const ACTUAL_REPO_ROOT = join(import.meta.dir, "../../../..")
 
 describe("cre-simulator EVM-log triggers", () => {
+	it("dispatches project registration logs into the vnet-init workflow adapter", async () => {
+		await withTempDir(async (tempDir) => {
+			const configPath = join(tempDir, "triggers.json")
+			writeFileSync(
+				configPath,
+				`${JSON.stringify(
+					{
+						schemaVersion: CONFIG_SCHEMA_VERSION,
+						stateFilePath: ".trigger-state.json",
+						httpTriggers: {},
+						cronTriggers: {},
+						evmLogTriggers: {
+							"project-registered": {
+								adapter: "cre-workflow-simulate",
+								adapterConfig: {
+									workflowPath: "workflow/vnet-init",
+									target: "staging-settings",
+									triggerIndex: 0,
+									evmInput: "event-coordinates",
+								},
+								wsRpcUrlEnvVar: "CRE_SIM_WS_RPC_URL",
+								contractAddress: BOUNTY_HUB_ADDRESS,
+								topic0: PROJECT_REGISTERED_TOPIC0,
+							},
+						},
+					},
+					null,
+					2,
+				)}\n`,
+				"utf8",
+			)
+
+			let adapterRequest: Record<string, unknown> | null = null
+			const result = await dispatchEvmLogTriggerEvent(
+				{
+					repoRoot: tempDir,
+					configPath,
+					triggerName: "project-registered",
+					event: {
+						address: BOUNTY_HUB_ADDRESS,
+						topic0: PROJECT_REGISTERED_TOPIC0,
+						txHash:
+							"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+						logIndex: 0,
+						blockNumber: 101n,
+					},
+				},
+				{},
+				{
+					nowMs: () => 1000,
+					executeAdapter: async (request) => {
+						adapterRequest = request as unknown as Record<string, unknown>
+						return {
+							adapter: "cre-workflow-simulate",
+							result: { mode: "cre-workflow-simulate", workflowPath: "workflow/vnet-init" },
+						}
+					},
+				},
+			)
+
+			expect(result.deduped).toBe(false)
+			expect(adapterRequest).toMatchObject({
+				adapter: "cre-workflow-simulate",
+				adapterConfig: {
+					workflowPath: "workflow/vnet-init",
+					target: "staging-settings",
+					triggerIndex: 0,
+					evmInput: "event-coordinates",
+				},
+				evmTxHash:
+					"0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				evmEventIndex: 0,
+			})
+		})
+	})
+
 	it("dispatches a matching log event once and ignores duplicates after persistence", async () => {
 		await withTempDir(async (tempDir) => {
 			const configPath = join(tempDir, "triggers.json")

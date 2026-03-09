@@ -1,42 +1,80 @@
 {
-  "schemaVersion": "anti-soon.cre-simulator.trigger-config.v1",
-  "stateFilePath": "backend/cre-simulator/.trigger-state.json",
-  "httpTriggers": {
-    "manual-reveal": {
-      "adapter": "auto-reveal-relayer"
-    },
-    "manual-verify": {
-      "adapter": "cre-workflow-simulate",
-      "adapterConfig": {
-        "workflowPath": "workflow/verify-poc",
-        "target": "staging-settings",
-        "triggerIndex": 0,
-        "evmInput": "event-coordinates",
-        "idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
-      },
-      "evidenceDir": ".sisyphus/evidence/live-verify"
-    }
-  },
-  "cronTriggers": {
-    "reveal-relay": {
-      "intervalMs": 60000,
-      "adapter": "auto-reveal-relayer"
-    }
-  },
-  "evmLogTriggers": {
-    "poc-revealed": {
-      "adapter": "cre-workflow-simulate",
-      "adapterConfig": {
-        "workflowPath": "workflow/verify-poc",
-        "target": "staging-settings",
-        "triggerIndex": 0,
-        "evmInput": "event-coordinates",
-        "idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
-      },
-      "evidenceDir": ".sisyphus/evidence/live-verify",
-      "wsRpcUrlEnvVar": "CRE_SIM_WS_RPC_URL",
-      "contractAddress": "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf",
-      "topic0": "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
-    }
-  }
+	"schemaVersion": "anti-soon.cre-simulator.trigger-config.v1",
+	"stateFilePath": "backend/cre-simulator/.trigger-state.json",
+	"httpTriggers": {
+		"manual-reveal": {
+			"adapter": "auto-reveal-relayer"
+		},
+		"manual-verify": {
+			"adapter": "cre-workflow-simulate",
+			"adapterConfig": {
+				"workflowPath": "workflow/verify-poc",
+				"target": "staging-settings",
+				"triggerIndex": 0,
+				"evmInput": "event-coordinates",
+				"idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
+			},
+			"evidenceDir": ".sisyphus/evidence/live-verify"
+		},
+		"manual-jury": {
+			"adapter": "jury-orchestrator-run-once",
+			"adapterConfig": {
+				"configPath": "workflow/jury-orchestrator/run-once.example.json"
+			},
+			"evidenceDir": ".sisyphus/evidence/live-jury"
+		},
+		"manual-commit-deadline": {
+			"adapter": "demo-adjudication-orchestrator",
+			"adapterConfig": {
+				"configPath": "workflow/jury-orchestrator/run-once.example.json"
+			}
+		},
+		"manual-reveal-deadline": {
+			"adapter": "demo-adjudication-orchestrator",
+			"adapterConfig": {
+				"configPath": "workflow/jury-orchestrator/run-once.example.json"
+			}
+		},
+		"manual-pocstore-opinion": {
+			"adapter": "demo-adjudication-orchestrator",
+			"adapterConfig": {
+				"configPath": "workflow/jury-orchestrator/run-once.example.json"
+			}
+		}
+	},
+	"cronTriggers": {
+		"reveal-relay": {
+			"intervalMs": 60000,
+			"adapter": "auto-reveal-relayer"
+		}
+	},
+	"evmLogTriggers": {
+		"project-registered": {
+			"adapter": "cre-workflow-simulate",
+			"adapterConfig": {
+				"workflowPath": "workflow/vnet-init",
+				"target": "staging-settings",
+				"triggerIndex": 0,
+				"evmInput": "event-coordinates"
+			},
+			"evidenceDir": ".sisyphus/evidence/live-vnet-init",
+			"wsRpcUrlEnvVar": "CRE_SIM_WS_RPC_URL",
+			"contractAddress": "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf",
+			"topic0": "0x13bbb3164af432cb24bde885d40a3049f565bcfb8f24033d57c7953fbbf33606"
+		},
+		"poc-revealed": {
+			"adapter": "cre-workflow-simulate",
+			"adapterConfig": {
+				"workflowPath": "workflow/verify-poc",
+				"target": "staging-settings",
+				"triggerIndex": 0,
+				"evmInput": "event-coordinates",
+				"idempotencyStorePath": "workflow/verify-poc/.verify-poc-idempotency-store.json"
+			},
+			"evidenceDir": ".sisyphus/evidence/live-verify",
+			"wsRpcUrlEnvVar": "CRE_SIM_WS_RPC_URL",
+			"contractAddress": "0x3fbd5ab0f3fd234a40923ae7986f45acb9d4a3cf",
+			"topic0": "0xc3c91f25332a5a28defde601c6ccdf9ba0eeb99c94ef7a6cc5fb5a7e7737643f"
+		}
+	}
 }

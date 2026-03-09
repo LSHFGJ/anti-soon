@@ -85,6 +85,24 @@ export type JuryReportSubmission = {
 	txHash: `0x${string}`;
 };
 
+export type PersistedJurorOpinionRecord = {
+	slotIndex: number;
+	cohort: "LLM" | "HUMAN";
+	jurorId: string;
+	finalValidity: FinalValidity;
+	rationaleDigest: `0x${string}`;
+	testimonyDigest: `0x${string}`;
+	ingestTimestampSec: bigint;
+};
+
+export type JuryRoundContext = {
+	casePackage: AdjudicationCaseEnvelope;
+	llmSlots: AdjudicationCaseEnvelope["payload"]["rosterCommitment"]["slots"];
+	humanSlots: AdjudicationCaseEnvelope["payload"]["rosterCommitment"]["slots"];
+	currentTimestampSec: bigint;
+	lateSafeTimestampSec: bigint;
+};
+
 export type JuryRoundDeps = {
 	invokeLlmJuror?: (args: {
 		jurorId: string;
@@ -408,7 +426,7 @@ async function persistAndReadBackOpinion(args: {
 	jurorId: string;
 	verdict: JurorVerdict;
 	lateSafeTimestampSec: bigint;
-}) {
+}): Promise<PersistedJurorOpinionRecord> {
 	const pointer = deriveOasisOpinionPointer({
 		base: args.basePointer,
 		casePackage: args.casePackage,
@@ -461,7 +479,7 @@ async function persistAndReadBackOpinion(args: {
 	};
 }
 
-async function defaultInvokeLlmJuror(args: {
+export async function defaultInvokeLlmJuror(args: {
 	jurorId: string;
 	verifiedReport: VerifiedReportEnvelopeV3;
 	casePackage: AdjudicationCaseEnvelope;
@@ -515,10 +533,21 @@ async function defaultInvokeLlmJuror(args: {
 	return parseJurorVerdictResponse(content);
 }
 
-export async function executeJuryRound(
+function requireOpinionPersistenceDeps(
+	deps: JuryRoundDeps,
+): Required<Pick<JuryRoundDeps, "oasisWrite" | "oasisRead">> {
+	if (!deps.oasisWrite || !deps.oasisRead) {
+		throw new Error(
+			"executeJuryRound requires oasisWrite and oasisRead dependencies",
+		);
+	}
+
+	return { oasisWrite: deps.oasisWrite, oasisRead: deps.oasisRead };
+}
+
+export function prepareJuryRoundContext(
 	args: ExecuteJuryRoundArgs,
-	deps: JuryRoundDeps = {},
-): Promise<JuryRoundResult> {
+): JuryRoundContext {
 	const casePackage = runJuryRecommendationPipeline({
 		mode: "case-initialization",
 		config: args.workflowConfig,
@@ -533,91 +562,112 @@ export async function executeJuryRound(
 	if (llmSlots.length !== 5 || humanSlots.length !== 5) {
 		throw new Error("jury round expects exactly 5 LLM slots and 5 HUMAN slots");
 	}
-	if (args.humanOpinions.length !== humanSlots.length) {
-		throw new Error(
-			"humanOpinions must match the active human juror slot count",
-		);
-	}
 
-	const nowSec = deps.nowSec?.() ?? 0n;
 	const currentTimestampSec =
 		args.currentTimestampSec === undefined
 			? casePackage.payload.juryDeadlineTimestampSec + 1n
-			: normalizePositiveBigInt(
-					args.currentTimestampSec,
-					"currentTimestampSec",
-				);
+			: normalizePositiveBigInt(args.currentTimestampSec, "currentTimestampSec");
 	const lateSafeTimestampSec =
 		casePackage.payload.juryDeadlineTimestampSec > 1n
 			? casePackage.payload.juryDeadlineTimestampSec - 1n
 			: 1n;
 
-	if (!deps.oasisWrite || !deps.oasisRead) {
-		throw new Error(
-			"executeJuryRound requires oasisWrite and oasisRead dependencies",
-		);
-	}
+	return {
+		casePackage,
+		llmSlots,
+		humanSlots,
+		currentTimestampSec,
+		lateSafeTimestampSec,
+	};
+}
 
-	const persistedLlmOpinions = await Promise.all(
-		llmSlots.map(async (slot) => {
+export async function collectLlmJurorOpinionRecords(
+	args: ExecuteJuryRoundArgs,
+	context: JuryRoundContext,
+	deps: JuryRoundDeps,
+): Promise<PersistedJurorOpinionRecord[]> {
+	const opinionDeps = requireOpinionPersistenceDeps(deps);
+
+	return await Promise.all(
+		context.llmSlots.map(async (slot) => {
 			if (!deps.invokeLlmJuror) {
 				throw new Error("executeJuryRound requires invokeLlmJuror dependency");
 			}
 			const verdict = await deps.invokeLlmJuror({
 				jurorId: slot.jurorId,
 				verifiedReport: args.verifiedReport,
-				casePackage,
+				casePackage: context.casePackage,
 			});
-			return persistAndReadBackOpinion({
-				deps: { oasisWrite: deps.oasisWrite, oasisRead: deps.oasisRead },
+			return await persistAndReadBackOpinion({
+				deps: opinionDeps,
 				basePointer: args.oasisPointer,
-				casePackage,
+				casePackage: context.casePackage,
 				slotIndex: slot.slotIndex,
 				cohort: "LLM",
 				jurorId: slot.jurorId,
 				verdict,
-				lateSafeTimestampSec,
+				lateSafeTimestampSec: context.lateSafeTimestampSec,
 			});
 		}),
 	);
+}
+
+export async function collectHumanJurorOpinionRecords(
+	args: ExecuteJuryRoundArgs,
+	context: JuryRoundContext,
+	humanOpinions: HumanOpinionInput[],
+	deps: JuryRoundDeps,
+): Promise<PersistedJurorOpinionRecord[]> {
+	const opinionDeps = requireOpinionPersistenceDeps(deps);
+	if (humanOpinions.length !== context.humanSlots.length) {
+		throw new Error(
+			"humanOpinions must match the active human juror slot count",
+		);
+	}
 
 	const humanOpinionById = new Map(
-		args.humanOpinions.map((opinion) => [opinion.jurorId, opinion]),
+		humanOpinions.map((opinion) => [opinion.jurorId, opinion]),
 	);
-	const persistedHumanOpinions = await Promise.all(
-		humanSlots.map(async (slot) => {
+	return await Promise.all(
+		context.humanSlots.map(async (slot) => {
 			const opinion = humanOpinionById.get(slot.jurorId);
 			if (!opinion) {
 				throw new Error(`missing human opinion for ${slot.jurorId}`);
 			}
-			return persistAndReadBackOpinion({
-				deps: { oasisWrite: deps.oasisWrite, oasisRead: deps.oasisRead },
+
+			return await persistAndReadBackOpinion({
+				deps: opinionDeps,
 				basePointer: args.oasisPointer,
-				casePackage,
+				casePackage: context.casePackage,
 				slotIndex: slot.slotIndex,
 				cohort: "HUMAN",
 				jurorId: slot.jurorId,
 				verdict: opinion,
-				lateSafeTimestampSec,
+				lateSafeTimestampSec: context.lateSafeTimestampSec,
 			});
 		}),
 	);
+}
 
-	void nowSec;
-
+export async function aggregateCollectedJuryOpinions(
+	args: ExecuteJuryRoundArgs,
+	context: JuryRoundContext,
+	sealedOpinions: PersistedJurorOpinionRecord[],
+	deps: JuryRoundDeps = {},
+): Promise<JuryRoundResult> {
 	const opinionIngest = runJuryRecommendationPipeline({
 		mode: "opinion-ingest",
 		config: args.workflowConfig,
-		casePackage,
-		sealedOpinions: [...persistedLlmOpinions, ...persistedHumanOpinions],
+		casePackage: context.casePackage,
+		sealedOpinions,
 	});
 
 	const aggregation = runJuryRecommendationPipeline({
 		mode: "aggregate-opinions",
 		config: args.workflowConfig,
-		casePackage,
+		casePackage: context.casePackage,
 		opinionIngest,
-		currentTimestampSec,
+		currentTimestampSec: context.currentTimestampSec,
 	}) as JuryConsensusEnvelope | OwnerAdjudicationHandoffEnvelope;
 
 	if (aggregation.reportType === "jury-consensus/v1") {
@@ -625,27 +675,25 @@ export async function executeJuryRound(
 			aggregation.payload.finalValidity === "INVALID"
 				? 0n
 				: normalizePositiveBigInt(
-						args.finalDrainAmountWei ??
-							args.verifiedReport.payload.drainAmountWei,
+						args.finalDrainAmountWei ?? args.verifiedReport.payload.drainAmountWei,
 						"finalDrainAmountWei",
 					);
 		const finalResult = runJuryRecommendationPipeline({
 			mode: "final-package",
 			config: args.workflowConfig,
-			casePackage,
+			casePackage: context.casePackage,
 			finalVerdict: {
 				consensus: aggregation,
 				opinionIngest,
 				drainAmountWei: finalDrainAmountWei,
 			},
 		}) as AdjudicationFinalPackageEnvelope;
-		const encodedContractReport =
-			encodeJuryOrchestratorContractReport(finalResult);
+		const encodedContractReport = encodeJuryOrchestratorContractReport(finalResult);
 		const reportSubmission = deps.submitEncodedReport
 			? await deps.submitEncodedReport(encodedContractReport, finalResult)
 			: undefined;
 		return {
-			casePackage,
+			casePackage: context.casePackage,
 			opinionIngest,
 			aggregation,
 			finalResult,
@@ -655,11 +703,37 @@ export async function executeJuryRound(
 	}
 
 	return {
-		casePackage,
+		casePackage: context.casePackage,
 		opinionIngest,
 		aggregation,
 		finalResult: aggregation,
 	};
+}
+
+export async function executeJuryRound(
+	args: ExecuteJuryRoundArgs,
+	deps: JuryRoundDeps = {},
+): Promise<JuryRoundResult> {
+	void (deps.nowSec?.() ?? 0n);
+	const context = prepareJuryRoundContext(args);
+	const persistedLlmOpinions = await collectLlmJurorOpinionRecords(
+		args,
+		context,
+		deps,
+	);
+	const persistedHumanOpinions = await collectHumanJurorOpinionRecords(
+		args,
+		context,
+		args.humanOpinions,
+		deps,
+	);
+
+	return await aggregateCollectedJuryOpinions(
+		args,
+		context,
+		[...persistedLlmOpinions, ...persistedHumanOpinions],
+		deps,
+	);
 }
 
 function parseArgs(argv: string[]): {

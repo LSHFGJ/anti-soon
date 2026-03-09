@@ -16,8 +16,11 @@ import type {
 	VerifiedReportEnvelopeV3,
 } from "./main";
 import {
+	type JuryRoundContext,
+	collectLlmJurorOpinionRecords,
 	type ExecuteJuryRoundArgs,
 	executeJuryRound,
+	prepareJuryRoundContext,
 	type JuryRoundDeps,
 	parseJurorVerdictResponse,
 	submitJuryReportOnchain,
@@ -299,6 +302,18 @@ describe("jury run-once executor", () => {
 		expect(deps.writes).toHaveLength(10);
 		expect(submitCalls).toHaveLength(1);
 		expect(submitCalls[0]?.encodedReport).toBe(result.encodedContractReport);
+	});
+
+	it("collects llm opinions before any human opinions are available", async () => {
+		const deps = createInMemoryDeps();
+		const args = buildArgs();
+		const context: JuryRoundContext = prepareJuryRoundContext(args);
+
+		const llmOpinions = await collectLlmJurorOpinionRecords(args, context, deps);
+
+		expect(llmOpinions).toHaveLength(5);
+		expect(llmOpinions.every((opinion) => opinion.cohort === "LLM")).toBe(true);
+		expect(deps.writes).toHaveLength(5);
 	});
 
 	it("returns owner handoff when jury support stays below consensus threshold", async () => {
