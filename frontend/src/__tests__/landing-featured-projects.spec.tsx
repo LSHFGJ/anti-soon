@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearPublicClientReadCache } from "../lib/publicClient";
 import { renderWithRouter } from "../test/utils";
 
 const {
@@ -94,6 +95,7 @@ describe("Landing featured projects", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		resetMockClients();
+		clearPublicClientReadCache();
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {

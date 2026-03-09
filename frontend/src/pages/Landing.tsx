@@ -19,7 +19,7 @@ import {
 	staggerContainer,
 } from "../lib/animations";
 import { readProjectsByIds } from "../lib/projectReads";
-import { readWithRpcFallback } from "../lib/publicClient";
+import { readContractWithRpcFallback } from "../lib/publicClient";
 import type { Project } from "../types";
 
 const AnimatedSection = ({
@@ -212,13 +212,11 @@ function useLandingProjects() {
 			setIsLoading(true);
 			setError(null);
 
-			const nextProjectId = (await readWithRpcFallback((client) =>
-				client.readContract({
-					address: BOUNTY_HUB_ADDRESS,
-					abi: BOUNTY_HUB_V2_ABI,
-					functionName: "nextProjectId",
-				}),
-			)) as bigint;
+			const nextProjectId = (await readContractWithRpcFallback({
+				address: BOUNTY_HUB_ADDRESS,
+				abi: BOUNTY_HUB_V2_ABI,
+				functionName: "nextProjectId",
+			})) as bigint;
 
 			if (nextProjectId === 0n) {
 				setProjects([]);
