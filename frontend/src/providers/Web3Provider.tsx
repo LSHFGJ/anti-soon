@@ -2,7 +2,6 @@ import { type AppKitNetwork, sepolia } from "@reown/appkit/networks";
 import { createAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { injected } from "@wagmi/connectors";
 import { WagmiProvider } from "wagmi";
 import { resolveAppUrl, resolveReownProjectId } from "./reownConfig";
 
@@ -22,7 +21,6 @@ const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia];
 const wagmiAdapter = new WagmiAdapter({
 	networks,
 	projectId,
-	connectors: [injected({ target: "metaMask" })],
 	ssr: false,
 });
 

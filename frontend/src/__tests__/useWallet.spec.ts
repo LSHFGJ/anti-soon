@@ -236,7 +236,7 @@ describe("useWallet auto-switch behavior", () => {
 		confirmSpy.mockRestore();
 	});
 
-	it("connects to MetaMask directly when a wagmi MetaMask connector is available", async () => {
+	it("opens the AppKit modal even when a MetaMask connector is available", async () => {
 		metaMaskGetProvider.mockResolvedValue({ isMetaMask: true });
 		mockUseConnect.mockReturnValue({
 			connectAsync,
@@ -251,11 +251,11 @@ describe("useWallet auto-switch behavior", () => {
 			await result.current.connect();
 		});
 
-		expect(connectAsync).toHaveBeenCalledWith({ connector: metaMaskConnector });
-		expect(open).not.toHaveBeenCalled();
+		expect(connectAsync).not.toHaveBeenCalled();
+		expect(open).toHaveBeenCalledTimes(1);
 	});
 
-	it("falls back to the AppKit modal when explicit MetaMask identity exists but no provider is injected", async () => {
+	it("opens the AppKit modal when explicit MetaMask identity exists but no provider is injected", async () => {
 		metaMaskGetProvider.mockResolvedValue(undefined);
 		mockUseConnect.mockReturnValue({
 			connectAsync,

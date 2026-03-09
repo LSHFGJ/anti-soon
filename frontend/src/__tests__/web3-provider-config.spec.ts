@@ -10,8 +10,6 @@ describe("Web3Provider appkit config", () => {
 
 	it("disables auto network-switch prompts for temporary non-sepolia flows", async () => {
 		const createAppKit = vi.fn();
-		const metaMaskConnector = { id: "io.metamask" };
-		const injected = vi.fn(() => metaMaskConnector);
 		const WagmiAdapter = vi.fn(
 			class {
 				wagmiConfig = {};
@@ -27,9 +25,7 @@ describe("Web3Provider appkit config", () => {
 			WagmiProvider: ({ children }: { children: unknown }) => children,
 		}));
 
-		vi.doMock("@wagmi/connectors", () => ({
-			injected,
-		}));
+		vi.doMock("@wagmi/connectors", () => ({}));
 
 		vi.doMock("@reown/appkit/networks", () => ({
 			sepolia: { id: 11155111, name: "Sepolia" },
@@ -45,10 +41,9 @@ describe("Web3Provider appkit config", () => {
 
 		await import("../providers/Web3Provider");
 
-		expect(injected).toHaveBeenCalledWith({ target: "metaMask" });
 		expect(WagmiAdapter).toHaveBeenCalledWith(
 			expect.objectContaining({
-				connectors: [metaMaskConnector],
+				projectId: expect.any(String),
 			}),
 		);
 
@@ -62,8 +57,6 @@ describe("Web3Provider appkit config", () => {
 
 	it("uses runtime-safe Reown metadata and project configuration", async () => {
 		const createAppKit = vi.fn();
-		const metaMaskConnector = { id: "io.metamask" };
-		const injected = vi.fn(() => metaMaskConnector);
 		const WagmiAdapter = vi.fn(
 			class {
 				wagmiConfig = {};
@@ -96,9 +89,7 @@ describe("Web3Provider appkit config", () => {
 				WagmiProvider: ({ children }: { children: unknown }) => children,
 			}));
 
-			vi.doMock("@wagmi/connectors", () => ({
-				injected,
-			}));
+			vi.doMock("@wagmi/connectors", () => ({}));
 
 			vi.doMock("@reown/appkit/networks", () => ({
 				sepolia: { id: 11155111, name: "Sepolia" },
