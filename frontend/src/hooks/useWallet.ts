@@ -1,5 +1,5 @@
 import { sepolia } from "@reown/appkit/networks";
-import { useAppKit } from "@reown/appkit/react";
+import { useAppKit, useAppKitState } from "@reown/appkit/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address, PublicClient, WalletClient } from "viem";
 import {
@@ -36,6 +36,8 @@ const CHAIN_NAME_BY_ID: Record<number, string> = {
 	23294: "Oasis Sapphire",
 	23295: "Oasis Sapphire",
 };
+
+let connectRequestInFlight = false;
 
 function clearPersistedWalletState() {
 	if (typeof window === "undefined") return;
@@ -100,11 +102,12 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 	const { autoSwitchToSepolia = true } = options;
 	const { address, isConnected, chain, chainId: accountChainId } = useAccount();
 	const { open } = useAppKit();
+	const { loading: isAppKitLoading, open: isAppKitOpen } = useAppKitState();
 	const { disconnect } = useDisconnect();
 	const { switchChain, isPending: isSwitching } = useSwitchChain();
 	const { data: walletClient } = useWalletClient();
 	const publicClient = usePublicClient();
-	const [isConnecting, setIsConnecting] = useState(false);
+	const [isConnectingLocally, setIsConnectingLocally] = useState(false);
 	const autoSwitchAttemptedChainRef = useRef<number | null>(null);
 
 	const normalizedAddress = normalizeEthereumAddress(address);
@@ -130,19 +133,25 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 	}, [switchChain]);
 
 	const connect = useCallback(async () => {
+		if (connectRequestInFlight || isAppKitLoading || isAppKitOpen) {
+			return;
+		}
+
 		if (!confirmWalletOperationInterruption("Switching wallet connection")) {
 			return;
 		}
 
 		try {
-			setIsConnecting(true);
-			await open();
+			connectRequestInFlight = true;
+			setIsConnectingLocally(true);
+			await open({ view: "Connect" });
 		} catch (error) {
 			console.error("Failed to connect wallet:", error);
 		} finally {
-			setIsConnecting(false);
+			connectRequestInFlight = false;
+			setIsConnectingLocally(false);
 		}
-	}, [open]);
+	}, [isAppKitLoading, isAppKitOpen, open]);
 
 	const disconnectAndClearState = useCallback(() => {
 		if (!confirmWalletOperationInterruption("Disconnecting wallet")) {
@@ -196,7 +205,7 @@ export function useWallet(options: UseWalletOptions = {}): WalletState {
 		chainId: resolvedChainId,
 		chainName: resolvedChainName,
 		isConnected: isConnected && normalizedAddress !== null,
-		isConnecting,
+		isConnecting: isConnectingLocally || isAppKitLoading || isAppKitOpen,
 		isWrongNetwork,
 		walletClient,
 		publicClient,

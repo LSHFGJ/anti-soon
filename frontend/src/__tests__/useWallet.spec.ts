@@ -11,6 +11,7 @@ const {
 	mockUseWalletClient,
 	mockUsePublicClient,
 	mockUseAppKit,
+	mockUseAppKitState,
 } = vi.hoisted(() => ({
 	mockUseAccount: vi.fn(),
 	mockUseConnect: vi.fn(),
@@ -19,6 +20,7 @@ const {
 	mockUseWalletClient: vi.fn(),
 	mockUsePublicClient: vi.fn(),
 	mockUseAppKit: vi.fn(),
+	mockUseAppKitState: vi.fn(),
 }));
 
 vi.mock("wagmi", () => ({
@@ -32,6 +34,7 @@ vi.mock("wagmi", () => ({
 
 vi.mock("@reown/appkit/react", () => ({
 	useAppKit: mockUseAppKit,
+	useAppKitState: mockUseAppKitState,
 }));
 
 vi.mock("@reown/appkit/networks", () => ({
@@ -81,6 +84,7 @@ describe("useWallet auto-switch behavior", () => {
 		mockUseWalletClient.mockReturnValue({ data: undefined });
 		mockUsePublicClient.mockReturnValue(undefined);
 		mockUseAppKit.mockReturnValue({ open });
+		mockUseAppKitState.mockReturnValue({ loading: false, open: false });
 	});
 
 	it("auto-switches to Sepolia by default on wrong network", async () => {
@@ -291,5 +295,44 @@ describe("useWallet auto-switch behavior", () => {
 
 		expect(connectAsync).not.toHaveBeenCalled();
 		expect(open).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not reopen AppKit while another connect request is still in flight", async () => {
+		let resolveOpen: (() => void) | undefined;
+		open.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					resolveOpen = resolve;
+				}),
+		);
+
+		const first = renderHook(() => useWallet({ autoSwitchToSepolia: false }));
+		const second = renderHook(() => useWallet({ autoSwitchToSepolia: false }));
+
+		await act(async () => {
+			void first.result.current.connect();
+			await Promise.resolve();
+			void second.result.current.connect();
+			await Promise.resolve();
+		});
+
+		expect(open).toHaveBeenCalledTimes(1);
+
+		resolveOpen?.();
+		await act(async () => {
+			await Promise.resolve();
+		});
+	});
+
+	it("does not open AppKit when the modal is already open", async () => {
+		mockUseAppKitState.mockReturnValue({ loading: false, open: true });
+
+		const { result } = renderHook(() => useWallet({ autoSwitchToSepolia: false }));
+
+		await act(async () => {
+			await result.current.connect();
+		});
+
+		expect(open).not.toHaveBeenCalled();
 	});
 });
