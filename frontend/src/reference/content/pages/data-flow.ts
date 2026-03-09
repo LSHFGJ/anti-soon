@@ -17,12 +17,12 @@ export const dataFlowDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The AntiSoon protocol flow moves through encrypted commitment, workflow-owned reveal, strict verification and evidence generation via `verify-poc`, `jury-orchestrator` adjudication or owner fallback for non-strict cases, result write-back, and finally settlement-visible state in `BountyHub`.",
+					text: "The AntiSoon protocol flow begins at project registration. That source event branches into VNet activation and registration-time bootstrap and scheduling, then converges into encrypted commitment, workflow-owned reveal, strict verification and evidence generation via `verify-poc`, `jury-orchestrator` adjudication or owner fallback for non-strict cases, result write-back, and finally settlement-visible state in `BountyHub`.",
 				},
 				{
 					type: "mermaid",
 					diagram:
-						"flowchart TD\nA[Project registration] --> B[VNet initialization]\nB --> C[Encrypted commit path]\nC --> D[Workflow reveal orchestration]\nD --> E[Strict verification]\nE --> F{Strict pass}\nF -->|yes| G[Final validity]\nF -->|no| H[Confidential jury]\nH --> I{Consensus}\nI -->|yes| G\nI -->|no| J[Owner adjudication]\nJ --> G\nG --> K{MULTI and H/M}\nK -->|yes| L[Similarity grouping]\nK -->|no| M[Result packaging]\nL --> M\nM --> N[Report write-back]\nN --> O[Settlement-visible state]",
+						"flowchart TD\nA[Project registration] --> B[VNet initialization]\nA --> C[Registration-time bootstrap and scheduling]\nB --> D[Encrypted commit path]\nC --> D\nD --> E[Workflow reveal orchestration]\nE --> F[Strict verification]\nF --> G{Strict pass}\nG -->|yes| H[Final validity]\nG -->|no| I[Confidential jury]\nI --> J{Consensus}\nJ -->|yes| H\nJ -->|no| K[Owner adjudication]\nK --> H\nH --> L{MULTI and H/M}\nL -->|yes| M[Similarity grouping]\nL -->|no| N[Result packaging]\nM --> N\nN --> O[Report write-back]\nO --> P[Settlement-visible state]",
 					caption:
 						"The protocol pipeline is staged, branch-aware, and workflow-assisted rather than a single transaction-driven lifecycle.",
 				},
@@ -39,7 +39,7 @@ export const dataFlowDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The frontend prepares the encrypted commit path, but the reveal and verification phases are orchestrated by protocol workflows. UNIQUE projects trigger reveal individually, while MULTI projects use batch reveal after the commit deadline.",
+					text: "The frontend prepares the encrypted commit path, but the reveal and verification phases are orchestrated by protocol workflows. Project registration is the source event: UNIQUE projects later trigger reveal individually, while MULTI projects depend on registration-time scheduler bootstrap and batch reveal after the commit deadline.",
 				},
 				{
 					type: "table",
@@ -53,7 +53,7 @@ export const dataFlowDocsPage = {
 						],
 						[
 							"MULTI",
-							"Commit-window cron registered at project bootstrap",
+							"Commit-window scheduler bootstrap at registration time",
 							"The system waits through the commit-only period, then scans committed submissions and auto-reveals them in batch once the commit deadline is reached.",
 							"The protocol can preserve submitter advantage during the commit window while still coordinating later batch visibility.",
 						],
@@ -68,7 +68,7 @@ export const dataFlowDocsPage = {
 						},
 						{
 							title: "Mode logic takes over",
-							body: "UNIQUE and MULTI projects diverge. UNIQUE uses submission-triggered workflow logic, while MULTI relies on commit-window scheduling that starts at registration time.",
+							body: "UNIQUE and MULTI projects diverge after the registration-time bootstrap. UNIQUE uses submission-triggered workflow logic, while MULTI relies on Commit-window scheduler bootstrap that starts at registration time.",
 						},
 						{
 							title: "Contract reveal rules still guard truth",

@@ -16,7 +16,7 @@ export const operationsDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "Operations are organized around a runtime topology. Registration-time bootstrap, commit-window scheduling, reveal orchestration via `verify-poc`, strict verification, `jury-orchestrator` consensus, and settlement-facing write-back to `BountyHub` move in sequence.",
+					text: "Operations are organized around a runtime topology where project registration is the source event. That registration fans out into the `vnet-init` path and registration-time scheduler bootstrap, then the protocol advances through reveal orchestration via `verify-poc`, strict verification, `jury-orchestrator` consensus, and settlement-facing write-back to `BountyHub`.",
 				},
 				{
 					type: "table",
@@ -24,7 +24,7 @@ export const operationsDocsPage = {
 					rows: [
 						["BountyHub", "Emit lifecycle events and persist accepted reports", "Authorized workflow provenance"],
 						["`vnet-init` path", "Activate projects by provisioning or reusing Tenderly state", "Registration events and Tenderly environment health"],
-						["Commit-window scheduler", "Track mode-specific timing after project bootstrap", "Stored project timing rules"],
+						["Commit-window scheduler", "Track mode-specific timing after registration-time scheduler bootstrap", "Stored project timing rules"],
 						["`verify-poc` path", "Replay revealed submissions and compute strict metrics", "Sapphire payload access plus Tenderly execution"],
 						["`jury-orchestrator` path", "Aggregate hidden jury opinions and final package inputs", "Confidential storage and deadline-aware orchestration"],
 					],
@@ -42,7 +42,7 @@ export const operationsDocsPage = {
 					items: [
 						{
 							title: "Bootstrap confirmation",
-							body: "After registration, confirm that the project moved through the pending VNet phase and received a valid activation write-back before treating it as ready for researchers.",
+							body: "After registration, confirm that project registration is the source event for both downstream bootstrap branches: the project moved through the pending VNet phase and received a valid activation write-back, and the registration-time scheduler bootstrap captured the timing needed for later commit-window automation.",
 						},
 						{
 							title: "Commit identity confirmation",

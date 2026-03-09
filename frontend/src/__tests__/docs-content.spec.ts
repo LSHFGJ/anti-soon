@@ -245,6 +245,26 @@ describe("docs content schema", () => {
 		expect(securityText).toContain("selection provenance");
 	});
 
+	it("describes project registration as the source event for both vnet-init and registration-time scheduling", async () => {
+		const { docsSourceManifest } = await import("../reference/content");
+		const architecture = docsSourceManifest.find((page) => page.slug === "architecture");
+		const dataFlow = docsSourceManifest.find((page) => page.slug === "data-flow");
+		const operations = docsSourceManifest.find((page) => page.slug === "operations");
+
+		const architectureText = JSON.stringify(architecture);
+		const dataFlowText = JSON.stringify(dataFlow);
+		const operationsText = JSON.stringify(operations);
+
+		expect(architectureText).toContain("project registration fans out into");
+		expect(architectureText).toContain("vnet-init");
+		expect(architectureText).toContain("registration-time bootstrap for mode-specific scheduling");
+		expect(dataFlowText).toContain("Project registration");
+		expect(dataFlowText).toContain("Registration-time bootstrap and scheduling");
+		expect(dataFlowText).toContain("Commit-window scheduler bootstrap");
+		expect(operationsText).toContain("project registration is the source event");
+		expect(operationsText).toContain("registration-time scheduler bootstrap");
+	});
+
 	it("publishes a minimal addresses page with real on-chain contract addresses and one repo link", async () => {
 		const { docsSourceManifest } = await import("../reference/content");
 		const lastPage = docsSourceManifest.at(-1);

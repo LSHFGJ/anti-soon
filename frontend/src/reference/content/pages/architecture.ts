@@ -40,14 +40,14 @@ export const architectureDocsPage = {
 			blocks: [
 				{
 					type: "paragraph",
-					text: "The AntiSoon state machine follows a fixed order: project registration, encrypted commitment, workflow-driven reveal, strict verification and evidence generation by `verify-poc`, confidential adjudication by `jury-orchestrator` for non-strict cases, and owner adjudication if consensus fails. Accepted final results are written back to BountyHub for settlement.",
+					text: "The AntiSoon state machine starts with project registration as the source event. From there, project registration fans out into `vnet-init` activation work and registration-time bootstrap for mode-specific scheduling before the protocol continues into encrypted commitment, workflow-driven reveal, strict verification and evidence generation by `verify-poc`, confidential adjudication by `jury-orchestrator` for non-strict cases, and owner adjudication if consensus fails. Accepted final results are written back to BountyHub for settlement.",
 				},
 				{
 					type: "steps",
 					items: [
 						{
 							title: "Project bootstrap",
-							body: "The owner registers a project, BountyHub stores deadlines and mode, the project enters a pending VNet state, and the `vnet-init` workflow provisions or reuses a Tenderly VNet before reporting activation back on-chain.",
+							body: "The owner registers a project, BountyHub stores deadlines and mode, and that registration event fans out into two bootstrap branches: the `vnet-init` workflow provisions or reuses a Tenderly VNet before reporting activation back on-chain, while registration-time scheduler bootstrap records the mode-specific timing needed for later commit-window automation.",
 						},
 						{
 							title: "Frontend commit path",

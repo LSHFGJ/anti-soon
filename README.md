@@ -112,10 +112,11 @@ The backend package exposes a thin HTTP surface plus worker entrypoints over the
 
 - `GET /health` for service liveness.
 - `GET /api/cre-simulator/status` for live runtime and trigger-config status.
-- `POST /api/cre-simulator/adapters/:adapter` for direct adapter execution such as `auto-reveal-relayer` or `cre-workflow-simulate`.
+- `POST /api/cre-simulator/adapters/:adapter` for direct adapter execution such as `auto-reveal-relayer`, `cre-workflow-simulate`, or `jury-orchestrator-run-once`.
 - `GET /api/cre-simulator/triggers/status` for trigger-worker health, scheduler/listener cursors, and configured trigger mappings.
-- `POST /api/cre-simulator/triggers/:triggerName` for manual trigger dispatch such as `manual-reveal` or `manual-verify`, using the adapter bindings declared in `backend/cre-simulator/triggers.json`.
+- `POST /api/cre-simulator/triggers/:triggerName` for manual trigger dispatch such as `manual-reveal`, `manual-verify`, or `manual-jury`, using the adapter bindings declared in `backend/cre-simulator/triggers.json`.
 - The checked-in `cre-workflow-simulate` binding for `verify-poc` requires `evmTxHash` and `evmEventIndex`, while the EVM-log worker fills those fields automatically from `PoCRevealed` events.
+- The checked-in `jury-orchestrator-run-once` binding for demo adjudication accepts inline `inputPayload` JSON with `verifiedReport`, `humanOpinions`, and optional `juryRoundId`, then runs the LLM + human jury round through `workflow/jury-orchestrator/run-once.ts`.
 
 The package now also includes separate worker-style entrypoints for the other CRE trigger shapes:
 
@@ -140,6 +141,8 @@ The backend deploy contract now follows one canonical env template, defined in `
 - `CRE_SIM_SAPPHIRE_RPC_URL`
 - `CRE_SIM_BOUNTY_HUB_ADDRESS`
 - `CRE_SIM_OASIS_STORAGE_CONTRACT`
+- `CRE_SIM_LLM_API_KEY`
+- `OASIS_API_URL`
 
 At runtime the backend derives the internal workflow env it needs from that canonical backend env surface; old simulator fallback env names are no longer part of the supported deploy contract.
 
