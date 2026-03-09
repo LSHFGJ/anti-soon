@@ -359,6 +359,39 @@ describe("ReviewStep feedback reliability", () => {
 		expect(onConnect).toHaveBeenCalledTimes(1);
 	});
 
+	it("uses a switch-network action instead of submit when the wallet is on the wrong network", () => {
+		const onSwitchNetwork = vi.fn();
+		const submitPoC = vi.fn();
+		mockUsePoCSubmission.mockReturnValue({
+			...baseSubmission,
+			submitPoC,
+			state: { phase: "idle" },
+		});
+
+		render(
+			React.createElement(
+				MemoryRouter,
+				undefined,
+				React.createElement(
+					ReviewStep,
+					Object.assign({}, baseProps, {
+						isConnected: true,
+						isWrongNetwork: true,
+						onSwitchNetwork,
+					}),
+				),
+			),
+		);
+
+		const switchButton = screen.getByRole("button", {
+			name: "[ SWITCH_TO_SEPOLIA ]",
+		});
+		fireEvent.click(switchButton);
+
+		expect(onSwitchNetwork).toHaveBeenCalledTimes(1);
+		expect(submitPoC).not.toHaveBeenCalled();
+	});
+
 	it("renders primary action on the same row as previous in review footer", () => {
 		renderReviewStep({ isConnected: true, projectId: 1n });
 

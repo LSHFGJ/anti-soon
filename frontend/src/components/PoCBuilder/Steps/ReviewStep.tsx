@@ -9,13 +9,15 @@ import { StepGuidance } from "../../StepGuidance";
 import { STEP_GUIDES } from "../../StepGuidance/guides";
 
 	interface ReviewStepProps {
-	pocJson: string;
-	isConnected: boolean;
-	isActive?: boolean;
-	onConnect: () => void;
-	onBack: () => void;
-	onLoadExample?: () => void;
-	onRetryProjectContext?: () => void;
+		pocJson: string;
+		isConnected: boolean;
+		isWrongNetwork?: boolean;
+		isActive?: boolean;
+		onConnect: () => void;
+		onSwitchNetwork?: () => void;
+		onBack: () => void;
+		onLoadExample?: () => void;
+		onRetryProjectContext?: () => void;
 	projectId: bigint | null;
 	useV2?: boolean;
 	showBackButton?: boolean;
@@ -25,8 +27,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 	({
 		pocJson,
 		isConnected,
+		isWrongNetwork = false,
 		isActive = true,
 		onConnect,
+		onSwitchNetwork,
 		onBack,
 		onLoadExample,
 		onRetryProjectContext,
@@ -286,10 +290,21 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 			});
 		};
 
+		const showWrongNetworkToast = () => {
+			toastWarning({
+				title: "SEPOLIA_REQUIRED",
+				description: "Switch to Sepolia to continue the commit flow.",
+				duration: 4500,
+			});
+		};
+
 		const renderFooterPrimaryAction = () => {
 			const { state, submitPoC, reset } = submission;
 			const missingProjectContext = projectId === null;
-			const canCommit = isConnected && !missingProjectContext;
+			const canCommit = isConnected && !isWrongNetwork && !missingProjectContext;
+			const primaryActionLabel = isWrongNetwork
+				? "[ SWITCH_TO_SEPOLIA ]"
+				: "[ COMMIT ]";
 			
 			const handleActionClick = () => {
 				if (canCommit) {
@@ -306,6 +321,12 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 					return;
 				}
 
+				if (isWrongNetwork) {
+					onSwitchNetwork?.();
+					showWrongNetworkToast();
+					return;
+				}
+				
 				showProjectContextToast();
 			};
 
@@ -316,7 +337,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = React.memo(
 						onClick={handleActionClick}
 						className="font-mono btn-cyber justify-self-end"
 					>
-						[ COMMIT ]
+						{primaryActionLabel}
 					</Button>
 				);
 			}

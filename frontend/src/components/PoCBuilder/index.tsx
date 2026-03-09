@@ -1,22 +1,20 @@
-import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import type { Variants } from 'motion/react'
+import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
 import { usePoCBuilder } from '../../hooks/usePoCBuilder'
-
 import { useToast } from '../../hooks/use-toast'
 import { useWallet } from '../../hooks/useWallet'
-import { H01_POC_TEMPLATE, DUMMYVAULT_POC_TEMPLATES } from '../../config'
-import type { PoCData } from '../../types/poc'
-import type { Project } from '../../types'
-import { Button } from '../ui/button'
-import { NeonPanel } from '../shared/ui-primitives'
 import { cn } from '../../lib/utils'
-
-import { TargetStep } from './Steps/TargetStep'
+import type { Project } from '../../types'
+import type { PoCData } from '../../types/poc'
 import { ConditionsStep } from './Steps/ConditionsStep'
-import { TransactionsStep } from './Steps/TransactionsStep'
 import { ImpactStep } from './Steps/ImpactStep'
 import { ReviewStep } from './Steps/ReviewStep'
+import { TargetStep } from './Steps/TargetStep'
+import { TransactionsStep } from './Steps/TransactionsStep'
+import { NeonPanel } from '../shared/ui-primitives'
+import { Button } from '../ui/button'
 
 type DemoProject = (typeof import('../../config').DEMO_PROJECTS)[number]
 
@@ -218,7 +216,7 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
 
 
 
-  const { isConnected, connect } = useWallet({ autoSwitchToSepolia: false })
+	const { isConnected, isWrongNetwork, connect, switchToCorrectNetwork } = useWallet({ autoSwitchToSepolia: false })
 
   const pocJson = useMemo(() => generatePoCJSON(), [generatePoCJSON])
 
@@ -349,14 +347,16 @@ export const PoCBuilder: React.FC<PoCBuilderProps> = ({
           </StepSurface>
 
           <StepSurface step={5} activeStep={activeStep}>
-            <ReviewStep
-              pocJson={pocJson}
-              isConnected={isConnected}
-              isActive={activeStep === 5}
-              onConnect={connect}
-              onBack={handleBack}
-              onLoadExample={handleLoadExample}
-              onRetryProjectContext={handleRetryProjectContext}
+			<ReviewStep
+				pocJson={pocJson}
+				isConnected={isConnected}
+				isWrongNetwork={isWrongNetwork}
+				isActive={activeStep === 5}
+				onConnect={connect}
+				onSwitchNetwork={() => void switchToCorrectNetwork()}
+				onBack={handleBack}
+				onLoadExample={handleLoadExample}
+				onRetryProjectContext={handleRetryProjectContext}
               projectId={submissionProjectId}
               useV2={true}
               showBackButton={true}
